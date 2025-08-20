@@ -51,6 +51,7 @@ export interface TableColumn {
   label: string
   sortable?: boolean
   filterable?: boolean
+  filterType?: 'text' | 'select' | 'multi-select' | 'date'
   width?: string
   align?: 'left' | 'center' | 'right'
   render?: (value: any, row: any) => React.ReactNode
@@ -152,6 +153,11 @@ export interface DataTableProps<T extends BaseEntity> {
   searchQuery?: string
   showImages?: boolean
   isFullScreen?: boolean
+  // Column filter controls (optional)
+  columnFilters?: Record<string, any>
+  activeColumnFilter?: string | null
+  onFilterClick?: (column: string) => void
+  onColumnFilterChange?: (column: string, value: any) => void
 }
 
 export interface SearchControlsProps {
@@ -205,6 +211,7 @@ export interface KPIGridProps {
   data: any[]
   onRefresh?: (kpiKey: string) => void
   onConfigure?: (kpiKey: string, config: any) => void
+  compact?: boolean
 }
 
 // Utility Types

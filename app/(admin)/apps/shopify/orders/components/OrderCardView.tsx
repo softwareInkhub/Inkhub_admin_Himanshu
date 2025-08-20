@@ -10,8 +10,8 @@ interface OrderCardViewProps {
   selectedItems: string[]
   onSelectItem: (id: string) => void
   viewMode: 'table' | 'grid' | 'card'
-  cardsPerRow: number
-  onCardsPerRowChange: (count: number) => void
+  cardsPerRow?: number
+  onCardsPerRowChange?: (count: number) => void
   loading?: boolean
   error?: string | null
   searchQuery?: string
@@ -24,13 +24,14 @@ export default function OrderCardView({
   selectedItems,
   onSelectItem,
   viewMode,
-  cardsPerRow,
+  cardsPerRow = 4,
   onCardsPerRowChange,
   loading = false,
   error = null,
   searchQuery = '',
   isFullScreen = false
 }: OrderCardViewProps) {
+  // Note: This component now displays as a List View instead of Card Grid View
   const [hoveredCard, setHoveredCard] = useState<string | null>(null)
 
   if (loading) {
@@ -57,31 +58,24 @@ export default function OrderCardView({
     )
   }
 
-  const gridCols = {
-    1: 'grid-cols-1',
-    2: 'grid-cols-1 md:grid-cols-2',
-    3: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3',
-    4: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
-    5: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5',
-    6: 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6'
-  }
+
 
   return (
-    <div className={`${isFullScreen ? 'fixed inset-0 z-50 overflow-auto' : ''}`}>
-      <div className={`grid ${gridCols[cardsPerRow as keyof typeof gridCols]} gap-4`}>
+    <div>
+      <div className="space-y-2">
         {data.map((order) => (
           <div
             key={order.id}
-            className={`bg-white border rounded-lg p-4 cursor-pointer transition-all duration-200 ${
-              hoveredCard === order.id ? 'shadow-lg border-blue-300' : 'border-gray-200 hover:border-gray-300'
+            className={`bg-white border rounded-lg p-3 cursor-pointer transition-all duration-200 ${
+              hoveredCard === order.id ? 'shadow-md border-blue-300' : 'border-gray-200 hover:border-gray-300'
             }`}
             onMouseEnter={() => setHoveredCard(order.id)}
             onMouseLeave={() => setHoveredCard(null)}
             onClick={() => onSelectItem(order.id)}
           >
-            {/* Card Header */}
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center space-x-2">
+            {/* List Item Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
                 <input
                   type="checkbox"
                   checked={selectedItems.includes(order.id)}
@@ -89,7 +83,7 @@ export default function OrderCardView({
                   onClick={(e: React.MouseEvent) => e.stopPropagation()}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center space-x-2">
                   <span className="text-sm font-medium text-gray-900">#{order.orderNumber}</span>
                   {order.hasWarning && (
                     <div className="w-3 h-3 bg-yellow-500 rounded-full flex items-center justify-center">
@@ -103,61 +97,60 @@ export default function OrderCardView({
                   )}
                 </div>
               </div>
+              <span className="text-sm font-medium text-green-600">₹{(order.total || 0).toFixed(2)}</span>
             </div>
 
-            {/* Card Content */}
-            <div className="space-y-2">
+            {/* List Item Content */}
+            <div className="flex items-center space-x-6 mt-2">
               {/* Customer Info */}
-              <div>
-                <div className="text-sm font-medium text-gray-900">{order.customerName}</div>
-                <div className="text-xs text-gray-500">{order.customerEmail}</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-gray-900 truncate">{order.customerName}</div>
+                <div className="text-xs text-gray-500 truncate">{order.customerEmail}</div>
               </div>
 
               {/* Status */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <span className="text-xs text-gray-500">Status:</span>
-                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    order.fulfillmentStatus === 'fulfilled' ? 'bg-green-100 text-green-800' :
-                    order.fulfillmentStatus === 'unfulfilled' ? 'bg-red-100 text-red-800' :
-                    'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {order.fulfillmentStatus}
-                  </span>
-                </div>
-                <span className="text-sm font-medium text-green-600">₹{(order.total || 0).toFixed(2)}</span>
+              <div className="flex-shrink-0">
+                <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                  order.fulfillmentStatus === 'fulfilled' ? 'bg-green-100 text-green-800' :
+                  order.fulfillmentStatus === 'unfulfilled' ? 'bg-red-100 text-red-800' :
+                  'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {order.fulfillmentStatus}
+                </span>
               </div>
 
               {/* Items */}
-              <div className="text-xs text-gray-500">
+              <div className="flex-shrink-0 text-xs text-gray-500">
                 {order.items?.length || 0} item{(order.items?.length || 0) !== 1 ? 's' : ''}
               </div>
 
               {/* Date */}
-              <div className="text-xs text-gray-500">
+              <div className="flex-shrink-0 text-xs text-gray-500">
                 {order.createdAt ? format(new Date(order.createdAt), 'MMM dd, yyyy') : 'No date'}
               </div>
 
               {/* Tags */}
-              {order.tags && order.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {order.tags.slice(0, 2).map((tag, index) => (
-                    <span key={index} className="px-1 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
-                      {tag}
-                    </span>
-                  ))}
-                  {order.tags.length > 2 && (
-                    <span className="px-1 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">
-                      +{order.tags.length - 2}
-                    </span>
-                  )}
-                </div>
-              )}
+              <div className="flex-shrink-0">
+                {order.tags && order.tags.length > 0 && (
+                  <div className="flex gap-1">
+                    {order.tags.slice(0, 2).map((tag, index) => (
+                      <span key={index} className="px-1 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
+                        {tag}
+                      </span>
+                    ))}
+                    {order.tags.length > 2 && (
+                      <span className="px-1 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">
+                        +{order.tags.length - 2}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* Channel & Delivery */}
-              <div className="text-xs text-gray-500">
-                <div>{order.channel}</div>
-                <div>{order.deliveryMethod}</div>
+              <div className="flex-shrink-0 text-xs text-gray-500">
+                <div className="truncate max-w-32">{order.channel}</div>
+                <div className="truncate max-w-32">{order.deliveryMethod}</div>
               </div>
             </div>
           </div>

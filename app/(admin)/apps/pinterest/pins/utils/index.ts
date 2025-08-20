@@ -78,7 +78,7 @@ export const generatePins = (count: number): Pin[] => {
       description: `This is a ${boards[boardIndex].toLowerCase()} pin with amazing ${boards[boardIndex].toLowerCase()} content.`,
       board: boards[boardIndex],
       owner: owners[ownerIndex],
-      image: getOptimizedImageUrl(`https://picsum.photos/40/40?random=${i}`, 40, 40, 70), // Thumbnail for table
+      image: `https://picsum.photos/seed/pin${seed}/400/300`,
       createdAt: new Date(baseDate - (seed * 24 * 60 * 60 * 1000)).toISOString(),
       updatedAt: new Date(baseDate - (seed * 7 * 24 * 60 * 60 * 1000)).toISOString(),
       tags: pinTags,

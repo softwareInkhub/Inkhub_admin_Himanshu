@@ -11,7 +11,12 @@ interface OrderTableProps {
   selectedItems: string[]
   onSelectItem: (id: string) => void
   onSelectAll: () => void
-  columns: any[]
+  columns: Array<{
+    key: string
+    label: string
+    sortable?: boolean
+    render?: (order: Order, index?: number) => React.ReactNode
+  }>
   loading?: boolean
   error?: string | null
   searchQuery?: string
@@ -125,6 +130,8 @@ export default function OrderTable({
   // Get filter configuration for each column
   const getFilterConfig = (columnKey: string) => {
     switch (columnKey) {
+      case 'serialNumber':
+        return { filterType: 'numeric' as const }
       case 'orderNumber':
         return { filterType: 'text' as const }
       case 'customerName':
@@ -198,7 +205,7 @@ export default function OrderTable({
   }
 
   return (
-    <div className={`bg-white rounded-lg border ${isFullScreen ? 'fixed inset-0 z-50 overflow-auto' : ''}`}>
+    <div className={`bg-white rounded-lg border`}>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="bg-gray-50 border-b">
@@ -273,7 +280,7 @@ export default function OrderTable({
                 </td>
                 {columns.map((column) => (
                   <td key={column.key} className="px-2 py-1.5 text-sm text-gray-900 border-r border-gray-200">
-                    {column.render ? column.render(order) : String(order[column.key as keyof Order] || '')}
+                    {column.render ? column.render(order, index) : String(order[column.key as keyof Order] || '')}
                   </td>
                 ))}
               </tr>

@@ -68,7 +68,7 @@ export const generateBoards = (count: number): Board[] => {
       privacy: privacies[privacyIndex],
       pinCount,
       followers,
-      image: getOptimizedImageUrl(`https://picsum.photos/40/40?random=${i}`, 40, 40, 70), // Thumbnail for table
+      image: `https://picsum.photos/seed/board${seed}/400/300`,
       createdAt: new Date(baseDate - (seed * 24 * 60 * 60 * 1000)).toISOString(),
       updatedAt: new Date(baseDate - (seed * 7 * 24 * 60 * 60 * 1000)).toISOString(),
       tags: boardTags,

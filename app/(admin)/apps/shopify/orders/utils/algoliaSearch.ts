@@ -118,7 +118,7 @@ export const searchOrdersWithAlgolia = async (
   if (!query.trim()) return []
   
   try {
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://52.5.157.232:5001'
+    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
     
     const requestBody: AlgoliaSearchRequest = {
       project: "myProject",

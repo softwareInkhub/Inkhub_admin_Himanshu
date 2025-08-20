@@ -96,8 +96,8 @@ export function GridItem({ children, className, onClick, selected }: GridItemPro
   return (
     <div
       className={cn(
-        'card p-4 hover-lift transition-all duration-200 cursor-pointer',
-        selected && 'ring-2 ring-primary-500 bg-primary-50 dark:bg-primary-900/20',
+        'border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer',
+        selected && 'ring-2 ring-blue-500 bg-blue-50',
         className
       )}
       onClick={onClick}

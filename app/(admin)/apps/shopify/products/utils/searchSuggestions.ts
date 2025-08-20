@@ -28,38 +28,38 @@ export const getSearchSuggestions = (
   const suggestions: SearchSuggestion[] = []
   const queryLower = query.toLowerCase()
 
-  // 1. Product title suggestions
+  // 1. Product title suggestions - with null safety
   const productSuggestions = products
     .filter(product => 
-      product.title.toLowerCase().includes(queryLower) ||
-      product.title.toLowerCase().startsWith(queryLower)
+      (product.title && product.title.toLowerCase().includes(queryLower)) ||
+      (product.title && product.title.toLowerCase().startsWith(queryLower))
     )
     .slice(0, 3)
     .map(product => ({
       id: `product-${product.id}`,
-      text: product.title,
+      text: product.title || 'Unknown Product',
       type: 'product' as const,
       icon: '📦'
     }))
 
   suggestions.push(...productSuggestions)
 
-  // 2. Vendor suggestions
-  const vendorSuggestions = Array.from(new Set(products.map(p => p.vendor)))
-    .filter(vendor => vendor.toLowerCase().includes(queryLower))
+  // 2. Vendor suggestions - with null safety
+  const vendorSuggestions = Array.from(new Set(products.map(p => p.vendor).filter(Boolean)))
+    .filter(vendor => vendor && vendor.toLowerCase().includes(queryLower))
     .slice(0, 2)
     .map(vendor => ({
       id: `vendor-${vendor}`,
-      text: vendor,
+      text: vendor || 'Unknown Vendor',
       type: 'vendor' as const,
       icon: '🏢'
     }))
 
   suggestions.push(...vendorSuggestions)
 
-  // 3. Category suggestions
+  // 3. Category suggestions - with null safety
   const categorySuggestions = Array.from(new Set(products.map(p => p.category).filter(Boolean)))
-    .filter((category): category is string => category !== undefined && category.toLowerCase().includes(queryLower))
+    .filter((category): category is string => category !== undefined && category !== null && category.toLowerCase().includes(queryLower))
     .slice(0, 2)
     .map(category => ({
       id: `category-${category}`,
@@ -70,14 +70,14 @@ export const getSearchSuggestions = (
 
   suggestions.push(...categorySuggestions)
 
-  // 4. Tag suggestions
-  const allTags = products.flatMap(p => p.tags || [])
+  // 4. Tag suggestions - with null safety
+  const allTags = products.flatMap(p => p.tags || []).filter(Boolean)
   const tagSuggestions = Array.from(new Set(allTags))
-    .filter(tag => tag.toLowerCase().includes(queryLower))
+    .filter(tag => tag && tag.toLowerCase().includes(queryLower))
     .slice(0, 2)
     .map(tag => ({
       id: `tag-${tag}`,
-      text: tag,
+      text: tag || 'Unknown Tag',
       type: 'tag' as const,
       icon: '🏷️'
     }))
@@ -86,7 +86,7 @@ export const getSearchSuggestions = (
 
   // 5. Search history suggestions
   const historySuggestions = searchHistory
-    .filter(history => history.query.toLowerCase().includes(queryLower))
+    .filter(history => history.query && history.query.toLowerCase().includes(queryLower))
     .slice(0, 2)
     .map(history => ({
       id: `history-${history.query}`,

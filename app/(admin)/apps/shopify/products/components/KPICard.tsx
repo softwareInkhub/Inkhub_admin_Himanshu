@@ -124,7 +124,7 @@ export default function KPICard({
 
   return (
     <div className={cn(
-      "bg-white border border-gray-200 rounded-lg p-2 hover:shadow-md transition-all duration-200 group",
+      "bg-white border border-gray-200 rounded-lg p-1.5 hover:shadow-md transition-all duration-200 group",
       "relative overflow-visible"
     )}>
       {/* Background Gradient */}
@@ -134,7 +134,7 @@ export default function KPICard({
       )} />
       
       <div className="relative z-10">
-        <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center justify-between mb-0.5">
           <div className="flex items-center space-x-2 flex-1 min-w-0">
             <span className="text-base flex-shrink-0">{localConfig.customIcon || icon}</span>
             <span className="text-xs font-medium text-gray-600 truncate">{localConfig.customLabel || label}</span>

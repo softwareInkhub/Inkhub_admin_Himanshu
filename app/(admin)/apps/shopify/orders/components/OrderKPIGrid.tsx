@@ -253,9 +253,9 @@ export default function OrderKPIGrid({ kpiMetrics, orders, onRefresh, onConfigur
   }
 
   return (
-    <div className="px-3 py-0.5 bg-white shadow-sm">
-      {/* Header with Add Card and Manage Cards buttons */}
-      <div className="flex items-center justify-between mb-3">
+          <div className="bg-white shadow-sm">
+        {/* Header with Add Card and Manage Cards buttons */}
+        <div className="flex items-center justify-between mb-2 px-6 py-2">
         <div className="flex items-center space-x-2">
           <h3 className="text-sm font-medium text-gray-700">Analytics Overview</h3>
           <span className="text-xs text-gray-500">
@@ -280,7 +280,7 @@ export default function OrderKPIGrid({ kpiMetrics, orders, onRefresh, onConfigur
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-1">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 px-6 pb-3">
         {/* Default KPI Cards */}
         {kpiData
           .filter(({ key }) => defaultCardVisibility[key] && kpiConfigs[key]?.isVisible !== false)

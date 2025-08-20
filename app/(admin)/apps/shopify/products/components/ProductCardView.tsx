@@ -154,23 +154,7 @@ export default function ProductCardView({
               )} />
             </div>
 
-            {/* Quick info below image (visible on hover) */}
-            <div className={cn(
-              "mt-2 transition-opacity duration-200",
-              hoveredProduct === product.id ? "opacity-100" : "opacity-0"
-            )}>
-              <h4 className="text-xs font-medium text-gray-900 truncate">
-                {searchQuery && product._highlightResult?.title?.value ? (
-                  <HighlightedText 
-                    text={product._highlightResult.title.value}
-                    className="text-gray-900"
-                  />
-                ) : (
-                  product.title
-                )}
-              </h4>
-              <p className="text-xs text-gray-500">₹{product.price}</p>
-            </div>
+
           </div>
         ))}
       </div>

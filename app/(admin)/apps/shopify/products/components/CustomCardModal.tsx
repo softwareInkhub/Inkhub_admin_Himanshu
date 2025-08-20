@@ -5,6 +5,7 @@ import { X, Plus, Calculator, Palette, Type, Hash } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Product } from '../types'
 import { calculateCustomValue, formatCardValue } from '../utils/customCardCalculations'
+import CalculatorInterface from './CalculatorInterface'
 
 interface CustomCard {
   id: string
@@ -40,12 +41,27 @@ const OPERATIONS = [
 ]
 
 const FIELDS = [
+  // Product-centric fields
   { value: 'price', label: 'Price', type: 'number' },
   { value: 'total', label: 'Total', type: 'number' },
   { value: 'inventoryQuantity', label: 'Inventory', type: 'number' },
   { value: 'cost', label: 'Cost', type: 'number' },
   { value: 'compareAtPrice', label: 'Compare Price', type: 'number' },
-  { value: 'salesChannels', label: 'Sales Channels', type: 'number' }
+  { value: 'salesChannels', label: 'Sales Channels', type: 'number' },
+  // Order-specific fields
+  { value: 'totalPrice', label: 'Total Price', type: 'number' },
+  { value: 'items', label: 'Items Count', type: 'number' },
+  // Design Library fields
+  { value: 'views', label: 'Views', type: 'number' },
+  { value: 'downloads', label: 'Downloads', type: 'number' },
+  // Pinterest Pins fields
+  { value: 'likes', label: 'Likes', type: 'number' },
+  { value: 'comments', label: 'Comments', type: 'number' },
+  { value: 'repins', label: 'Repins', type: 'number' },
+  { value: 'saves', label: 'Saves', type: 'number' },
+  // Pinterest Boards fields
+  { value: 'pinCount', label: 'Pin Count', type: 'number' },
+  { value: 'followers', label: 'Followers', type: 'number' }
 ]
 
 const COLORS = [
@@ -134,7 +150,14 @@ export default function CustomCardModal({
     if (card.field && card.operation && card.selectedProducts && card.selectedProducts.length > 0) {
       const selectedProductData = products.filter(p => card.selectedProducts!.includes(p.id))
       const values = selectedProductData.map(p => {
-        const fieldValue = p[card.field as keyof Product]
+        const fieldValue = p[card.field as keyof any]
+        // Handle different field types for products vs orders
+        if (card.field === 'items' && Array.isArray(fieldValue)) {
+          return fieldValue.length
+        }
+        if (card.field === 'totalPrice' && typeof fieldValue === 'string') {
+          return parseFloat(fieldValue) || 0
+        }
         return typeof fieldValue === 'number' ? fieldValue : 0
       }).filter(v => v > 0)
 
@@ -249,49 +272,70 @@ export default function CustomCardModal({
             </div>
           </div>
 
-          {/* Operation Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <Calculator className="h-4 w-4 inline mr-2" />
-              Calculation Operation
-            </label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {OPERATIONS.map(op => (
-                <button
-                  key={op.value}
-                  onClick={() => setCard(prev => ({ ...prev, operation: op.value }))}
-                  className={cn(
-                    "p-3 border rounded-lg text-left transition-all duration-200",
-                    card.operation === op.value
-                      ? "border-blue-500 bg-blue-50 text-blue-700"
-                      : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                  )}
-                >
-                  <div className="font-medium text-sm">{op.label}</div>
-                  <div className="text-xs text-gray-500 mt-1">{op.description}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Custom Formula Input */}
-          {card.operation === 'custom' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Custom Formula
-              </label>
-              <input
-                type="text"
-                value={customFormula}
-                onChange={(e) => setCustomFormula(e.target.value)}
-                placeholder="e.g., sum * 1.1 or sum / count"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Available variables: sum, count, min, max, average
-              </p>
-            </div>
-          )}
+          {/* Enhanced Calculator Interface */}
+          <CalculatorInterface
+            operation={card.operation || 'sum'}
+            onOperationChange={(operation) => setCard(prev => ({ ...prev, operation }))}
+            customFormula={customFormula}
+            onCustomFormulaChange={setCustomFormula}
+            previewValue={previewValue}
+            availableVariables={{
+              sum: products.filter(p => card.selectedProducts?.includes(p.id))
+                .map(p => {
+                  const fieldValue = p[card.field as keyof any]
+                  // Handle different field types for products vs orders
+                  if (card.field === 'items' && Array.isArray(fieldValue)) {
+                    return fieldValue.length
+                  }
+                  if (card.field === 'totalPrice' && typeof fieldValue === 'string') {
+                    return parseFloat(fieldValue) || 0
+                  }
+                  return typeof fieldValue === 'number' ? fieldValue : 0
+                })
+                .filter(v => v > 0)
+                .reduce((acc, val) => acc + val, 0),
+              count: card.selectedProducts?.length || 0,
+              min: products.filter(p => card.selectedProducts?.includes(p.id))
+                .map(p => {
+                  const fieldValue = p[card.field as keyof any]
+                  if (card.field === 'items' && Array.isArray(fieldValue)) {
+                    return fieldValue.length
+                  }
+                  if (card.field === 'totalPrice' && typeof fieldValue === 'string') {
+                    return parseFloat(fieldValue) || 0
+                  }
+                  return typeof fieldValue === 'number' ? fieldValue : 0
+                })
+                .filter(v => v > 0)
+                .reduce((min, val) => Math.min(min, val), Infinity) || 0,
+              max: products.filter(p => card.selectedProducts?.includes(p.id))
+                .map(p => {
+                  const fieldValue = p[card.field as keyof any]
+                  if (card.field === 'items' && Array.isArray(fieldValue)) {
+                    return fieldValue.length
+                  }
+                  if (card.field === 'totalPrice' && typeof fieldValue === 'string') {
+                    return parseFloat(fieldValue) || 0
+                  }
+                  return typeof fieldValue === 'number' ? fieldValue : 0
+                })
+                .filter(v => v > 0)
+                .reduce((max, val) => Math.max(max, val), 0),
+              average: products.filter(p => card.selectedProducts?.includes(p.id))
+                .map(p => {
+                  const fieldValue = p[card.field as keyof any]
+                  if (card.field === 'items' && Array.isArray(fieldValue)) {
+                    return fieldValue.length
+                  }
+                  if (card.field === 'totalPrice' && typeof fieldValue === 'string') {
+                    return parseFloat(fieldValue) || 0
+                  }
+                  return typeof fieldValue === 'number' ? fieldValue : 0
+                })
+                .filter(v => v > 0)
+                .reduce((acc, val) => acc + val, 0) / Math.max(1, card.selectedProducts?.length || 0)
+            }}
+          />
 
           {/* Product Selection */}
           <div>

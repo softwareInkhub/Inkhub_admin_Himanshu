@@ -14,7 +14,6 @@ import {
 } from 'lucide-react'
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
-import { NotificationDemo } from '@/components/NotificationDemo'
 
 interface StatCard {
   title: string
@@ -227,10 +226,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Notification Demo */}
-      <div className="card">
-        <NotificationDemo />
-      </div>
     </div>
   )
 } 

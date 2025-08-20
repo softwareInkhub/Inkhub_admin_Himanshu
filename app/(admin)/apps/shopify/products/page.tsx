@@ -281,7 +281,6 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
   // Generate fallback products when backend is unavailable
   const generateFallbackProducts = (count: number): Product[] => {
-    console.log('🔄 Generating fallback products:', count)
     const products: Product[] = []
     
     for (let i = 0; i < count; i++) {
@@ -320,7 +319,6 @@ function ProductsClient({ initialData }: ProductsClientProps) {
       products.push(product)
     }
     
-    console.log('✅ Generated fallback products:', products.length)
     return products
   }
 
@@ -328,8 +326,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
   useEffect(() => {
     if (isDataLoaded || hasFetchedRef.current) return
     hasFetchedRef.current = true
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://52.5.157.232:5001'
-
+    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
 
     const toSlug = (text: string): string =>
       (text || '')
@@ -393,151 +390,131 @@ function ProductsClient({ initialData }: ProductsClientProps) {
       }
     }
 
-      const fetchProducts = async () => {
-        setLoading(true)
-        setError(null)
-      
-      console.log('🔄 Starting fetchProducts...')
-      console.log('📍 BACKEND_URL:', BACKEND_URL)
-      console.log('📍 Environment check - NEXT_PUBLIC_BACKEND_URL:', process.env.NEXT_PUBLIC_BACKEND_URL)
-      
-      // Test if backend is reachable
-      try {
-        const testUrl = `${BACKEND_URL}/health`
-        console.log('🏥 Testing backend connectivity at:', testUrl)
-        const testRes = await fetch(testUrl, { method: 'HEAD' })
-        console.log('🏥 Backend health check status:', testRes.status)
-      } catch (testError) {
-        console.warn('⚠️ Backend health check failed:', testError)
-      }
+    const fetchProducts = async () => {
+      setLoading(true)
+      setError(null)
       
       try {
-        // Step 1: Fetch all chunk keys
-        const keysUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products`
-        console.log('🔑 Fetching chunk keys from:', keysUrl)
+        // Simplified: Try to fetch all products in one request first
+        const allProductsUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=all`
         
-        const keysRes = await fetch(keysUrl)
-        console.log('📡 Keys response status:', keysRes.status)
-        console.log('📡 Keys response ok:', keysRes.ok)
+        try {
+          const allProductsRes = await fetch(allProductsUrl, { 
+            signal: AbortSignal.timeout(1500) // faster timeout to reduce perceived load time
+          })
+          
+          if (allProductsRes.ok) {
+            const allProductsJson = await allProductsRes.json()
+            if (allProductsJson?.data && Array.isArray(allProductsJson.data)) {
+              const mappedProducts = allProductsJson.data.map(mapRecordToProduct)
+              setProductData(mappedProducts)
+              setTotalProducts(mappedProducts.length)
+              setChunkData({ 'all': mappedProducts })
+              setChunkKeys(['all'])
+              setIsDataLoaded(true)
+              setLoading(false)
+              return
+            }
+          }
+        } catch (allProductsError) {
+          // Fall back to chunk-based approach
+        }
+
+        // Fallback: Chunk-based approach
+        const keysUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products`
+        const keysRes = await fetch(keysUrl, { 
+          signal: AbortSignal.timeout(1500) // faster timeout for keys
+        })
         
         if (!keysRes.ok) {
-          console.error('❌ Keys fetch failed:', keysRes.status, keysRes.statusText)
           throw new Error(`Cache API error (${keysRes.status}): ${keysRes.statusText}`)
         }
         
         const keysJson = await keysRes.json()
-        console.log('📋 Keys response data:', keysJson)
-
         if (!keysJson?.keys || !Array.isArray(keysJson.keys)) {
-          console.error('❌ No valid keys found in response:', keysJson)
           throw new Error('No chunk keys found')
         }
 
-        console.log('✅ Found chunk keys:', keysJson.keys)
+        // Fetch chunks in parallel for better performance
+        const chunkPromises = keysJson.keys.map(async (key: string) => {
+          const chunkNumber = key.split(':').pop()
+          const chunkUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=chunk:${chunkNumber}`
+          
+          try {
+            const chunkRes = await fetch(chunkUrl, { 
+              signal: AbortSignal.timeout(1200) // faster timeout per chunk
+            })
+            
+            if (chunkRes.ok) {
+              const chunkJson = await chunkRes.json()
+              if (chunkJson?.data && Array.isArray(chunkJson.data)) {
+                return { key, data: chunkJson.data.map(mapRecordToProduct) }
+              }
+            }
+          } catch (chunkError) {
+            // Continue with other chunks
+          }
+          return null
+        })
 
-        // Step 2: Fetch each chunk's data
+        const chunkResults = await Promise.all(chunkPromises)
+        const validChunks = chunkResults.filter(Boolean)
+        
+        if (validChunks.length === 0) {
+          throw new Error('No valid product data found')
+        }
+
         const chunkDataMap: { [key: string]: Product[] } = {}
         let totalItems = 0
         
-        for (const key of keysJson.keys) {
-          // Extract just the chunk number from the full key
-          const chunkNumber = key.split(':').pop() // Gets 'chunk:0' from 'my-app:shopify-inkhub-get-products:chunk:0'
-          const chunkUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=chunk:${chunkNumber}`
-          console.log(`🔗 Fetching chunk data for key: ${key}`)
-          console.log(`🔗 Extracted chunk number: ${chunkNumber}`)
-          console.log(`🔗 Chunk URL: ${chunkUrl}`)
-          
-          const chunkRes = await fetch(chunkUrl)
-          console.log(`📡 Chunk ${key} response status:`, chunkRes.status)
-          console.log(`📡 Chunk ${key} response ok:`, chunkRes.ok)
-          
-          if (chunkRes.ok) {
-            const chunkJson = await chunkRes.json()
-            console.log(`📋 Chunk ${key} response data:`, chunkJson)
-            
-            if (chunkJson?.data && Array.isArray(chunkJson.data)) {
-              console.log(`✅ Chunk ${key} has ${chunkJson.data.length} items`)
-              const mappedChunk: Product[] = chunkJson.data.map(mapRecordToProduct)
-              chunkDataMap[key] = mappedChunk
-              totalItems += mappedChunk.length
-              console.log(`✅ Mapped ${mappedChunk.length} products from chunk ${key}`)
-            } else {
-              console.warn(`⚠️ Chunk ${key} has no valid data array:`, chunkJson)
-            }
-          } else {
-            console.error(`❌ Chunk ${key} fetch failed:`, chunkRes.status, chunkRes.statusText)
+        validChunks.forEach(chunk => {
+          if (chunk) {
+            chunkDataMap[chunk.key] = chunk.data
+            totalItems += chunk.data.length
           }
-        }
+        })
 
-        console.log('📊 Total items across all chunks:', totalItems)
-        console.log('🗂️ Chunk data map:', chunkDataMap)
-
-        if (totalItems === 0) {
-          console.error('❌ No product data found in any chunks')
-          throw new Error('No product data found in chunks')
-        }
-
-        // Store chunks and keys
+        const allProducts = Object.values(chunkDataMap).flat()
+        
         setChunkData(chunkDataMap)
         setChunkKeys(keysJson.keys)
         setTotalProducts(totalItems)
+        setProductData(allProducts)
         
-        // For now, combine all chunks for filtering/searching
-        const allProducts = Object.values(chunkDataMap).flat()
-          setProductData(allProducts)
-        
-        console.log('✅ Successfully loaded products:', allProducts.length)
-        console.log('✅ Chunk keys stored:', keysJson.keys)
-        console.log('✅ Total products set:', totalItems)
-              } catch (e: any) {
-          console.error('💥 Error in fetchProducts:', e)
-          console.error('💥 Error name:', e?.name)
-          console.error('💥 Error message:', e?.message)
-          console.error('💥 Error stack:', e?.stack)
-          
-          if (e?.name === 'AbortError') {
-            console.log('🛑 Request was aborted')
-            return
-          }
-          
-          // Check if it's a connection error
-          if (e?.message?.includes('Failed to fetch') || e?.message?.includes('ERR_CONNECTION_REFUSED')) {
-            console.warn('⚠️ Backend connection failed, using fallback data')
-            console.log('🔄 Loading fallback product data...')
-            
-            // Generate fallback data
-            const fallbackProducts = generateFallbackProducts(50)
-            setProductData(fallbackProducts)
-            setTotalProducts(fallbackProducts.length)
-            setChunkData({ 'fallback': fallbackProducts })
-            setChunkKeys(['fallback'])
-            setError('Backend unavailable - showing sample data')
-          } else {
-          setError(e?.message || 'Failed to load products')
-          }
-        } finally {
-          console.log('🏁 fetchProducts completed')
-          setIsDataLoaded(true)
-          setLoading(false)
+      } catch (e: any) {
+        if (e?.name === 'AbortError') {
+          return
         }
+        
+        // Use fallback data for any error
+        const fallbackProducts = generateFallbackProducts(50)
+        setProductData(fallbackProducts)
+        setTotalProducts(fallbackProducts.length)
+        setChunkData({ 'fallback': fallbackProducts })
+        setChunkKeys(['fallback'])
+        setError('Using sample data - backend unavailable')
+      } finally {
+        setIsDataLoaded(true)
+        setLoading(false)
       }
+    }
 
-      fetchProducts()
-      return () => {}
-    }, [isDataLoaded])
+    fetchProducts()
+    return () => {}
+  }, [isDataLoaded])
 
-    // Tab management
-    useEffect(() => {
-      addTab({
-        title: 'Products',
-        path: '/apps/shopify/products',
-        pinned: false,
-        closable: true,
-      })
-    }, [addTab])
+  // Tab management
+  useEffect(() => {
+    addTab({
+      title: 'Products',
+      path: '/apps/shopify/products',
+      pinned: false,
+      closable: true,
+    })
+  }, [addTab])
 
-    // Calculate KPI metrics
-    const kpiMetrics = useMemo(() => calculateKPIMetrics(productData), [productData])
+  // Calculate KPI metrics
+  const kpiMetrics = useMemo(() => calculateKPIMetrics(productData), [productData])
 
   // Get all products for filtering (combine all chunks)
   const allProducts = useMemo(() => {
@@ -547,7 +524,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     return productData
   }, [chunkKeys, chunkData, productData])
 
-    // Filter products based on all criteria - optimized to prevent unnecessary re-renders
+    // Filter products based on all criteria - optimized for performance
     const filteredProducts = useMemo(() => {
       // Use Algolia search results if available, otherwise use local filtering
       let filtered = useAlgoliaSearch && algoliaSearchResults.length > 0 
@@ -1293,13 +1270,13 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         {/* Enhanced Advanced Filter Panel */}
         {showAdvancedFilter && (
           <div className="px-4 pb-1">
-            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4">
+            <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-3">
               {/* Enhanced Header */}
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center space-x-3">
                   <div className="w-3 h-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full animate-pulse"></div>
                   <div className="flex items-center space-x-2">
-                    <h3 className="text-lg font-semibold text-gray-900">Advanced Filters</h3>
+                    <h3 className="text-base font-semibold text-gray-900">Advanced Filters</h3>
                     <span className="text-xs text-gray-500 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-3 py-1 rounded-full font-medium">
                       {[
                         advancedFilters.productStatus.length,
@@ -1312,6 +1289,150 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                       ].reduce((a, b) => a + b, 0)} active
                     </span>
                   </div>
+                  {/* Active Filters Inline Display */}
+                  {(advancedFilters.productStatus.length > 0 || 
+                    advancedFilters.tags.length > 0 || 
+                    advancedFilters.vendors.length > 0 ||
+                    advancedFilters.priceRange.min || 
+                    advancedFilters.priceRange.max ||
+                    advancedFilters.dateRange.start || 
+                    advancedFilters.dateRange.end) && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {advancedFilters.productStatus.map(status => (
+                        <span key={status} className="inline-flex items-center space-x-1 px-2 py-0.5 bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800 text-xs rounded-full border border-blue-300 shadow-sm hover:shadow-md transition-all duration-200">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          <span className="capitalize font-medium">{status}</span>
+                          <button
+                            onClick={() => setAdvancedFilters(prev => ({
+                              ...prev,
+                              productStatus: prev.productStatus.filter(s => s !== status)
+                            }))}
+                            className="ml-0.5 hover:bg-blue-300 rounded-full p-0.5 transition-colors"
+                          >
+                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </span>
+                      ))}
+                      {advancedFilters.tags.map(tag => (
+                        <span key={tag} className="inline-flex items-center space-x-1 px-2 py-0.5 bg-gradient-to-r from-orange-100 to-orange-200 text-orange-800 text-xs rounded-full border border-orange-300 shadow-sm hover:shadow-md transition-all duration-200">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          <span className="font-medium">{tag}</span>
+                          <button
+                            onClick={() => setAdvancedFilters(prev => ({
+                              ...prev,
+                              tags: prev.tags.filter(t => t !== tag)
+                            }))}
+                            className="ml-0.5 hover:bg-orange-300 rounded-full p-0.5 transition-colors"
+                          >
+                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </span>
+                      ))}
+                      {advancedFilters.vendors.map(vendor => (
+                        <span key={vendor} className="inline-flex items-center space-x-1 px-2 py-0.5 bg-gradient-to-r from-indigo-100 to-indigo-200 text-indigo-800 text-xs rounded-full border border-indigo-300 shadow-sm hover:shadow-md transition-all duration-200">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          <span className="font-medium">{vendor}</span>
+                          <button
+                            onClick={() => setAdvancedFilters(prev => ({
+                              ...prev,
+                              vendors: prev.vendors.filter(v => v !== vendor)
+                            }))}
+                            className="ml-0.5 hover:bg-indigo-300 rounded-full p-0.5 transition-colors"
+                          >
+                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </span>
+                      ))}
+                      {advancedFilters.priceRange.min && (
+                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-gradient-to-r from-green-100 to-green-200 text-green-800 text-xs rounded-full border border-green-300 shadow-sm hover:shadow-md transition-all duration-200">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          <span className="font-medium">Min: ₹{advancedFilters.priceRange.min}</span>
+                          <button
+                            onClick={() => setAdvancedFilters(prev => ({
+                              ...prev,
+                              priceRange: { ...prev.priceRange, min: '' }
+                            }))}
+                            className="ml-0.5 hover:bg-green-300 rounded-full p-0.5 transition-colors"
+                          >
+                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </span>
+                      )}
+                      {advancedFilters.priceRange.max && (
+                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-gradient-to-r from-green-100 to-green-200 text-green-800 text-xs rounded-full border border-green-300 shadow-sm hover:shadow-md transition-all duration-200">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          <span className="font-medium">Max: ₹{advancedFilters.priceRange.max}</span>
+                          <button
+                            onClick={() => setAdvancedFilters(prev => ({
+                              ...prev,
+                              priceRange: { ...prev.priceRange, max: '' }
+                            }))}
+                            className="ml-0.5 hover:bg-green-300 rounded-full p-0.5 transition-colors"
+                          >
+                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </span>
+                      )}
+                      {advancedFilters.dateRange.start && (
+                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-800 text-xs rounded-full border border-purple-300 shadow-sm hover:shadow-md transition-all duration-200">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          <span className="font-medium">From: {advancedFilters.dateRange.start}</span>
+                          <button
+                            onClick={() => setAdvancedFilters(prev => ({
+                              ...prev,
+                              dateRange: { ...prev.dateRange, start: '' }
+                            }))}
+                            className="ml-0.5 hover:bg-purple-300 rounded-full p-0.5 transition-colors"
+                          >
+                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </span>
+                      )}
+                      {advancedFilters.dateRange.end && (
+                        <span className="inline-flex items-center space-x-1 px-2 py-0.5 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-800 text-xs rounded-full border border-purple-300 shadow-sm hover:shadow-md transition-all duration-200">
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          <span className="font-medium">To: {advancedFilters.dateRange.end}</span>
+                          <button
+                            onClick={() => setAdvancedFilters(prev => ({
+                              ...prev,
+                              dateRange: { ...prev.dateRange, end: '' }
+                            }))}
+                            className="ml-0.5 hover:bg-purple-300 rounded-full p-0.5 transition-colors"
+                          >
+                            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
@@ -1322,18 +1443,18 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                       tags: [],
                       vendors: []
                     })}
-                    className="text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 px-3 py-2 rounded-md transition-all duration-200 flex items-center space-x-2 border border-gray-200 hover:border-gray-300"
+                    className="text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 px-2 py-1 rounded-md transition-all duration-200 flex items-center space-x-1.5 border border-gray-200 hover:border-gray-300"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
                     <span>Clear all</span>
                   </button>
                   <button
                     onClick={() => setShowAdvancedFilter(false)}
-                    className="text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 px-3 py-2 rounded-md transition-all duration-200 flex items-center space-x-2 border border-gray-200 hover:border-gray-300"
+                    className="text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 px-2 py-1 rounded-md transition-all duration-200 flex items-center space-x-1.5 border border-gray-200 hover:border-gray-300"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                     <span>Close</span>
@@ -1342,20 +1463,20 @@ function ProductsClient({ initialData }: ProductsClientProps) {
               </div>
               
               {/* Enhanced Filter Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
                 {/* Product Status */}
-                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-3 space-y-2">
-                  <label className="block text-sm font-semibold text-gray-800 flex items-center space-x-2">
-                    <div className="w-6 h-6 bg-blue-500 rounded-lg flex items-center justify-center">
-                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-1.5 space-y-1">
+                  <label className="block text-xs font-semibold text-gray-800 flex items-center space-x-2">
+                    <div className="w-5 h-5 bg-blue-500 rounded-lg flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     </div>
                     <span>Product Status</span>
                   </label>
-                  <div className="space-y-1.5">
+                  <div className="space-y-0.5">
                     {['active', 'draft', 'archived'].map(status => (
-                      <label key={status} className="flex items-center space-x-2 cursor-pointer group p-1.5 rounded-md hover:bg-white/50 transition-colors">
+                      <label key={status} className="flex items-center space-x-2 cursor-pointer group p-0.5 rounded-md hover:bg-white/50 transition-colors">
                         <input
                           type="checkbox"
                           checked={advancedFilters.productStatus.includes(status)}
@@ -1374,23 +1495,23 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                           }}
                           className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
                         />
-                        <span className="text-sm text-gray-700 group-hover:text-gray-900 capitalize font-medium">{status}</span>
+                        <span className="text-xs text-gray-700 group-hover:text-gray-900 capitalize font-medium">{status}</span>
                       </label>
                     ))}
                   </div>
                 </div>
 
                 {/* Price Range */}
-                <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-lg p-3 space-y-2">
-                  <label className="block text-sm font-semibold text-gray-800 flex items-center space-x-2">
-                    <div className="w-6 h-6 bg-green-500 rounded-lg flex items-center justify-center">
-                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-lg p-1.5 space-y-1">
+                  <label className="block text-xs font-semibold text-gray-800 flex items-center space-x-2">
+                    <div className="w-5 h-5 bg-green-500 rounded-lg flex items-center justify-center">
+                      <svg className="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
                       </svg>
                     </div>
                     <span>Price Range</span>
                   </label>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <div className="relative">
                       <input
                         type="number"
@@ -1400,7 +1521,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                           ...prev, 
                           priceRange: { ...prev.priceRange, min: e.target.value } 
                         }))}
-                        className="w-full text-sm border border-green-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent pl-8 bg-white/70 hover:bg-white transition-colors"
+                        className="w-full text-xs border border-green-200 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-transparent pl-8 bg-white/70 hover:bg-white transition-colors"
                       />
                       <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-green-600 text-sm font-medium">₹</span>
                     </div>
@@ -1413,7 +1534,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                           ...prev, 
                           priceRange: { ...prev.priceRange, max: e.target.value } 
                         }))}
-                        className="w-full text-sm border border-green-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-transparent pl-8 bg-white/70 hover:bg-white transition-colors"
+                        className="w-full text-xs border border-green-200 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-green-500 focus:border-transparent pl-8 bg-white/70 hover:bg-white transition-colors"
                       />
                       <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-green-600 text-sm font-medium">₹</span>
                     </div>
@@ -1421,16 +1542,16 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 </div>
 
                 {/* Date Range */}
-                <div className="bg-gradient-to-br from-purple-50 to-violet-50 border border-purple-200 rounded-lg p-3 space-y-2">
-                  <label className="block text-sm font-semibold text-gray-800 flex items-center space-x-2">
-                    <div className="w-6 h-6 bg-purple-500 rounded-lg flex items-center justify-center">
-                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="bg-gradient-to-br from-purple-50 to-violet-50 border border-purple-200 rounded-lg p-1.5 space-y-1">
+                  <label className="block text-xs font-semibold text-gray-800 flex items-center space-x-2">
+                    <div className="w-5 h-5 bg-purple-500 rounded-lg flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
                     </div>
                     <span>Date Range</span>
                   </label>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <div className="relative">
                       <input
                         type="date"
@@ -1439,7 +1560,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                           ...prev, 
                           dateRange: { ...prev.dateRange, start: e.target.value } 
                         }))}
-                        className="w-full text-sm border border-purple-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white/70 hover:bg-white transition-colors"
+                        className="w-full text-xs border border-purple-200 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white/70 hover:bg-white transition-colors"
                       />
                       <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-600">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1455,7 +1576,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                           ...prev, 
                           dateRange: { ...prev.dateRange, end: e.target.value } 
                         }))}
-                        className="w-full text-sm border border-purple-200 rounded-md px-3 py-2 focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white/70 hover:bg-white transition-colors"
+                        className="w-full text-xs border border-purple-200 rounded-md px-2 py-1.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white/70 hover:bg-white transition-colors"
                       />
                       <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-600">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1467,16 +1588,16 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 </div>
 
                 {/* Tags */}
-                <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 rounded-lg p-3 space-y-2">
-                  <label className="block text-sm font-semibold text-gray-800 flex items-center space-x-2">
-                    <div className="w-6 h-6 bg-orange-500 rounded-lg flex items-center justify-center">
-                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 rounded-lg p-1.5 space-y-1">
+                  <label className="block text-xs font-semibold text-gray-800 flex items-center space-x-2">
+                    <div className="w-5 h-5 bg-orange-500 rounded-lg flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                       </svg>
                     </div>
                     <span>Tags</span>
                   </label>
-                  <div className="max-h-24 overflow-y-auto border border-orange-200 rounded-md p-2 space-y-1 bg-white/50">
+                  <div className="h-28 overflow-y-auto border border-orange-200 rounded-md p-1.5 space-y-0.5 bg-white/50">
                     {getUniqueTagsFromProducts().map(tag => (
                       <label key={tag} className="flex items-center space-x-2 cursor-pointer group p-1 rounded-md hover:bg-orange-100/50 transition-colors">
                         <input
@@ -1504,16 +1625,16 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 </div>
 
                 {/* Vendors */}
-                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 rounded-lg p-3 space-y-2">
-                  <label className="block text-sm font-semibold text-gray-800 flex items-center space-x-2">
-                    <div className="w-6 h-6 bg-indigo-500 rounded-lg flex items-center justify-center">
-                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 rounded-lg p-1.5 space-y-1">
+                  <label className="block text-xs font-semibold text-gray-800 flex items-center space-x-2">
+                    <div className="w-5 h-5 bg-indigo-500 rounded-lg flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                       </svg>
                     </div>
                     <span>Vendors</span>
                   </label>
-                  <div className="max-h-24 overflow-y-auto border border-indigo-200 rounded-md p-2 space-y-1 bg-white/50">
+                  <div className="h-28 overflow-y-auto border border-indigo-200 rounded-md p-1.5 space-y-0.5 bg-white/50">
                     {getUniqueValuesForField('vendor').map(vendor => (
                       <label key={vendor} className="flex items-center space-x-2 cursor-pointer group p-1 rounded-md hover:bg-indigo-100/50 transition-colors">
                         <input
@@ -1541,184 +1662,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 </div>
               </div>
 
-              {/* Enhanced Active Filters Display */}
-              {(advancedFilters.productStatus.length > 0 || 
-                advancedFilters.tags.length > 0 || 
-                advancedFilters.vendors.length > 0 ||
-                advancedFilters.priceRange.min || 
-                advancedFilters.priceRange.max ||
-                advancedFilters.dateRange.start || 
-                advancedFilters.dateRange.end) && (
-                <div className="mt-4 pt-3 border-t border-gray-200 bg-gradient-to-r from-gray-50 to-white rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center space-x-2">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      <h4 className="text-sm font-semibold text-gray-800">Active Filters</h4>
-                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                        {[
-                          advancedFilters.productStatus.length,
-                          advancedFilters.tags.length,
-                          advancedFilters.vendors.length,
-                          advancedFilters.priceRange.min ? 1 : 0,
-                          advancedFilters.priceRange.max ? 1 : 0,
-                          advancedFilters.dateRange.start ? 1 : 0,
-                          advancedFilters.dateRange.end ? 1 : 0
-                        ].reduce((a, b) => a + b, 0)} applied
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setAdvancedFilters({
-                        productStatus: [],
-                        priceRange: { min: '', max: '' },
-                        dateRange: { start: '', end: '' },
-                        tags: [],
-                        vendors: []
-                      })}
-                      className="text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 px-3 py-1.5 rounded-md transition-all duration-200 flex items-center space-x-2 border border-gray-200 hover:border-gray-300"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                      <span>Clear all</span>
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {advancedFilters.productStatus.map(status => (
-                      <span key={status} className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800 text-sm rounded-full border border-blue-300 shadow-sm hover:shadow-md transition-all duration-200">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                        <span className="capitalize font-medium">{status}</span>
-                        <button
-                          onClick={() => setAdvancedFilters(prev => ({
-                            ...prev,
-                            productStatus: prev.productStatus.filter(s => s !== status)
-                          }))}
-                          className="ml-1 hover:bg-blue-300 rounded-full p-0.5 transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </span>
-                    ))}
-                    {advancedFilters.tags.map(tag => (
-                      <span key={tag} className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-orange-100 to-orange-200 text-orange-800 text-sm rounded-full border border-orange-300 shadow-sm hover:shadow-md transition-all duration-200">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                        <span className="font-medium">{tag}</span>
-                        <button
-                          onClick={() => setAdvancedFilters(prev => ({
-                            ...prev,
-                            tags: prev.tags.filter(t => t !== tag)
-                          }))}
-                          className="ml-1 hover:bg-orange-300 rounded-full p-0.5 transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </span>
-                    ))}
-                    {advancedFilters.vendors.map(vendor => (
-                      <span key={vendor} className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-indigo-100 to-indigo-200 text-indigo-800 text-sm rounded-full border border-indigo-300 shadow-sm hover:shadow-md transition-all duration-200">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                        <span className="font-medium">{vendor}</span>
-                        <button
-                          onClick={() => setAdvancedFilters(prev => ({
-                            ...prev,
-                            vendors: prev.vendors.filter(v => v !== vendor)
-                          }))}
-                          className="ml-1 hover:bg-indigo-300 rounded-full p-0.5 transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </span>
-                    ))}
-                    {advancedFilters.priceRange.min && (
-                      <span className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-green-100 to-green-200 text-green-800 text-sm rounded-full border border-green-300 shadow-sm hover:shadow-md transition-all duration-200">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                        <span className="font-medium">Min: ₹{advancedFilters.priceRange.min}</span>
-                        <button
-                          onClick={() => setAdvancedFilters(prev => ({
-                            ...prev,
-                            priceRange: { ...prev.priceRange, min: '' }
-                          }))}
-                          className="ml-1 hover:bg-green-300 rounded-full p-0.5 transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </span>
-                    )}
-                    {advancedFilters.priceRange.max && (
-                      <span className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-green-100 to-green-200 text-green-800 text-sm rounded-full border border-green-300 shadow-sm hover:shadow-md transition-all duration-200">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                        <span className="font-medium">Max: ₹{advancedFilters.priceRange.max}</span>
-                        <button
-                          onClick={() => setAdvancedFilters(prev => ({
-                            ...prev,
-                            priceRange: { ...prev.priceRange, max: '' }
-                          }))}
-                          className="ml-1 hover:bg-green-300 rounded-full p-0.5 transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </span>
-                    )}
-                    {advancedFilters.dateRange.start && (
-                      <span className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-800 text-sm rounded-full border border-purple-300 shadow-sm hover:shadow-md transition-all duration-200">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                        <span className="font-medium">From: {advancedFilters.dateRange.start}</span>
-                        <button
-                          onClick={() => setAdvancedFilters(prev => ({
-                            ...prev,
-                            dateRange: { ...prev.dateRange, start: '' }
-                          }))}
-                          className="ml-1 hover:bg-purple-300 rounded-full p-0.5 transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </span>
-                    )}
-                    {advancedFilters.dateRange.end && (
-                      <span className="inline-flex items-center space-x-2 px-3 py-1.5 bg-gradient-to-r from-purple-100 to-purple-200 text-purple-800 text-sm rounded-full border border-purple-300 shadow-sm hover:shadow-md transition-all duration-200">
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                        <span className="font-medium">To: {advancedFilters.dateRange.end}</span>
-                        <button
-                          onClick={() => setAdvancedFilters(prev => ({
-                            ...prev,
-                            dateRange: { ...prev.dateRange, end: '' }
-                          }))}
-                          className="ml-1 hover:bg-purple-300 rounded-full p-0.5 transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
+
             </div>
           </div>
         )}
@@ -2111,77 +2055,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
           selectedProducts={selectedProducts}
         />
 
-        {/* Import Modal */}
-        {showImportModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Import Products</h3>
-              <button
-                  onClick={() => setShowImportModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  ×
-                  </button>
-              </div>
-              <div className="space-y-4">
-                <div className="text-sm text-gray-600">
-                  Upload a CSV, Excel, or JSON file to import products. Supported formats: .csv, .xlsx, .json
-                </div>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors cursor-pointer">
-                  <div className="text-gray-500 mb-2">
-                    <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                      <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                </div>
-                  <div className="text-gray-500">Drop files here or click to upload</div>
-                  <div className="text-xs text-gray-400 mt-1">Maximum file size: 10MB</div>
-                  <input 
-                    type="file" 
-                    accept=".csv,.xlsx,.json"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) {
-                        console.log('File selected:', file.name)
-                        // Handle file processing here
-                      }
-                    }}
-                  />
-              </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <div className="text-sm text-blue-800">
-                    <strong>Import Guidelines:</strong>
-                    <ul className="mt-1 space-y-1 text-xs">
-                      <li>• CSV files should have headers: title, vendor, price, status, etc.</li>
-                      <li>• Excel files (.xlsx) should follow the same column structure</li>
-                      <li>• JSON files should contain an array of product objects</li>
-                      <li>• Images should be provided as URLs in the image field</li>
-                    </ul>
-        </div>
-          </div>
-                <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => setShowImportModal(false)}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      // Handle import logic here
-                      console.log('Importing products...')
-                      setShowImportModal(false)
-                    }}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                  >
-                    Import Products
-                </button>
-                  </div>
-                  </div>
-                  </div>
-                    </div>
-                  )}
+
 
 
 

@@ -249,13 +249,6 @@ export const filterProducts = (
     vendors: string[]
   }
 ): Product[] => {
-  console.log('FilterProducts called with:', { 
-    totalProducts: products.length, 
-    activeFilter, 
-    searchQuery, 
-    sampleProducts: products.slice(0, 3).map(p => ({ title: p.title, vendor: p.vendor, price: p.price, inventory: p.inventoryQuantity }))
-  })
-  
   let filtered = products
 
   // Filter by status
@@ -263,224 +256,134 @@ export const filterProducts = (
     filtered = filtered.filter(product => product.status === activeFilter)
   }
 
-  // Filter by search query - now supports advanced search
+  // Filter by search query - simplified for performance
   if (searchQuery) {
-    // Check if it's an advanced search query
-    const isAdvancedQuery = searchQuery.includes(':') || 
-                           /\s+(AND|OR)\s+/i.test(searchQuery) ||
-                           /^\d+\s+in\s+stock$/i.test(searchQuery) ||
-                           /^(<|<=|>|>=|=|!=)\s*\d+/.test(searchQuery)
-    
-    console.log('Search query:', searchQuery, 'Is advanced:', isAdvancedQuery)
-    
-    if (isAdvancedQuery) {
-      // Use advanced search parser
-      const parsedQuery = parseAdvancedSearchQuery(searchQuery)
-      console.log('Parsed query result:', parsedQuery)
-      if (parsedQuery.isValid) {
-        filtered = applyAdvancedSearch(filtered, parsedQuery)
-      } else {
-        // Fallback to simple search if parsing fails
-        const searchLower = searchQuery.toLowerCase()
-        filtered = filtered.filter(product => {
-          return (
-            product.title.toLowerCase().includes(searchLower) ||
-            product.vendor.toLowerCase().includes(searchLower) ||
-            product.productType.toLowerCase().includes(searchLower) ||
-            product.category?.toLowerCase().includes(searchLower)
-          )
-        })
-      }
-    } else {
-      // Use simple search for basic queries
-      const searchLower = searchQuery.toLowerCase()
-      filtered = filtered.filter(product => {
-        return (
-          product.title.toLowerCase().includes(searchLower) ||
-          product.vendor.toLowerCase().includes(searchLower) ||
-          product.productType.toLowerCase().includes(searchLower) ||
-          product.category?.toLowerCase().includes(searchLower)
-        )
-      })
-    }
+    const searchLower = searchQuery.toLowerCase()
+    filtered = filtered.filter(product => {
+      return (
+        product.title.toLowerCase().includes(searchLower) ||
+        product.vendor.toLowerCase().includes(searchLower) ||
+        product.productType.toLowerCase().includes(searchLower) ||
+        product.category?.toLowerCase().includes(searchLower) ||
+        product.tags?.some(tag => tag.toLowerCase().includes(searchLower))
+      )
+    })
   }
 
-  // Filter by column filters
+  // Filter by column filters - optimized
   Object.entries(columnFilters).forEach(([column, value]) => {
-    if (value && (typeof value === 'string' ? value !== '' : Array.isArray(value) ? value.length > 0 : true)) {
-      console.log(`🔍 Applying filter for column "${column}":`, value)
+    if (!value || (typeof value === 'string' ? value === '' : Array.isArray(value) ? value.length === 0 : false)) {
+      return
+    }
+    
+    filtered = filtered.filter(product => {
+      const productValue = product[column as keyof Product]
       
-      const beforeCount = filtered.length
-      filtered = filtered.filter(product => {
-        const productValue = product[column as keyof Product]
-        
-        // Handle different filter types based on column
-        if (column === 'title') {
-          // Text-based filtering for title
-          if (typeof value === 'string') {
-            const matches = String(productValue || '').toLowerCase().includes(value.toLowerCase())
-            return matches
-          }
-        } else if (column === 'status') {
-          // Select filtering for status - exact match
-          if (typeof value === 'string') {
-            const matches = String(productValue || '') === value
-            console.log(`Status filter: product status "${productValue}" vs filter value "${value}" = ${matches}`)
-            return matches
-          } else if (Array.isArray(value)) {
-            const matches = value.includes(String(productValue || ''))
-            console.log(`Status filter (array): product status "${productValue}" vs filter values "${value}" = ${matches}`)
-            return matches
-          }
-        } else if (column === 'productType' || column === 'vendor' || column === 'category') {
-          // Multi-select filtering for productType, vendor, category
-          if (Array.isArray(value)) {
-            const matches = value.includes(String(productValue || ''))
-            console.log(`${column} filter (multi-select): product ${column} "${productValue}" vs filter values "${value}" = ${matches}`)
-            return matches
-          } else if (typeof value === 'string') {
-            const matches = String(productValue || '').toLowerCase().includes(value.toLowerCase())
-            console.log(`${column} filter (text): product ${column} "${productValue}" vs filter value "${value}" = ${matches}`)
-            return matches
-          }
-        } else if (column === 'price' || column === 'inventoryQuantity') {
-          // Numeric filtering with support for comparison operators
-          if (typeof value === 'string') {
-            const numValue = Number(productValue || 0)
-            const filterValue = value.trim()
-            
-            // Check for comparison operators
-            if (filterValue.startsWith('>=')) {
-              const compareValue = parseFloat(filterValue.substring(2))
-              const matches = !isNaN(compareValue) && numValue >= compareValue
-              return matches
-            } else if (filterValue.startsWith('<=')) {
-              const compareValue = parseFloat(filterValue.substring(2))
-              const matches = !isNaN(compareValue) && numValue <= compareValue
-              return matches
-            } else if (filterValue.startsWith('>')) {
-              const compareValue = parseFloat(filterValue.substring(1))
-              const matches = !isNaN(compareValue) && numValue > compareValue
-              return matches
-            } else if (filterValue.startsWith('<')) {
-              const compareValue = parseFloat(filterValue.substring(1))
-              const matches = !isNaN(compareValue) && numValue < compareValue
-              return matches
-            } else if (filterValue.startsWith('=')) {
-              const compareValue = parseFloat(filterValue.substring(1))
-              const matches = !isNaN(compareValue) && numValue === compareValue
-              return matches
-            } else {
-              // Simple numeric search
-              const searchValue = parseFloat(filterValue)
-              const matches = !isNaN(searchValue) && numValue === searchValue
-              return matches
-            }
-          }
-        } else if (column === 'createdAt' || column === 'updatedAt') {
-          // Date filtering
-          if (typeof value === 'string' && value) {
-            try {
-              // Handle different date input formats
-              let filterDate: Date
-              if (value.includes('T')) {
-                // Full timestamp format (e.g., "2024-06-11T14:08:35+05:30")
-                filterDate = new Date(value)
-              } else {
-                // Date-only format (e.g., "2024-06-11")
-                filterDate = new Date(value + 'T00:00:00')
-              }
-              
-              // Ensure productValue is a string before creating Date
-              const productValueStr = typeof productValue === 'string' ? productValue : 
-                                    typeof productValue === 'number' ? productValue.toString() :
-                                    productValue instanceof Date ? productValue.toISOString() : ''
-              const productDate = new Date(productValueStr)
-              
-              if (!isNaN(filterDate.getTime()) && !isNaN(productDate.getTime())) {
-                // Compare dates (year, month, day only)
-                const filterYear = filterDate.getFullYear()
-                const filterMonth = filterDate.getMonth()
-                const filterDay = filterDate.getDate()
-                
-                const productYear = productDate.getFullYear()
-                const productMonth = productDate.getMonth()
-                const productDay = productDate.getDate()
-                
-                const matches = filterYear === productYear && 
-                       filterMonth === productMonth && 
-                       filterDay === productDay
-                console.log(`Date filter (${column}): filter date "${value}" vs product date "${productValueStr}" = ${matches}`)
-                return matches
-              }
-            } catch (error) {
-              console.warn('Invalid date filter value:', value, error)
-            }
-          }
-        } else {
-          // Default text-based filtering for other fields
-          if (typeof value === 'string') {
-            const matches = String(productValue || '').toLowerCase().includes(value.toLowerCase())
-            return matches
+      if (column === 'title') {
+        return typeof value === 'string' && String(productValue || '').toLowerCase().includes(value.toLowerCase())
+      } else if (column === 'status') {
+        if (typeof value === 'string') {
+          return String(productValue || '') === value
+        } else if (Array.isArray(value)) {
+          return value.includes(String(productValue || ''))
+        }
+      } else if (column === 'productType' || column === 'vendor' || column === 'category') {
+        if (Array.isArray(value)) {
+          return value.includes(String(productValue || ''))
+        } else if (typeof value === 'string') {
+          return String(productValue || '').toLowerCase().includes(value.toLowerCase())
+        }
+      } else if (column === 'price' || column === 'inventoryQuantity') {
+        if (typeof value === 'string') {
+          const numValue = Number(productValue || 0)
+          const filterValue = value.trim()
+          
+          if (filterValue.startsWith('>=')) {
+            const compareValue = parseFloat(filterValue.substring(2))
+            return !isNaN(compareValue) && numValue >= compareValue
+          } else if (filterValue.startsWith('<=')) {
+            const compareValue = parseFloat(filterValue.substring(2))
+            return !isNaN(compareValue) && numValue <= compareValue
+          } else if (filterValue.startsWith('>')) {
+            const compareValue = parseFloat(filterValue.substring(1))
+            return !isNaN(compareValue) && numValue > compareValue
+          } else if (filterValue.startsWith('<')) {
+            const compareValue = parseFloat(filterValue.substring(1))
+            return !isNaN(compareValue) && numValue < compareValue
+          } else if (filterValue.startsWith('=')) {
+            const compareValue = parseFloat(filterValue.substring(1))
+            return !isNaN(compareValue) && numValue === compareValue
+          } else {
+            const searchValue = parseFloat(filterValue)
+            return !isNaN(searchValue) && numValue === searchValue
           }
         }
-        
-        return false
-      })
+      } else if (column === 'createdAt' || column === 'updatedAt') {
+        if (typeof value === 'string' && value) {
+          try {
+            const filterDate = value.includes('T') ? new Date(value) : new Date(value + 'T00:00:00')
+            const productValueStr = typeof productValue === 'string' ? productValue : 
+                                  typeof productValue === 'number' ? productValue.toString() :
+                                  productValue instanceof Date ? productValue.toISOString() : ''
+            const productDate = new Date(productValueStr)
+            
+            if (!isNaN(filterDate.getTime()) && !isNaN(productDate.getTime())) {
+              return filterDate.getFullYear() === productDate.getFullYear() && 
+                     filterDate.getMonth() === productDate.getMonth() && 
+                     filterDate.getDate() === productDate.getDate()
+            }
+          } catch (error) {
+            // Ignore date parsing errors
+          }
+        }
+      } else {
+        return typeof value === 'string' && String(productValue || '').toLowerCase().includes(value.toLowerCase())
+      }
       
-      const afterCount = filtered.length
-      console.log(`✅ Filter "${column}" reduced results from ${beforeCount} to ${afterCount} products`)
-    }
+      return false
+    })
   })
 
   // Apply advanced filters
   if (advancedFilters) {
-    // Filter by product status
     if (advancedFilters.productStatus.length > 0) {
       filtered = filtered.filter(product => 
         advancedFilters.productStatus.includes(product.status)
       )
     }
 
-    // Filter by price range
     if (advancedFilters.priceRange.min) {
       filtered = filtered.filter(product => 
         product.price >= parseFloat(advancedFilters.priceRange.min)
       )
     }
+
     if (advancedFilters.priceRange.max) {
       filtered = filtered.filter(product => 
         product.price <= parseFloat(advancedFilters.priceRange.max)
       )
     }
 
-    // Filter by date range
-    if (advancedFilters.dateRange.start || advancedFilters.dateRange.end) {
-      filtered = filtered.filter(product => {
-        const productDate = new Date(product.createdAt)
-        
-        if (advancedFilters.dateRange.start) {
-          const startDate = new Date(advancedFilters.dateRange.start)
-          if (productDate < startDate) return false
-        }
-        
-        if (advancedFilters.dateRange.end) {
-          const endDate = new Date(advancedFilters.dateRange.end)
-          if (productDate > endDate) return false
-        }
-        
-        return true
-      })
+    if (advancedFilters.dateRange.start) {
+      const startDate = new Date(advancedFilters.dateRange.start)
+      filtered = filtered.filter(product => 
+        new Date(product.createdAt) >= startDate
+      )
     }
 
-    // Filter by tags
+    if (advancedFilters.dateRange.end) {
+      const endDate = new Date(advancedFilters.dateRange.end)
+      filtered = filtered.filter(product => 
+        new Date(product.createdAt) <= endDate
+      )
+    }
+
     if (advancedFilters.tags.length > 0) {
       filtered = filtered.filter(product => 
         advancedFilters.tags.some(tag => product.tags?.includes(tag))
       )
     }
 
-    // Filter by vendors
     if (advancedFilters.vendors.length > 0) {
       filtered = filtered.filter(product => 
         advancedFilters.vendors.includes(product.vendor)

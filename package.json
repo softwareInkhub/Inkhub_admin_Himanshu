@@ -9,13 +9,10 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.450.0",
-    "@aws-sdk/lib-dynamodb": "^3.450.0",
     "@headlessui/react": "^2.2.7",
     "@hookform/resolvers": "^3.3.0",
     "@tanstack/react-table": "^8.10.0",
     "@tanstack/react-virtual": "^3.0.0",
-    "axios": "^1.11.0",
     "clsx": "^2.0.0",
     "date-fns": "^4.1.0",
     "framer-motion": "^10.16.0",

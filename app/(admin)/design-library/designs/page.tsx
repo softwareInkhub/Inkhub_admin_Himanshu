@@ -6,6 +6,7 @@ import {
   PageTemplate,
   useDataTable
 } from '@/components/shared'
+import DesignsGridCardFilterHeader from './components/DesignsGridCardFilterHeader'
 import { Design } from './types'
 import { generateDesigns } from './utils'
 
@@ -13,76 +14,51 @@ import { generateDesigns } from './utils'
 const designColumns = [
   {
     key: 'image',
-    label: 'Image',
+    label: 'DESIGN',
     sortable: false,
     render: (design: Design) => (
-      <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100">
-        {design.image ? (
-          <img 
-            src={design.image} 
-            alt={design.name || 'Design'}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-            <span className="text-xs text-gray-500">No image</span>
+      <div className="flex items-center space-x-3">
+        <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100">
+          {design.image ? (
+            <img 
+              src={design.image} 
+              alt={design.name || 'Design'}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+              <span className="text-xs text-gray-500">No image</span>
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-gray-900 truncate">
+            {design?.name || 'Untitled Design'}
           </div>
-        )}
+          <div className="text-sm text-gray-500 truncate">
+            Click to view details
+          </div>
+        </div>
       </div>
     )
   },
   {
-    key: 'title',
-    label: 'Title',
-    sortable: true,
-    render: (design: Design) => (
-      <div className="text-sm font-medium text-gray-900">{design?.name || 'Untitled'}</div>
-    )
-  },
-  {
-    key: 'type',
-    label: 'Type',
-    sortable: true,
-    render: (design: Design) => {
-      const getStatusBadge = (type: string) => {
-        switch (type) {
-          case 'template':
-            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800", text: "Template" }
-          case 'mockup':
-            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800", text: "Mockup" }
-          case 'illustration':
-            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800", text: "Illustration" }
-          case 'icon':
-            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800", text: "Icon" }
-          default:
-            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800", text: type }
-        }
-      }
-      const badge = getStatusBadge(design?.type || 'unknown')
-      return <span className={badge.className}>{badge.text}</span>
-    }
-  },
-  {
-    key: 'category',
-    label: 'Category',
-    sortable: true,
-    render: (design: Design) => (
-      <div className="text-sm text-gray-900">{design?.category || 'Uncategorized'}</div>
-    )
-  },
-  {
     key: 'status',
-    label: 'Status',
+    label: 'STATUS',
     sortable: true,
     render: (design: Design) => {
       const getStatusBadge = (status: string) => {
         switch (status) {
-          case 'published':
-            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800", text: "Published" }
-          case 'draft':
-            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800", text: "Draft" }
-          case 'archived':
-            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800", text: "Archived" }
+          case 'completed':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800", text: "Completed" }
+          case 'in_progress':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800", text: "In Progress" }
+          case 'pending':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800", text: "Pending" }
+          case 'approved':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800", text: "Approved" }
+          case 'rejected':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800", text: "Rejected" }
           default:
             return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800", text: status }
         }
@@ -92,8 +68,43 @@ const designColumns = [
     }
   },
   {
+    key: 'type',
+    label: 'TYPE',
+    sortable: true,
+    render: (design: Design) => {
+      const getTypeBadge = (type: string) => {
+        switch (type) {
+          case 'logo':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800", text: "Logo" }
+          case 'banner':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800", text: "Banner" }
+          case 'social_media':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800", text: "Social Media" }
+          case 'print':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800", text: "Print" }
+          case 'web':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-800", text: "Web" }
+          case 'illustration':
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-pink-100 text-pink-800", text: "Illustration" }
+          default:
+            return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800", text: type }
+        }
+      }
+      const badge = getTypeBadge(design?.type || 'unknown')
+      return <span className={badge.className}>{badge.text}</span>
+    }
+  },
+  {
+    key: 'category',
+    label: 'CATEGORY',
+    sortable: true,
+    render: (design: Design) => (
+      <div className="text-sm text-gray-900">{design?.category || 'Uncategorized'}</div>
+    )
+  },
+  {
     key: 'price',
-    label: 'Price',
+    label: 'PRICE',
     sortable: true,
     render: (design: Design) => (
       <span className="text-sm font-medium text-gray-900">
@@ -102,40 +113,48 @@ const designColumns = [
     )
   },
   {
+    key: 'size',
+    label: 'SIZE',
+    sortable: true,
+    render: (design: Design) => (
+      <span className="text-sm text-gray-900">{design?.size || 'N/A'}</span>
+    )
+  },
+  {
+    key: 'client',
+    label: 'CLIENT',
+    sortable: true,
+    render: (design: Design) => (
+      <span className="text-sm text-gray-900">{design?.client || 'N/A'}</span>
+    )
+  },
+  {
+    key: 'designer',
+    label: 'DESIGNER',
+    sortable: true,
+    render: (design: Design) => (
+      <span className="text-sm text-gray-900">{design?.designer || 'N/A'}</span>
+    )
+  },
+  {
+    key: 'views',
+    label: 'VIEWS',
+    sortable: true,
+    render: (design: Design) => (
+      <span className="text-sm text-gray-900">{(design?.views || 0).toLocaleString()}</span>
+    )
+  },
+  {
     key: 'downloads',
-    label: 'Downloads',
+    label: 'DOWNLOADS',
     sortable: true,
     render: (design: Design) => (
       <span className="text-sm text-gray-900">{(design?.downloads || 0).toLocaleString()}</span>
     )
   },
   {
-    key: 'rating',
-    label: 'Rating',
-    sortable: true,
-    render: (design: Design) => (
-      <div className="flex items-center space-x-1">
-        <span className="text-sm text-gray-900">{((design?.views || 0) / 100).toFixed(1)}</span>
-        <div className="flex">
-          {[1, 2, 3, 4, 5].map((star) => (
-            <span
-              key={star}
-              className={`text-xs ${
-                star <= (design?.views || 0) / 100
-                  ? 'text-yellow-400'
-                  : 'text-gray-300'
-              }`}
-            >
-              ★
-            </span>
-          ))}
-        </div>
-      </div>
-    )
-  },
-  {
     key: 'createdAt',
-    label: 'Created',
+    label: 'CREATED',
     sortable: true,
     render: (design: Design) => (
       <span className="text-sm text-gray-500">
@@ -148,19 +167,33 @@ const designColumns = [
     )
   },
   {
+    key: 'updatedAt',
+    label: 'UPDATED',
+    sortable: true,
+    render: (design: Design) => (
+      <span className="text-sm text-gray-500">
+        {design?.updatedAt ? new Date(design.updatedAt).toLocaleDateString('en-US', {
+          month: 'short',
+          day: '2-digit',
+          year: 'numeric'
+        }) : 'No date'}
+      </span>
+    )
+  },
+  {
     key: 'tags',
-    label: 'Tags',
+    label: 'TAGS',
     sortable: false,
     render: (design: Design) => (
       <div className="flex flex-wrap gap-0.5">
-        {design?.tags?.slice(0, 3).map((tag, index) => (
-          <span key={index} className="px-1 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">
+        {design?.tags?.slice(0, 2).map((tag, index) => (
+          <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
             {tag}
           </span>
         ))}
-        {design?.tags && design.tags.length > 3 && (
-          <span className="px-1 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">
-            +{design.tags.length - 3}
+        {design?.tags && design.tags.length > 2 && (
+          <span className="text-xs text-gray-500">
+            +{design.tags.length - 2}
           </span>
         )}
       </div>
@@ -395,6 +428,8 @@ function DesignLibraryPage() {
       data={currentData}
       loading={loading}
       error={error}
+      GridHeaderComponent={DesignsGridCardFilterHeader}
+      CardHeaderComponent={DesignsGridCardFilterHeader}
       searchQuery={searchQuery}
       setSearchQuery={setSearchQuery}
       searchConditions={searchConditions}

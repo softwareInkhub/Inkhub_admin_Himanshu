@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import CardsPerRowDropdown from './CardsPerRowDropdown'
+import { useEffect, useRef, useState } from 'react'
 
 interface GridCardFilterHeaderProps {
   selectedOrders: string[]
@@ -28,20 +29,99 @@ export default function GridCardFilterHeader({
   cardsPerRow = 4,
   onCardsPerRowChange
 }: GridCardFilterHeaderProps) {
+  const [dropdownPosition, setDropdownPosition] = useState<{ x: number; y: number } | null>(null)
+  const activeButtonRef = useRef<HTMLButtonElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Calculate dropdown position when active filter changes
+  useEffect(() => {
+    if (activeColumnFilter && activeButtonRef.current) {
+      const calculatePosition = () => {
+        const buttonRect = activeButtonRef.current?.getBoundingClientRect()
+        if (!buttonRect) return
+
+        const viewportWidth = window.innerWidth
+        const viewportHeight = window.innerHeight
+        const dropdownWidth = 280
+        const dropdownHeight = 320
+
+        // Calculate optimal position
+        let x = buttonRect.left
+        let y = buttonRect.bottom + 5
+
+        // Adjust horizontal position if dropdown would go off-screen
+        if (x + dropdownWidth > viewportWidth) {
+          x = viewportWidth - dropdownWidth - 10
+        }
+        if (x < 10) {
+          x = 10
+        }
+
+        // Adjust vertical position if dropdown would go off-screen
+        if (y + dropdownHeight > viewportHeight) {
+          y = buttonRect.top - dropdownHeight - 5
+        }
+        if (y < 10) {
+          y = 10
+        }
+
+        setDropdownPosition({ x, y })
+      }
+
+      calculatePosition()
+
+      // Recalculate on scroll and resize
+      const handleScroll = () => calculatePosition()
+      const handleResize = () => calculatePosition()
+
+      window.addEventListener('scroll', handleScroll, true)
+      window.addEventListener('resize', handleResize)
+
+      return () => {
+        window.removeEventListener('scroll', handleScroll, true)
+        window.removeEventListener('resize', handleResize)
+      }
+    } else {
+      setDropdownPosition(null)
+    }
+  }, [activeColumnFilter])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (activeColumnFilter && 
+          activeButtonRef.current && 
+          !activeButtonRef.current.contains(event.target as Node) &&
+          dropdownRef.current && 
+          !dropdownRef.current.contains(event.target as Node)) {
+        onFilterClick('')
+      }
+    }
+
+    if (activeColumnFilter) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [activeColumnFilter, onFilterClick])
+
   const renderFilterDropdown = (column: string, filterType: string, options?: string[]) => {
-    if (activeColumnFilter !== column) return null
+    if (activeColumnFilter !== column || !dropdownPosition) return null
 
     return (
-      <div className="absolute top-full left-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-xl z-[9999] column-filter-dropdown backdrop-blur-sm"
+      <div 
+        ref={dropdownRef}
+        className="fixed bg-white border border-gray-200 rounded-xl shadow-xl z-[999999] column-filter-dropdown backdrop-blur-sm"
         style={{
-          position: 'absolute',
-          zIndex: 9999,
+          position: 'fixed',
+          zIndex: 999999,
           maxHeight: '320px',
           overflowY: 'auto',
           transform: 'translateZ(0)',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -5px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(255, 255, 255, 0.05)',
           minWidth: '220px',
-          maxWidth: '320px'
+          maxWidth: '320px',
+          left: `${dropdownPosition.x}px`,
+          top: `${dropdownPosition.y}px`
         }}>
         <div className="p-4">
           {filterType === 'text' && (
@@ -90,119 +170,416 @@ export default function GridCardFilterHeader({
             </div>
           )}
           
-          {/* Enhanced numeric filtering for total */}
-          {(filterType === 'numeric' || column === 'total') && (
+          {/* Enhanced numeric filtering for total and serial number */}
+          {(filterType === 'numeric' || column === 'total' || column === 'serialNumber') && (
             <div className="space-y-4">
               <div className="text-sm font-semibold text-black mb-2">FILTER OPTIONS:</div>
               <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => onColumnFilterChange(column, { min: '0', max: '100' })}
-                  className="text-xs px-2 py-1 bg-gradient-to-r from-green-50 to-green-100 border border-green-200 rounded-md hover:from-green-100 hover:to-green-200 transition-all duration-200 text-green-700 font-medium"
+                  onClick={() => onColumnFilterChange(column, '>100')}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
                 >
-                  Under ₹100
+                  &gt;100
                 </button>
                 <button
-                  onClick={() => onColumnFilterChange(column, { min: '100', max: '500' })}
-                  className="text-xs px-2 py-1 bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded-md hover:from-blue-100 hover:to-blue-200 transition-all duration-200 text-blue-700 font-medium"
+                  onClick={() => onColumnFilterChange(column, '>500')}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
                 >
-                  ₹100-500
+                  &gt;500
                 </button>
                 <button
-                  onClick={() => onColumnFilterChange(column, { min: '500', max: '1000' })}
-                  className="text-xs px-2 py-1 bg-gradient-to-r from-purple-50 to-purple-100 border border-purple-200 rounded-md hover:from-purple-100 hover:to-purple-200 transition-all duration-200 text-purple-700 font-medium"
+                  onClick={() => onColumnFilterChange(column, '<100')}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
                 >
-                  ₹500-1000
+                  &lt;100
                 </button>
                 <button
-                  onClick={() => onColumnFilterChange(column, { min: '1000', max: '' })}
-                  className="text-xs px-2 py-1 bg-gradient-to-r from-orange-50 to-orange-100 border border-orange-200 rounded-md hover:from-orange-100 hover:to-orange-200 transition-all duration-200 text-orange-700 font-medium"
+                  onClick={() => onColumnFilterChange(column, '<500')}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
                 >
-                  Over ₹1000
+                  &lt;500
                 </button>
               </div>
+              <input
+                type="text"
+                placeholder={`Custom filter (e.g., >100, <500, =200)`}
+                value={columnFilters[column] as string || ''}
+                onChange={(e) => onColumnFilterChange(column, e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-gray-50 hover:bg-white focus:bg-white text-black"
+                autoFocus
+              />
             </div>
           )}
           
-          {/* Date filtering */}
           {filterType === 'date' && (
             <div className="space-y-4">
               <div className="text-sm font-semibold text-black mb-2">FILTER OPTIONS:</div>
               <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => onColumnFilterChange(column, 'today')}
-                  className="text-xs px-2 py-1 bg-gradient-to-r from-green-50 to-green-100 border border-green-200 rounded-md hover:from-green-100 hover:to-green-200 transition-all duration-200 text-green-700 font-medium"
+                  onClick={() => {
+                    const today = new Date().toISOString().split('T')[0]
+                    onColumnFilterChange(column, today)
+                  }}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
                 >
                   Today
                 </button>
                 <button
-                  onClick={() => onColumnFilterChange(column, 'yesterday')}
-                  className="text-xs px-2 py-1 bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded-md hover:from-blue-100 hover:to-blue-200 transition-all duration-200 text-blue-700 font-medium"
+                  onClick={() => {
+                    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                    onColumnFilterChange(column, yesterday)
+                  }}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
                 >
                   Yesterday
                 </button>
                 <button
-                  onClick={() => onColumnFilterChange(column, 'this_week')}
-                  className="text-xs px-2 py-1 bg-gradient-to-r from-purple-50 to-purple-100 border border-purple-200 rounded-md hover:from-purple-100 hover:to-purple-200 transition-all duration-200 text-purple-700 font-medium"
+                  onClick={() => {
+                    const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                    onColumnFilterChange(column, lastWeek)
+                  }}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
                 >
-                  This Week
+                  Last Week
                 </button>
                 <button
-                  onClick={() => onColumnFilterChange(column, 'this_month')}
-                  className="text-xs px-2 py-1 bg-gradient-to-r from-orange-50 to-orange-100 border border-orange-200 rounded-md hover:from-orange-100 hover:to-orange-200 transition-all duration-200 text-orange-700 font-medium"
+                  onClick={() => {
+                    const lastMonth = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                    onColumnFilterChange(column, lastMonth)
+                  }}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
                 >
-                  This Month
+                  Last Month
                 </button>
                 <button
-                  onClick={() => onColumnFilterChange(column, 'last_7_days')}
-                  className="text-xs px-2 py-1 bg-gradient-to-r from-indigo-50 to-indigo-100 border border-indigo-200 rounded-md hover:from-indigo-100 hover:to-indigo-200 transition-all duration-200 text-indigo-700 font-medium"
+                  onClick={() => {
+                    const thisYear = new Date().getFullYear().toString() + '-01-01'
+                    onColumnFilterChange(column, thisYear)
+                  }}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
                 >
-                  Last 7 Days
+                  This Year
                 </button>
                 <button
-                  onClick={() => onColumnFilterChange(column, 'last_30_days')}
-                  className="text-xs px-2 py-1 bg-gradient-to-r from-pink-50 to-pink-100 border border-pink-200 rounded-md hover:from-pink-100 hover:to-pink-200 transition-all duration-200 text-pink-700 font-medium"
+                  onClick={() => {
+                    const lastYear = (new Date().getFullYear() - 1).toString() + '-01-01'
+                    onColumnFilterChange(column, lastYear)
+                  }}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
                 >
-                  Last 30 Days
+                  Last Year
+                </button>
+                <button
+                  onClick={() => {
+                    onColumnFilterChange(column, '2024-06-11')
+                  }}
+                  className="text-sm px-3 py-2 bg-gradient-to-r from-gray-50 to-gray-100 hover:from-blue-50 hover:to-indigo-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-all duration-200 hover:shadow-sm text-black"
+                >
+                  Test Date
                 </button>
               </div>
-              <div className="text-xs text-gray-500 mt-2">
-                Format: YYYY-MM-DD
+              <input
+                type="date"
+                value={columnFilters[column] as string || ''}
+                onChange={(e) => onColumnFilterChange(column, e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-gray-50 hover:bg-white focus:bg-white text-black"
+              />
+              <div className="text-xs text-gray-500 mt-1">
+                Format: YYYY-MM-DD (e.g., 2024-06-11)
               </div>
             </div>
           )}
+          
+          <div className="mt-4 pt-3 border-t border-gray-100">
+            <button
+              onClick={() => {
+                if (filterType === 'text' || filterType === 'date' || filterType === 'numeric' || column === 'total' || column === 'serialNumber') {
+                  onColumnFilterChange(column, '')
+                } else {
+                  onColumnFilterChange(column, [])
+                }
+                onFilterClick(column)
+              }}
+              className="text-sm text-black hover:text-gray-700 hover:bg-gray-50 px-2 py-1 rounded-md transition-all duration-200"
+            >
+              Clear
+            </button>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="bg-white border-b border-gray-200 py-2 px-4">
+    <div className="bg-gray-50 border-b border-gray-200 px-4 py-2">
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          {/* Select All Checkbox */}
-          <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-6">
+          {/* Serial Number Column with Filter */}
+          <div className="flex items-center space-x-2 relative">
             <input
               type="checkbox"
               checked={selectedOrders.length === currentOrders.length && currentOrders.length > 0}
               onChange={onSelectAll}
               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
-            <span className="text-sm text-gray-600">
-              {selectedOrders.length} of {currentOrders.length} selected
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              S.NO
             </span>
+            <button
+              ref={activeColumnFilter === 'serialNumber' ? activeButtonRef : null}
+              onClick={() => onFilterClick('serialNumber')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'serialNumber' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.serialNumber ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('serialNumber', 'numeric')}
+          </div>
+
+          {/* Order Column with Filter */}
+          <div className="flex items-center space-x-2 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              ORDER
+            </span>
+            <button
+              ref={activeColumnFilter === 'orderNumber' ? activeButtonRef : null}
+              onClick={() => onFilterClick('orderNumber')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'orderNumber' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.orderNumber ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('orderNumber', 'text')}
+          </div>
+
+          {/* Customer Column */}
+          <div className="flex items-center space-x-1 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              CUSTOMER
+            </span>
+            <button
+              ref={activeColumnFilter === 'customerName' ? activeButtonRef : null}
+              onClick={() => onFilterClick('customerName')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'customerName' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.customerName ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('customerName', 'text')}
+          </div>
+
+          {/* Status Column */}
+          <div className="flex items-center space-x-1 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              STATUS
+            </span>
+            <button
+              ref={activeColumnFilter === 'status' ? activeButtonRef : null}
+              onClick={() => onFilterClick('status')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'status' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.status?.length > 0 ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('status', 'select', ['pending', 'paid', 'refunded', 'partial', 'unfulfilled'])}
+          </div>
+
+          {/* Fulfillment Status Column */}
+          <div className="flex items-center space-x-1 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              FULFILLMENT
+            </span>
+            <button
+              ref={activeColumnFilter === 'fulfillmentStatus' ? activeButtonRef : null}
+              onClick={() => onFilterClick('fulfillmentStatus')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'fulfillmentStatus' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.fulfillmentStatus?.length > 0 ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('fulfillmentStatus', 'select', ['fulfilled', 'partial', 'unfulfilled'])}
+          </div>
+
+          {/* Financial Status Column */}
+          <div className="flex items-center space-x-1 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              PAYMENT
+            </span>
+            <button
+              ref={activeColumnFilter === 'financialStatus' ? activeButtonRef : null}
+              onClick={() => onFilterClick('financialStatus')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'financialStatus' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.financialStatus?.length > 0 ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('financialStatus', 'select', ['paid', 'pending', 'refunded', 'partial'])}
+          </div>
+
+          {/* Total Column */}
+          <div className="flex items-center space-x-1 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              TOTAL
+            </span>
+            <button
+              ref={activeColumnFilter === 'total' ? activeButtonRef : null}
+              onClick={() => onFilterClick('total')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'total' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.total ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('total', 'numeric')}
+          </div>
+
+          {/* Channel Column */}
+          <div className="flex items-center space-x-1 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              CHANNEL
+            </span>
+            <button
+              ref={activeColumnFilter === 'channel' ? activeButtonRef : null}
+              onClick={() => onFilterClick('channel')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'channel' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.channel?.length > 0 ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('channel', 'multi-select', getUniqueValues('channel'))}
+          </div>
+
+          {/* Delivery Method Column */}
+          <div className="flex items-center space-x-1 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              DELIVERY
+            </span>
+            <button
+              ref={activeColumnFilter === 'deliveryMethod' ? activeButtonRef : null}
+              onClick={() => onFilterClick('deliveryMethod')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'deliveryMethod' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.deliveryMethod?.length > 0 ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('deliveryMethod', 'multi-select', getUniqueValues('deliveryMethod'))}
+          </div>
+
+          {/* Tags Column */}
+          <div className="flex items-center space-x-1 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              TAGS
+            </span>
+            <button
+              ref={activeColumnFilter === 'tags' ? activeButtonRef : null}
+              onClick={() => onFilterClick('tags')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'tags' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.tags?.length > 0 ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('tags', 'multi-select', getUniqueValues('tags'))}
+          </div>
+
+          {/* Created Column */}
+          <div className="flex items-center space-x-1 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              CREATED
+            </span>
+            <button
+              ref={activeColumnFilter === 'createdAt' ? activeButtonRef : null}
+              onClick={() => onFilterClick('createdAt')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'createdAt' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.createdAt ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('createdAt', 'date')}
+          </div>
+
+          {/* Updated Column */}
+          <div className="flex items-center space-x-1 relative">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+              UPDATED
+            </span>
+            <button
+              ref={activeColumnFilter === 'updatedAt' ? activeButtonRef : null}
+              onClick={() => onFilterClick('updatedAt')}
+              className={cn(
+                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+                activeColumnFilter === 'updatedAt' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+                columnFilters.updatedAt ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+              )}
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            </button>
+            {renderFilterDropdown('updatedAt', 'date')}
           </div>
         </div>
         
-        <div className="flex items-center space-x-4">
-          {/* Cards Per Row Dropdown */}
+        {/* Cards per row dropdown - only show if handler is provided */}
           {onCardsPerRowChange && (
             <CardsPerRowDropdown
               value={cardsPerRow}
               onChange={onCardsPerRowChange}
-              className="w-32"
             />
           )}
-        </div>
       </div>
     </div>
   )

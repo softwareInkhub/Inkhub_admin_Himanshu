@@ -243,23 +243,23 @@ export function Sidebar() {
         {!sidebarCollapsed ? (
           <Logo size="md" />
         ) : (
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 text-white font-bold shadow-lg transition-all duration-300 hover:scale-110 hover:rotate-3">
-            <span className="text-sm">I</span>
+          <div className="flex h-8 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 text-white font-bold shadow-lg transition-all duration-300 hover:scale-110 hover:rotate-3 border border-white/100">
+            <span className="text-sm font-bold tracking-tight text-white drop-shadow-sm">I</span>
           </div>
         )}
         <button
           onClick={toggleSidebar}
-          className="rounded-lg p-2 text-secondary-600 hover:bg-secondary-100 hover-lift dark:text-secondary-400 dark:hover:bg-secondary-700 transition-all duration-300 hover:scale-110 hover:rotate-180"
+          className="rounded-lg p-1 text-secondary-800 hover:bg-secondary-100 hover-lift dark:text-secondary-400 dark:hover:bg-secondary-700 transition-all duration-300 hover:scale-110 hover:rotate-180 ml-4"
         >
           <ChevronRight className={cn(
-            "h-4 w-4 transition-transform duration-300",
+            "h-5 w-5 transition-transform duration-300",
             sidebarCollapsed && "rotate-180"
           )} />
         </button>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-1 p-4">
+      {/* Navigation (scrollable when content exceeds viewport) */}
+      <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-1 p-4">
         {sidebarItems.map((item) => (
           <SidebarItemComponent
             key={item.path}

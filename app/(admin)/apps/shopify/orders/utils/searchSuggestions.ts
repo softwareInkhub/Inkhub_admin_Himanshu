@@ -3,7 +3,7 @@ import { Order } from '../types'
 export interface SearchSuggestion {
   id: string
   text: string
-  type: 'order' | 'customer' | 'channel' | 'tag' | 'history' | 'status'
+  type: 'order' | 'customer' | 'status' | 'tag' | 'history' | 'serialNumber'
   count?: number
   icon?: string
 }
@@ -28,69 +28,76 @@ export const getSearchSuggestions = (
   const suggestions: SearchSuggestion[] = []
   const queryLower = query.toLowerCase()
 
-  // 1. Order number suggestions
-  const orderSuggestions = orders
+  // 1. Serial number suggestions
+  const serialNumberSuggestions = orders
+    .map((order, index) => ({
+      order,
+      serialNumber: index + 1
+    }))
+    .filter(({ serialNumber }) => serialNumber.toString().includes(queryLower))
+    .slice(0, 3)
+    .map(({ order, serialNumber }) => ({
+      id: `serial-${serialNumber}`,
+      text: `Order #${serialNumber}`,
+      type: 'serialNumber' as const,
+      icon: '🔢'
+    }))
+
+  suggestions.push(...serialNumberSuggestions)
+
+  // 2. Order number suggestions - with null safety
+  const orderNumberSuggestions = orders
     .filter(order => 
-      order.orderNumber.toLowerCase().includes(queryLower) ||
-      order.orderNumber.toLowerCase().startsWith(queryLower)
+      (order.orderNumber && order.orderNumber.toLowerCase().includes(queryLower)) ||
+      (order.orderNumber && order.orderNumber.toLowerCase().startsWith(queryLower))
     )
     .slice(0, 3)
     .map(order => ({
       id: `order-${order.id}`,
-      text: `#${order.orderNumber}`,
+      text: order.orderNumber || 'Unknown Order',
       type: 'order' as const,
       icon: '📦'
     }))
 
-  suggestions.push(...orderSuggestions)
+  suggestions.push(...orderNumberSuggestions)
 
-  // 2. Customer name suggestions
-  const customerSuggestions = Array.from(new Set(orders.map(o => o.customerName)))
-    .filter(customer => customer.toLowerCase().includes(queryLower))
+  // 3. Customer name suggestions - with null safety
+  const customerSuggestions = orders
+    .filter(order => 
+      (order.customerName && order.customerName.toLowerCase().includes(queryLower)) ||
+      (order.customerName && order.customerName.toLowerCase().startsWith(queryLower))
+    )
     .slice(0, 2)
-    .map(customer => ({
-      id: `customer-${customer}`,
-      text: customer,
+    .map(order => ({
+      id: `customer-${order.id}`,
+      text: order.customerName || 'Unknown Customer',
       type: 'customer' as const,
       icon: '👤'
     }))
 
   suggestions.push(...customerSuggestions)
 
-  // 3. Channel suggestions
-  const channelSuggestions = Array.from(new Set(orders.map(o => o.channel).filter(Boolean)))
-    .filter((channel): channel is string => channel !== undefined && channel.toLowerCase().includes(queryLower))
-    .slice(0, 2)
-    .map(channel => ({
-      id: `channel-${channel}`,
-      text: channel,
-      type: 'channel' as const,
-      icon: '🏪'
-    }))
-
-  suggestions.push(...channelSuggestions)
-
-  // 4. Status suggestions
-  const statusSuggestions = Array.from(new Set(orders.map(o => o.status)))
-    .filter(status => status.toLowerCase().includes(queryLower))
+  // 4. Status suggestions - with null safety
+  const statusSuggestions = Array.from(new Set(orders.map(o => o.status).filter(Boolean)))
+    .filter(status => status && status.toLowerCase().includes(queryLower))
     .slice(0, 2)
     .map(status => ({
       id: `status-${status}`,
-      text: status,
+      text: status || 'Unknown Status',
       type: 'status' as const,
       icon: '📊'
     }))
 
   suggestions.push(...statusSuggestions)
 
-  // 5. Tag suggestions
-  const allTags = orders.flatMap(o => o.tags || [])
+  // 5. Tag suggestions - with null safety
+  const allTags = orders.flatMap(o => o.tags || []).filter(Boolean)
   const tagSuggestions = Array.from(new Set(allTags))
-    .filter(tag => tag.toLowerCase().includes(queryLower))
+    .filter(tag => tag && tag.toLowerCase().includes(queryLower))
     .slice(0, 2)
     .map(tag => ({
       id: `tag-${tag}`,
-      text: tag,
+      text: tag || 'Unknown Tag',
       type: 'tag' as const,
       icon: '🏷️'
     }))
@@ -99,7 +106,7 @@ export const getSearchSuggestions = (
 
   // 6. Search history suggestions
   const historySuggestions = searchHistory
-    .filter(history => history.query.toLowerCase().includes(queryLower))
+    .filter(history => history.query && history.query.toLowerCase().includes(queryLower))
     .slice(0, 2)
     .map(history => ({
       id: `history-${history.query}`,
@@ -112,13 +119,13 @@ export const getSearchSuggestions = (
 
   // Remove duplicates and limit results
   const uniqueSuggestions = suggestions.filter((suggestion, index, self) => 
-    index === self.findIndex(s => s.text.toLowerCase() === suggestion.text.toLowerCase())
+    index === self.findIndex(s => s.text === suggestion.text)
   )
 
   return uniqueSuggestions.slice(0, maxSuggestions)
 }
 
-// Get recent searches for empty query
+// Get recent searches from history
 export const getRecentSearches = (
   searchHistory: SearchHistory[],
   maxResults: number = 5
@@ -141,16 +148,16 @@ export const saveSearchToHistory = (
   searchHistory: SearchHistory[]
 ): SearchHistory[] => {
   const newHistory: SearchHistory = {
-    query: query.trim(),
+    query,
     timestamp: Date.now(),
     resultCount
   }
 
   // Remove existing entry with same query
-  const filteredHistory = searchHistory.filter(h => h.query.toLowerCase() !== query.toLowerCase())
+  const filteredHistory = searchHistory.filter(h => h.query !== query)
   
   // Add new entry at the beginning
-  return [newHistory, ...filteredHistory].slice(0, 20) // Keep last 20 searches
+  return [newHistory, ...filteredHistory].slice(0, 10) // Keep only last 10 searches
 }
 
 // Get popular searches (based on frequency)

@@ -2,20 +2,71 @@ import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { Order, KPIMetric } from '../types'
 
+// Utility functions for Advanced Filters
+export const getUniqueValuesForField = (orders: Order[], field: keyof Order): string[] => {
+  const values = new Set<string>()
+  orders.forEach(order => {
+    const value = order[field]
+    if (value !== null && value !== undefined && value !== '') {
+      if (Array.isArray(value)) {
+        value.forEach(item => values.add(String(item)))
+      } else {
+        values.add(String(value))
+      }
+    }
+  })
+  return Array.from(values).sort()
+}
+
+export const getUniqueTagsFromOrders = (orders: Order[]): string[] => {
+  const tags = new Set<string>()
+  orders.forEach(order => {
+    if (order.tags && Array.isArray(order.tags)) {
+      order.tags.forEach(tag => tags.add(tag))
+    }
+  })
+  return Array.from(tags).sort()
+}
+
+export const getUniqueChannelsFromOrders = (orders: Order[]): string[] => {
+  const channels = new Set<string>()
+  orders.forEach(order => {
+    if (order.channel) {
+      channels.add(order.channel)
+    }
+  })
+  return Array.from(channels).sort()
+}
+
+export const getUniqueDeliveryMethodsFromOrders = (orders: Order[]): string[] => {
+  const methods = new Set<string>()
+  orders.forEach(order => {
+    if (order.deliveryMethod) {
+      methods.add(order.deliveryMethod)
+    }
+  })
+  return Array.from(methods).sort()
+}
+
 // Generate sample orders data matching Shopify's structure
 export const generateOrders = (count: number): Order[] => {
   const statuses: Order['status'][] = ['paid', 'unpaid', 'refunded', 'pending', 'processing', 'shipped', 'delivered', 'cancelled']
   const fulfillmentStatuses: Order['fulfillmentStatus'][] = ['unfulfilled', 'fulfilled', 'partial']
   const financialStatuses: Order['financialStatus'][] = ['paid', 'pending', 'refunded']
-  const channels = ['Gokwik', 'Interakt - Sell on WhatsApp', 'Shopify', 'Manual']
-  const deliveryMethods = ['Free Shipping', 'Standard Shipping', 'Express Free Shipping', 'Express Shipping']
-  const tags = ['bank-offer', 'GoKwik', 'UPI', 'Cards', 'COD', 'premium', 'influencer', 'custom', 'color-issue']
+  const channels = ['Gokwik', 'Interakt - Sell on WhatsApp', 'Shopify', 'Manual', 'Instagram', 'Facebook', 'TikTok']
+  const deliveryMethods = ['Free Shipping', 'Standard Shipping', 'Express Free Shipping', 'Express Shipping', 'Same Day Delivery', 'Next Day Delivery']
+  const tags = ['bank-offer', 'GoKwik', 'UPI', 'Cards', 'COD', 'premium', 'influencer', 'custom', 'color-issue', 'rush-order', 'bulk-order', 'wholesale', 'retail', 'discount-applied', 'first-time-customer', 'vip-customer', 'returning-customer', 'international', 'domestic', 'express-delivery']
   
   const customerNames = [
     'Rahul Sharma', 'Priya Patel', 'Amit Kumar', 'Neha Singh', 'Vikram Malhotra',
     'Anjali Gupta', 'Rajesh Verma', 'Sneha Reddy', 'Arjun Kapoor', 'Meera Iyer',
     'Karan Johar', 'Zara Khan', 'Aditya Roy', 'Ishita Sharma', 'Rohan Mehta',
-    'Tanvi Desai', 'Vivek Oberoi', 'Kavya Nair', 'Siddharth Malhotra', 'Ananya Pandey'
+    'Tanvi Desai', 'Vivek Oberoi', 'Kavya Nair', 'Siddharth Malhotra', 'Ananya Pandey',
+    'Deepika Padukone', 'Ranbir Kapoor', 'Alia Bhatt', 'Shah Rukh Khan', 'Aishwarya Rai',
+    'Hrithik Roshan', 'Katrina Kaif', 'Salman Khan', 'Priyanka Chopra', 'Akshay Kumar',
+    'Kareena Kapoor', 'Saif Ali Khan', 'Madhuri Dixit', 'Aamir Khan', 'Juhi Chawla',
+    'Ajay Devgn', 'Kajol', 'Rani Mukerji', 'Preity Zinta', 'Abhishek Bachchan',
+    'Raveena Tandon', 'Govinda', 'Karisma Kapoor', 'Sunny Deol', 'Tabu'
   ]
   
   const productNames = [
@@ -23,12 +74,28 @@ export const generateOrders = (count: number): Order[] => {
     'Beyond Death Tattoo', 'Shooting Stars Tattoo', 'Mother\'s Garden Tattoo',
     'Equilibrium Tattoo', 'Angry Tiger Tattoo', 'Mirror Ball Tattoo',
     'Diva Energy Tattoo Pack', 'Monarch Butterfly Tattoo', 'Midnight Wolf Tattoo',
-    'Karma Maze Armband Tattoo', 'Sinister Mask Tattoo', 'KALKI Forward Tattoo'
+    'Karma Maze Armband Tattoo', 'Sinister Mask Tattoo', 'KALKI Forward Tattoo',
+    'Phoenix Rising Tattoo', 'Dragon Scale Tattoo', 'Celestial Moon Tattoo',
+    'Ocean Wave Tattoo', 'Mountain Peak Tattoo', 'Forest Spirit Tattoo',
+    'Sun and Moon Tattoo', 'Geometric Pattern Tattoo', 'Minimalist Line Tattoo',
+    'Watercolor Rose Tattoo', 'Tribal Design Tattoo', 'Japanese Wave Tattoo',
+    'Skull and Roses Tattoo', 'Butterfly Wings Tattoo', 'Snake Coil Tattoo',
+    'Eagle Feather Tattoo', 'Lotus Flower Tattoo', 'Yin Yang Tattoo',
+    'Infinity Symbol Tattoo', 'Heart Lock Tattoo', 'Compass Rose Tattoo'
+  ]
+
+  const cities = [
+    'Mumbai', 'Delhi', 'Bangalore', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune', 'Ahmedabad',
+    'Jaipur', 'Surat', 'Lucknow', 'Kanpur', 'Nagpur', 'Indore', 'Thane', 'Bhopal',
+    'Visakhapatnam', 'Pimpri-Chinchwad', 'Patna', 'Vadodara', 'Ghaziabad', 'Ludhiana',
+    'Agra', 'Nashik', 'Faridabad', 'Meerut', 'Rajkot', 'Kalyan-Dombivali', 'Vasai-Virar',
+    'Varanasi', 'Srinagar', 'Aurangabad', 'Dhanbad', 'Amritsar', 'Allahabad', 'Ranchi',
+    'Howrah', 'Coimbatore', 'Jabalpur', 'Gwalior', 'Vijayawada', 'Jodhpur', 'Madurai'
   ]
   
   return Array.from({ length: count }, (_, i) => {
     const seed = i + 1
-    const total = Math.floor(Math.random() * 5000) + 100 // More realistic prices
+    const total = Math.floor(Math.random() * 15000) + 500 // More realistic price range
     const statusIndex = seed % statuses.length
     const fulfillmentIndex = seed % fulfillmentStatuses.length
     const financialIndex = seed % financialStatuses.length
@@ -44,22 +111,82 @@ export const generateOrders = (count: number): Order[] => {
     const customerEmail = customerName.toLowerCase().replace(' ', '.') + '@example.com'
     const phone = `+91 ${Math.floor(Math.random() * 9000000000) + 1000000000}`
     
-    // Generate realistic product data
-    const product1 = productNames[seed % productNames.length]
-    const product2 = productNames[(seed + 1) % productNames.length]
-    const quantity1 = Math.floor(Math.random() * 3) + 1
-    const quantity2 = Math.floor(Math.random() * 2) + 1
+    // Generate realistic product data with more variety
+    const numItems = Math.floor(Math.random() * 4) + 1 // 1-4 items per order
+    const items: any[] = []
+    const line_items: any[] = []
+    
+    for (let j = 0; j < numItems; j++) {
+      const productName = productNames[(seed + j) % productNames.length]
+      const quantity = Math.floor(Math.random() * 3) + 1
+      const price = Math.floor(Math.random() * 2000) + 500
+      
+      items.push({
+        title: productName,
+        quantity,
+        price,
+        variant_title: j % 3 === 0 ? 'Small' : j % 3 === 1 ? 'Medium' : 'Large',
+        sku: `SKU-${Math.floor(Math.random() * 10000)}`,
+        vendor: 'INKHUB Tattoos'
+      })
+      
+      line_items.push({
+        title: productName,
+        quantity,
+        price,
+        variant_title: j % 3 === 0 ? 'Small' : j % 3 === 1 ? 'Medium' : 'Large',
+        sku: `SKU-${Math.floor(Math.random() * 10000)}`,
+        vendor: 'INKHUB Tattoos'
+      })
+    }
     
     // Generate realistic dates
     const daysAgo = Math.floor(Math.random() * 365) + 1
     const createdAt = new Date(Date.now() - (daysAgo * 24 * 60 * 60 * 1000)).toISOString()
     const updatedAt = new Date(Date.now() - (Math.floor(Math.random() * daysAgo) * 24 * 60 * 60 * 1000)).toISOString()
     
-    // Generate realistic tags
-    const orderTags = []
-    if (seed % 3 === 0) orderTags.push(tags[seed % tags.length])
-    if (seed % 5 === 0) orderTags.push(tags[(seed + 1) % tags.length])
-    if (seed % 7 === 0) orderTags.push(tags[(seed + 2) % tags.length])
+    // Generate realistic tags with more variety
+    const orderTags: string[] = []
+    const numTags = Math.floor(Math.random() * 4) + 1 // 1-4 tags per order
+    for (let j = 0; j < numTags; j++) {
+      const tag = tags[(seed + j) % tags.length]
+      if (!orderTags.includes(tag)) {
+        orderTags.push(tag)
+      }
+    }
+    
+    // Generate realistic addresses
+    const city = cities[seed % cities.length]
+    const shippingAddress = {
+      firstName: customerName.split(' ')[0],
+      lastName: customerName.split(' ')[1] || '',
+      address1: `${Math.floor(Math.random() * 999) + 1} Main Street`,
+      address2: `Apartment ${Math.floor(Math.random() * 999) + 1}`,
+      city,
+      province: 'Maharashtra',
+      country: 'India',
+      zip: `${Math.floor(Math.random() * 900000) + 100000}`,
+      phone
+    }
+    
+    const billingAddress = {
+      firstName: customerName.split(' ')[0],
+      lastName: customerName.split(' ')[1] || '',
+      address1: `${Math.floor(Math.random() * 999) + 1} Billing Street`,
+      address2: `Office ${Math.floor(Math.random() * 999) + 1}`,
+      city,
+      province: 'Maharashtra',
+      country: 'India',
+      zip: `${Math.floor(Math.random() * 900000) + 100000}`,
+      phone
+    }
+    
+    // Generate customer object
+    const customer = {
+      firstName: customerName.split(' ')[0],
+      lastName: customerName.split(' ')[1] || '',
+      email: customerEmail
+    }
     
     return {
       id: `order-${i + 1}`,
@@ -68,26 +195,26 @@ export const generateOrders = (count: number): Order[] => {
       customerEmail,
       phone,
       total,
+      currency: 'INR',
       status: statuses[statusIndex],
       fulfillmentStatus: fulfillmentStatuses[fulfillmentIndex],
       financialStatus: financialStatuses[financialIndex],
-      items: [
-        { title: product1, quantity: quantity1 },
-        { title: product2, quantity: quantity2 }
-      ],
-      line_items: [
-        { title: product1, quantity: quantity1 },
-        { title: product2, quantity: quantity2 }
-      ],
+      paymentStatus: financialStatuses[financialIndex],
+      items,
+      line_items,
+      lineItems: line_items,
       createdAt,
       updatedAt,
       totalPrice: total.toFixed(2),
       tags: orderTags.length > 0 ? orderTags : [tags[seed % tags.length]],
       channel: channels[channelIndex],
       deliveryMethod: deliveryMethods[deliveryIndex],
-      deliveryStatus: fulfillmentStatuses[fulfillmentIndex] === 'fulfilled' ? 'Tracking added' : '',
+      deliveryStatus: fulfillmentStatuses[fulfillmentIndex] === 'fulfilled' ? 'Tracking added' : fulfillmentStatuses[fulfillmentIndex] === 'partial' ? 'Partially shipped' : 'Pending',
       hasWarning,
-      hasDocument
+      hasDocument,
+      shippingAddress,
+      billingAddress,
+      customer
     }
   })
 }

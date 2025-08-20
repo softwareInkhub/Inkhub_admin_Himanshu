@@ -114,7 +114,33 @@ export const useNotificationStore = create<NotificationState>()(
       }
     }),
     {
-      name: 'notification-storage'
+      name: 'notification-storage',
+      // Custom rehydration to convert string timestamps back to Date objects
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          state.notifications = state.notifications.map(notification => {
+            let timestamp: Date
+            if (typeof notification.timestamp === 'string') {
+              try {
+                timestamp = new Date(notification.timestamp)
+                // If the date is invalid, use current time
+                if (isNaN(timestamp.getTime())) {
+                  timestamp = new Date()
+                }
+              } catch (error) {
+                timestamp = new Date()
+              }
+            } else {
+              timestamp = notification.timestamp
+            }
+            
+            return {
+              ...notification,
+              timestamp
+            }
+          })
+        }
+      }
     }
   )
 )

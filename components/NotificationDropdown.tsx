@@ -9,7 +9,7 @@ export interface Notification {
   title: string
   message: string
   type: 'info' | 'success' | 'warning' | 'error'
-  timestamp: Date
+  timestamp: Date | string
   read: boolean
   action?: {
     label: string
@@ -96,9 +96,21 @@ export function NotificationDropdown({
     }
   }
 
-  const formatTimestamp = (timestamp: Date) => {
+  const formatTimestamp = (timestamp: Date | string) => {
     const now = new Date()
-    const diff = now.getTime() - timestamp.getTime()
+    // Handle both Date objects and string timestamps
+    let timestampDate: Date
+    try {
+      timestampDate = timestamp instanceof Date ? timestamp : new Date(timestamp)
+      // Check if the date is valid
+      if (isNaN(timestampDate.getTime())) {
+        return 'Unknown time'
+      }
+    } catch (error) {
+      return 'Unknown time'
+    }
+    
+    const diff = now.getTime() - timestampDate.getTime()
     const minutes = Math.floor(diff / 60000)
     const hours = Math.floor(diff / 3600000)
     const days = Math.floor(diff / 86400000)
@@ -125,13 +137,13 @@ export function NotificationDropdown({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 rounded-lg border border-secondary-200 bg-white/95 backdrop-blur-sm py-3 shadow-xl dark:border-secondary-700 dark:bg-secondary-800/95 animate-fade-in z-[999999]">
+        <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] sm:max-w-none rounded-lg border border-secondary-200 bg-white/95 backdrop-blur-sm py-3 shadow-xl dark:border-secondary-700 dark:bg-secondary-800/95 animate-fade-in z-[999999]">
           {/* Header */}
           <div className="flex items-center justify-between px-4 pb-2 border-b border-secondary-200 dark:border-secondary-700">
             <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-100">
               Notifications
             </h3>
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-1">
               {unreadCount > 0 && (
                 <button
                   onClick={onMarkAllAsRead}
@@ -152,7 +164,7 @@ export function NotificationDropdown({
           </div>
 
           {/* Notifications List */}
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-96 overflow-y-auto overflow-x-hidden">
             {notifications.length === 0 ? (
               <div className="px-4 py-8 text-center">
                 <Bell className="h-8 w-8 text-secondary-400 mx-auto mb-2 transition-all duration-300 hover:scale-110 hover:rotate-12" />
@@ -176,7 +188,7 @@ export function NotificationDropdown({
                       <div className="flex-shrink-0 mt-0.5 transition-all duration-300 group-hover:scale-110 group-hover:rotate-12">
                         {getNotificationIcon(notification.type)}
                       </div>
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 overflow-hidden">
                         <div className="flex items-start justify-between">
                           <p className={cn(
                             'text-sm font-medium transition-all duration-300 group-hover:translate-x-1',
@@ -193,14 +205,14 @@ export function NotificationDropdown({
                             <X className="h-3 w-3" />
                           </button>
                         </div>
-                        <p className="text-xs text-secondary-600 dark:text-secondary-400 mt-1 transition-all duration-300 group-hover:translate-x-1">
+                        <p className="text-xs text-secondary-600 dark:text-secondary-400 mt-1 transition-all duration-300 group-hover:translate-x-1 break-words">
                           {notification.message}
                         </p>
-                        <div className="flex items-center justify-between mt-2">
+                        <div className="flex items-center justify-between mt-2 flex-wrap gap-1">
                           <span className="text-xs text-secondary-500 dark:text-secondary-400">
                             {formatTimestamp(notification.timestamp)}
                           </span>
-                          <div className="flex items-center space-x-2">
+                          <div className="flex items-center space-x-1">
                             {notification.action && (
                               <button
                                 onClick={notification.action.onClick}

@@ -13,6 +13,7 @@ export { default as AnalyticsCard } from './AnalyticsCard'
 
 // Search and Filter Components
 export { default as SearchControls } from './SearchControls'
+export { default as GoogleStyleSearch } from './GoogleStyleSearch'
 export { default as AdvancedSearchBuilder } from './AdvancedSearchBuilder'
 export { default as FilterPanel } from './FilterPanel'
 export { default as ColumnFilter } from './ColumnFilter'

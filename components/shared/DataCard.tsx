@@ -30,7 +30,7 @@ export default function DataCard<T extends { id: string }>({
   onClick,
   searchQuery = '',
   showImages = true,
-  imageField = 'images' as keyof T,
+  imageField = 'image' as keyof T,
   titleField = 'title' as keyof T,
   subtitleField = 'vendor' as keyof T,
   statusField = 'status' as keyof T,
@@ -60,7 +60,7 @@ export default function DataCard<T extends { id: string }>({
   const status = getFieldValue(statusField)
   const price = getFieldValue(priceField)
   const tags = getFieldValue(tagsField)
-  const images = getFieldValue(imageField)
+  const image = getFieldValue(imageField)
 
   return (
     <div
@@ -82,12 +82,22 @@ export default function DataCard<T extends { id: string }>({
           />
         )}
         
-        {showImages && Array.isArray(images) && images.length > 0 && (
-          <ImageDisplay
-            src={images[0]}
-            alt={String(title)}
-            size="md"
-          />
+        {showImages && image && (
+          <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
+            {typeof image === 'string' && image ? (
+              <img 
+                src={image} 
+                alt={String(title)}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </div>
+            )}
+          </div>
         )}
       </div>
 

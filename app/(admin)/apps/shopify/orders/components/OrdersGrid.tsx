@@ -9,6 +9,7 @@ interface OrdersGridProps {
   onSelectOrder: (orderId: string) => void;
   onOrderClick: (order: Order, event?: React.MouseEvent) => void;
   getStatusBadge: (status: string) => React.ReactNode;
+  cardsPerRow?: number;
   // Filter props
   activeColumnFilter: string | null;
   columnFilters: any;
@@ -25,6 +26,7 @@ const OrdersGrid: React.FC<OrdersGridProps> = ({
   onSelectOrder,
   onOrderClick,
   getStatusBadge,
+  cardsPerRow = 4,
   activeColumnFilter,
   columnFilters,
   onFilterClick,
@@ -33,6 +35,20 @@ const OrdersGrid: React.FC<OrdersGridProps> = ({
   getUniqueValues,
   getUniqueTags
 }) => {
+  const getGridClasses = (count: number) => {
+    const base = 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3';
+    const mapping: Record<number, string> = {
+      1: 'xl:grid-cols-1',
+      2: 'xl:grid-cols-2',
+      3: 'xl:grid-cols-3',
+      4: 'xl:grid-cols-4',
+      5: 'xl:grid-cols-5',
+      6: 'xl:grid-cols-6'
+    };
+    const cls = `${base} ${mapping[Math.min(Math.max(count,1),6)]}`;
+    const style = count > 6 ? { gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` } : {};
+    return { className: cls, style } as { className: string; style: React.CSSProperties };
+  };
   const ColumnHeader = ({ 
     title, 
     column, 
@@ -158,138 +174,32 @@ const OrdersGrid: React.FC<OrdersGridProps> = ({
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-      {/* Grid Header with Filters */}
-      <div className="bg-gray-50 border-b border-gray-200">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-0">
-          {/* Order Column */}
-          <ColumnHeader 
-            title="Order" 
-            column="orderNumber" 
-            hasFilter={true} 
-            filterType="text"
-          />
-          
-          {/* Customer Column */}
-          <ColumnHeader 
-            title="Customer" 
-            column="customer" 
-            hasFilter={true} 
-            filterType="text"
-          />
-          
-          {/* Status Column */}
-          <ColumnHeader 
-            title="Fulfillment Status" 
-            column="fulfillmentStatus" 
-            hasFilter={true} 
-            filterType="multi-select"
-            options={['unfulfilled', 'fulfilled', 'partial']}
-          />
-          
-          {/* Total Column */}
-          <ColumnHeader 
-            title="Total" 
-            column="total" 
-            hasFilter={true} 
-            filterType="text"
-          />
-          
-          {/* Date Column */}
-          <ColumnHeader 
-            title="Date" 
-            column="date" 
-            hasFilter={true} 
-            filterType="date"
-          />
-          
-          {/* Items Column */}
-          <ColumnHeader 
-            title="Items" 
-            column="items" 
-            hasFilter={true} 
-            filterType="text"
-          />
-          
-          {/* Payment Status Column */}
-          <ColumnHeader 
-            title="Payment Status" 
-            column="paymentStatus" 
-            hasFilter={true} 
-            filterType="multi-select"
-            options={['paid', 'pending', 'refunded']}
-          />
-          
-          {/* Tags Column */}
-          <ColumnHeader 
-            title="Tags" 
-            column="tags" 
-            hasFilter={true} 
-            filterType="multi-select"
-            options={getUniqueTags()}
-          />
-          
-          {/* Channel Column */}
-          <ColumnHeader 
-            title="Channel" 
-            column="channel" 
-            hasFilter={true} 
-            filterType="multi-select"
-            options={getUniqueValues('channel')}
-          />
-          
-          {/* Delivery Method Column */}
-          <ColumnHeader 
-            title="Delivery Method" 
-            column="deliveryMethod" 
-            hasFilter={true} 
-            filterType="multi-select"
-            options={getUniqueValues('deliveryMethod')}
-          />
-          
-          {/* Delivery Status Column */}
-          <ColumnHeader 
-            title="Delivery Status" 
-            column="deliveryStatus" 
-            hasFilter={true} 
-            filterType="multi-select"
-            options={['Tracking added', 'In Transit', 'Delivered']}
-          />
-        </div>
-      </div>
-
       {/* Grid Content */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
+      <div className={getGridClasses(cardsPerRow).className} style={getGridClasses(cardsPerRow).style}>
         {orders.map((order) => (
           <div
             key={order.id}
-            className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 cursor-pointer"
+            className="p-3 hover:bg-gray-50 transition-colors duration-200 cursor-pointer border border-gray-300 hover:border-gray-400 rounded-lg bg-white shadow-sm flex flex-col h-full"
             onClick={(e) => onOrderClick(order, e)}
           >
-            {/* Card Header */}
-            <div className="p-4 border-b border-gray-100">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedOrders.includes(order.id)}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      onSelectOrder(order.id);
-                    }}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="font-medium text-gray-900">#{order.orderNumber}</span>
-                </div>
-                {getStatusBadge(order.fulfillmentStatus)}
+            {/* Item Content */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={selectedOrders.includes(order.id)}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    onSelectOrder(order.id);
+                  }}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="font-medium text-gray-900">#{order.orderNumber}</span>
               </div>
-              <div className="text-sm text-gray-500">
-                {order.customerName}
-              </div>
+              {getStatusBadge(order.fulfillmentStatus)}
             </div>
-
-            {/* Card Body */}
-            <div className="p-4">
-              <div className="space-y-3">
+            <div className="text-sm text-gray-500 mb-2">{order.customerName}</div>
+            <div className="space-y-2 flex-1">
                 {/* Total */}
                 <div className="flex justify-between">
                   <span className="text-sm text-gray-600">Total</span>
@@ -338,15 +248,10 @@ const OrdersGrid: React.FC<OrdersGridProps> = ({
                     )}
                   </div>
                 )}
-              </div>
             </div>
-
-            {/* Card Footer */}
-            <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 rounded-b-lg">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">{order.channel}</span>
-                <span className="text-gray-500">{order.deliveryMethod}</span>
-              </div>
+            <div className="flex items-center justify-between text-sm mt-2 pt-2 border-t border-gray-100">
+              <span className="text-gray-600">{order.channel}</span>
+              <span className="text-gray-500">{order.deliveryMethod}</span>
             </div>
           </div>
         ))}
