@@ -9,6 +9,7 @@ interface OrderCardViewProps {
   columns: any[]
   selectedItems: string[]
   onSelectItem: (id: string) => void
+  onOrderClick?: (order: Order, event: React.MouseEvent) => void
   viewMode: 'table' | 'grid' | 'card'
   cardsPerRow?: number
   onCardsPerRowChange?: (count: number) => void
@@ -23,6 +24,7 @@ export default function OrderCardView({
   columns,
   selectedItems,
   onSelectItem,
+  onOrderClick,
   viewMode,
   cardsPerRow = 4,
   onCardsPerRowChange,
@@ -71,7 +73,14 @@ export default function OrderCardView({
             }`}
             onMouseEnter={() => setHoveredCard(order.id)}
             onMouseLeave={() => setHoveredCard(null)}
-            onClick={() => onSelectItem(order.id)}
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest('input,button')) return
+              if (onOrderClick) {
+                onOrderClick(order, e)
+              } else {
+                onSelectItem(order.id)
+              }
+            }}
           >
             {/* List Item Header */}
             <div className="flex items-center justify-between">

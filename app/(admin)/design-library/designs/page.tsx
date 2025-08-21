@@ -333,7 +333,7 @@ function DesignLibraryPage() {
       { key: 'tags', label: 'Tags', type: 'text' }
     ],
     filterOptions: designFilters,
-    defaultViewMode: 'grid',
+    defaultViewMode: 'table',
     defaultItemsPerPage: 25
   })
 

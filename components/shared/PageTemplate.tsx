@@ -18,6 +18,7 @@ import {
   BulkEditModal,
   BulkDeleteModal
 } from './index'
+import TablePreferencesModal from './TablePreferencesModal'
 import ProductsGridCardFilterHeader from '@/app/(admin)/apps/shopify/products/components/GridCardFilterHeader'
 
 // Reusable props contract for grid/card header components
@@ -186,6 +187,30 @@ export default function PageTemplate<T extends BaseEntity>({
   // Header dropdown state
   const [showHeaderDropdown, setShowHeaderDropdown] = useState<boolean>(false)
 
+  // Table settings: page size and column visibility (persisted per page)
+  const storageKey = `table-settings:${config.title.toLowerCase().replace(/\s+/g, '-')}`
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem(storageKey) : null
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        return parsed.columnVisibility || {}
+      }
+    } catch {}
+    // default: all visible
+    const allVisible: Record<string, boolean> = {}
+    ;(config.columns || []).forEach((c: any) => { allVisible[c.key] = true })
+    return allVisible
+  })
+  const [settingsDraft, setSettingsDraft] = useState<{ pageSize: number; columnVisibility: Record<string, boolean> }>({
+    pageSize: itemsPerPage || 25,
+    columnVisibility
+  })
+
+  // Preview modal state for generic entities
+  const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false)
+  const [previewItem, setPreviewItem] = useState<T | null>(null)
+
   // Column filter state (shared across views)
   const [activeColumnFilter, setActiveColumnFilter] = useState<string | null>(null)
   const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, any>>({})
@@ -312,16 +337,30 @@ export default function PageTemplate<T extends BaseEntity>({
   }
 
   const filteredData = applyColumnFilters(data)
+  const visibleColumns = (config.columns || []).filter((c: any) => columnVisibility[c.key] !== false)
 
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false)
+
+  const handleItemClick = (item: T, event?: React.MouseEvent) => {
+    // Guard against clicks on checkboxes or buttons
+    if (event) {
+      const target = event.target as HTMLElement
+      if (target.closest('input[type="checkbox"]') || target.closest('button')) {
+        return
+      }
+    }
+    setPreviewItem(item)
+    setShowPreviewModal(true)
+  }
 
   return (
     <div className={cn(
       "min-h-screen bg-gray-50",
       isFullScreen ? "fixed inset-0 z-50 bg-white flex flex-col" : ""
     )}>
+      {/* Full Screen Header - Fixed at top */}
       {isFullScreen && (
-        <div className="sticky top-0 z-20 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+        <div className="sticky top-0 z-30 bg-white border-b border-gray-200 p-4 flex justify-between items-center flex-shrink-0">
           <h2 className="text-lg font-semibold text-gray-900">{config.title} - Full Screen View</h2>
           <button
             onClick={() => setIsFullScreen(false)}
@@ -332,8 +371,9 @@ export default function PageTemplate<T extends BaseEntity>({
           </button>
         </div>
       )}
-      {/* KPI Grid */}
-      <div className="px-4 py-3">
+
+      {/* KPI Grid - Fixed below header */}
+      <div className={cn("px-4 py-3", isFullScreen ? "flex-shrink-0 bg-white border-b border-gray-200" : "")}>
         <KPIGrid 
           kpiMetrics={config.kpis.reduce((acc, kpi) => {
             acc[kpi.key] = kpi
@@ -344,8 +384,11 @@ export default function PageTemplate<T extends BaseEntity>({
         />
       </div>
 
-      {/* Search Controls */}
-      <div className={cn("px-4 pb-2", isFullScreen ? "sticky top-0 z-40 bg-white border-b border-gray-200" : "") }>
+      {/* Search Controls - Fixed below KPI */}
+      <div className={cn(
+        "px-4 pb-2", 
+        isFullScreen ? "sticky top-0 z-20 bg-white border-b border-gray-200 flex-shrink-0" : ""
+      )}>
         <SearchControls
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
@@ -379,7 +422,10 @@ export default function PageTemplate<T extends BaseEntity>({
           onExport={() => setShowExportModal(true)}
           onImport={() => setShowImportModal(true)}
           onPrint={() => setShowPrintModal(true)}
-          onSettings={() => setShowSettingsModal(true)}
+          onSettings={() => {
+            setSettingsDraft({ pageSize: itemsPerPage, columnVisibility: { ...columnVisibility } })
+            setShowSettingsModal(true)
+          }}
           showHeaderDropdown={showHeaderDropdown}
           setShowHeaderDropdown={setShowHeaderDropdown}
           viewMode={viewMode}
@@ -393,39 +439,58 @@ export default function PageTemplate<T extends BaseEntity>({
         />
       </div>
 
-      {/* Bulk Actions Bar */}
+      {/* Bulk Actions Bar - Fixed below search controls */}
       {selectedItems.length > 0 && (
-        <BulkActionsBar
-          selectedItems={selectedItems}
-          totalItems={data.length}
-          onBulkEdit={() => setShowBulkEditModal(true)}
-          onExportSelected={() => setShowExportModal(true)}
-          onBulkDelete={() => setShowBulkDeleteModal(true)}
-          onClearSelection={() => setSelectedItems([])}
-        />
+        <div className={cn(
+          isFullScreen ? "sticky top-0 z-15 bg-white border-b border-gray-200 flex-shrink-0" : ""
+        )}>
+          <BulkActionsBar
+            selectedItems={selectedItems}
+            totalItems={data.length}
+            onBulkEdit={() => setShowBulkEditModal(true)}
+            onExportSelected={() => setShowExportModal(true)}
+            onBulkDelete={() => setShowBulkDeleteModal(true)}
+            onClearSelection={() => setSelectedItems([])}
+          />
+        </div>
       )}
 
-      {/* Main Content */}
+      {/* Main Content Area - Scrollable */}
       <div className={cn(
-        isFullScreen ? "flex-1 overflow-hidden flex flex-col px-4 pb-4" : "px-4 pb-4"
+        isFullScreen ? "flex-1 overflow-hidden flex flex-col" : "px-4 pb-4"
       )}>
         {viewMode === 'table' && (
           <>
-            <div className={cn(isFullScreen ? "flex-1 overflow-auto" : "") }>
-          <DataTable
+            {/* Table Header - Fixed */}
+            <div className={cn(
+              isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200 flex-shrink-0" : ""
+            )}>
+              <DataTable
                 data={filteredData}
-            columns={config.columns}
-            selectedItems={selectedItems}
-            onSelectItem={(id: string) => handleSelectItem(id, !selectedItems.includes(id))}
-            onSelectAll={handleSelectAll}
-            searchQuery={searchQuery}
+                columns={visibleColumns}
+                selectedItems={selectedItems}
+                onSelectItem={(id: string) => handleSelectItem(id, !selectedItems.includes(id))}
+                onRowClick={(item: any) => handleItemClick(item as T)}
+                onSelectAll={handleSelectAll}
+                searchQuery={searchQuery}
                 columnFilters={localColumnFilters}
                 activeColumnFilter={activeColumnFilter}
                 onFilterClick={onFilterClickHeader}
                 onColumnFilterChange={onColumnFilterChangeHeader}
+                isFullScreen={isFullScreen}
               />
             </div>
-            <div className={cn("border-t border-gray-200", isFullScreen ? "sticky bottom-0 bg-white z-10" : "") }>
+            {/* Table Body - Scrollable */}
+            <div className={cn(
+              isFullScreen ? "flex-1 overflow-auto" : ""
+            )}>
+              {/* Table content will be rendered here by DataTable component */}
+            </div>
+            {/* Pagination - Fixed at bottom */}
+            <div className={cn(
+              "border-t border-gray-200", 
+              isFullScreen ? "sticky bottom-0 bg-white z-10 flex-shrink-0" : ""
+            )}>
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
@@ -440,224 +505,375 @@ export default function PageTemplate<T extends BaseEntity>({
 
         {viewMode === 'grid' && (
           <>
-          {(() => {
-            const HeaderComp = GridHeaderComponent || ProductsGridCardFilterHeader
-            return (
-              <div className={cn(isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : "") }>
-                <HeaderComp
-                  selectedProducts={selectedItems}
-                  currentProducts={filteredData}
-                  onSelectAll={handleSelectAll}
-                  activeColumnFilter={activeColumnFilter}
-                  columnFilters={localColumnFilters}
-                  onFilterClick={onFilterClickHeader}
-                  onColumnFilterChange={onColumnFilterChangeHeader}
-                  getUniqueValues={getUniqueValues}
-                  cardsPerRow={gridCardsPerRow}
-                  onCardsPerRowChange={(v: number) => setGridCardsPerRow(v)}
-                />
-              </div>
-            )
-          })()}
-          <div className={cn(getGridClasses(gridCardsPerRow).className, isFullScreen ? "flex-1 overflow-auto" : "")} style={getGridClasses(gridCardsPerRow).style}>
-            {filteredData.map((item: T) => (
-              <div
-                key={item.id}
-                className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => handleSelectItem(item.id, !selectedItems.includes(item.id))}
-              >
-                <div className="flex items-center space-x-3 mb-3">
-                  <input
-                    type="checkbox"
-                    checked={selectedItems.includes(item.id)}
-                    onChange={() => handleSelectItem(item.id, !selectedItems.includes(item.id))}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    onClick={(e) => e.stopPropagation()}
+            {/* Grid Header - Fixed */}
+            {(() => {
+              const HeaderComp = GridHeaderComponent || ProductsGridCardFilterHeader
+              return (
+                <div className={cn(
+                  isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200 flex-shrink-0" : ""
+                )}>
+                  <HeaderComp
+                    selectedProducts={selectedItems}
+                    currentProducts={filteredData}
+                    onSelectAll={handleSelectAll}
+                    activeColumnFilter={activeColumnFilter}
+                    columnFilters={localColumnFilters}
+                    onFilterClick={onFilterClickHeader}
+                    onColumnFilterChange={onColumnFilterChangeHeader}
+                    getUniqueValues={getUniqueValues}
+                    cardsPerRow={gridCardsPerRow}
+                    onCardsPerRowChange={(v: number) => setGridCardsPerRow(v)}
                   />
-                  {/* Image display */}
-                  {(item as any).image && (
-                    <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
-                      <img 
-                        src={(item as any).image} 
-                        alt={(item as any).title || (item as any).name || 'Item'}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  )}
                 </div>
-                
-                <h3 className="font-medium text-gray-900 mb-1 line-clamp-2">
-                  {(item as any).title || (item as any).name || 'Untitled'}
-                </h3>
-                
-                {(item as any).description && (
-                  <p className="text-sm text-gray-500 mb-2 line-clamp-2">{(item as any).description}</p>
-                )}
-                
-                <div className="flex items-center justify-between mb-2">
-                  {(item as any).price && (
-                    <span className="text-lg font-semibold text-gray-900">₹{(item as any).price}</span>
+              )
+            })()}
+            {/* Grid Content - Scrollable */}
+            <div className={cn(
+              getGridClasses(gridCardsPerRow).className, 
+              isFullScreen ? "flex-1 overflow-auto px-4" : ""
+            )} style={getGridClasses(gridCardsPerRow).style}>
+              {filteredData.map((item: T) => (
+                <div
+                  key={item.id}
+                  className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+                  onClick={(e) => handleItemClick(item, e)}
+                >
+                  <div className="flex items-center space-x-3 mb-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedItems.includes(item.id)}
+                      onChange={() => handleSelectItem(item.id, !selectedItems.includes(item.id))}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    {/* Image display */}
+                    {(item as any).image && (
+                      <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
+                        <img 
+                          src={(item as any).image} 
+                          alt={(item as any).title || (item as any).name || 'Item'}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                  </div>
+                  
+                  <h3 className="font-medium text-gray-900 mb-1 line-clamp-2">
+                    {(item as any).title || (item as any).name || 'Untitled'}
+                  </h3>
+                  
+                  {(item as any).description && (
+                    <p className="text-sm text-gray-500 mb-2 line-clamp-2">{(item as any).description}</p>
                   )}
-                  {(item as any).status && (
-                    <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
-                      {(item as any).status}
-                    </span>
-                  )}
+                  
+                  <div className="flex items-center justify-between mb-2">
+                    {(item as any).price && (
+                      <span className="text-lg font-semibold text-gray-900">₹{(item as any).price}</span>
+                    )}
+                    {(item as any).status && (
+                      <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
+                        {(item as any).status}
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center justify-between text-sm text-gray-500">
+                    {(item as any).inventoryQuantity && (
+                      <span>Stock: {(item as any).inventoryQuantity}</span>
+                    )}
+                    {(item as any).type && (
+                      <span>{(item as any).type}</span>
+                    )}
+                  </div>
                 </div>
-                
-                <div className="flex items-center justify-between text-sm text-gray-500">
-                  {(item as any).inventoryQuantity && (
-                    <span>Stock: {(item as any).inventoryQuantity}</span>
-                  )}
-                  {(item as any).type && (
-                    <span>{(item as any).type}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className={cn("border-t border-gray-200", isFullScreen ? "sticky bottom-0 bg-white z-10" : "") }>
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              itemsPerPage={itemsPerPage}
-              totalItems={data.length}
-              onPageChange={handlePageChange}
-              onItemsPerPageChange={handleItemsPerPageChange}
-            />
-          </div>
+              ))}
+            </div>
+            {/* Pagination - Fixed at bottom */}
+            <div className={cn(
+              "border-t border-gray-200", 
+              isFullScreen ? "sticky bottom-0 bg-white z-10 flex-shrink-0" : ""
+            )}>
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                itemsPerPage={itemsPerPage}
+                totalItems={data.length}
+                onPageChange={handlePageChange}
+                onItemsPerPageChange={handleItemsPerPageChange}
+              />
+            </div>
           </>
         )}
 
         {viewMode === 'card' && (
           <>
-          {(() => {
-            const HeaderComp = CardHeaderComponent || GridHeaderComponent || ProductsGridCardFilterHeader
-            return (
-              <div className={cn(isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : "") }>
-                <HeaderComp
-                  selectedProducts={selectedItems}
-                  currentProducts={filteredData}
-                  onSelectAll={handleSelectAll}
-                  activeColumnFilter={activeColumnFilter}
-                  columnFilters={localColumnFilters}
-                  onFilterClick={onFilterClickHeader}
-                  onColumnFilterChange={onColumnFilterChangeHeader}
-                  getUniqueValues={getUniqueValues}
-                  cardsPerRow={cardCardsPerRow}
-                  onCardsPerRowChange={(v: number) => setCardCardsPerRow(v)}
-                />
-              </div>
-            )
-          })()}
-          <div className={cn(getGridClasses(cardCardsPerRow).className, isFullScreen ? "flex-1 overflow-auto" : "")} style={getGridClasses(cardCardsPerRow).style}>
-            {filteredData.map((item: T) => {
-              const anyItem: any = item as any
-              const title = anyItem.title || anyItem.name || 'Untitled'
-              const subtitle = anyItem.vendor || anyItem.board || anyItem.owner || anyItem.client || anyItem.designer || ''
-              const leftInfo =
-                anyItem.inventoryQuantity != null ? `Stock: ${anyItem.inventoryQuantity}` :
-                anyItem.pinCount != null ? `Pins: ${anyItem.pinCount}` :
-                anyItem.views != null ? `Views: ${anyItem.views}` : ''
-              const rightInfo = anyItem.type || anyItem.category || ''
+            {/* Card Header - Fixed */}
+            {(() => {
+              const HeaderComp = CardHeaderComponent || GridHeaderComponent || ProductsGridCardFilterHeader
               return (
-                <div
-                  key={item.id}
-                  className="relative group cursor-pointer transition-all duration-200 hover:scale-105 hover:shadow-lg border border-gray-300 rounded-lg"
-                  onClick={() => handleSelectItem(item.id, !selectedItems.includes(item.id))}
-                  onMouseEnter={() => setHoveredItemId(item.id)}
-                  onMouseLeave={() => setHoveredItemId(null)}
-                >
-                  {/* Checkbox overlay */}
-                  <div className="absolute top-2 left-2 z-10">
-                    <input
-                      type="checkbox"
-                      checked={selectedItems.includes(item.id)}
-                      onChange={() => handleSelectItem(item.id, !selectedItems.includes(item.id))}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 bg-white/80 backdrop-blur-sm"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-
-                  {/* Image */}
-                  <div className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
-                    {anyItem.image ? (
-                      <img 
-                        src={anyItem.image} 
-                        alt={title}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                        <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </div>
-                    )}
-
-                    {/* Hover overlay with info */}
-                    <div className={cn(
-                      "absolute inset-0 bg-black/60 text-white p-3 flex flex-col justify-end transition-opacity duration-200",
-                      hoveredItemId === item.id ? "opacity-100" : "opacity-0"
-                    )}>
-                      <div className="space-y-1">
-                        <h3 className="text-sm font-medium line-clamp-2">{title}</h3>
-                        {subtitle && <p className="text-xs text-gray-300">{subtitle}</p>}
-                        <div className="flex items-center justify-between">
-                          {anyItem.price != null && (
-                            <span className="text-sm font-semibold">₹{anyItem.price}</span>
-                          )}
-                          {anyItem.status && (
-                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-200">
-                              {String(anyItem.status)}
-                            </span>
-                          )}
-                        </div>
-                        {(leftInfo || rightInfo) && (
-                          <div className="flex items-center justify-between text-xs text-gray-300">
-                            <span>{leftInfo}</span>
-                            <span>{rightInfo}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Status indicator dot */}
-                    {anyItem.status && (
-                      <div className={cn(
-                        "absolute top-2 right-2 w-3 h-3 rounded-full border-2 border-white",
-                        String(anyItem.status).toLowerCase().includes('active') || String(anyItem.status).toLowerCase().includes('completed') || String(anyItem.status).toLowerCase().includes('approved')
-                          ? "bg-green-500" :
-                        String(anyItem.status).toLowerCase().includes('draft') || String(anyItem.status).toLowerCase().includes('in_progress')
-                          ? "bg-blue-500" :
-                        String(anyItem.status).toLowerCase().includes('archived') || String(anyItem.status).toLowerCase().includes('rejected')
-                          ? "bg-gray-500" : "bg-gray-400"
-                      )} />
-        )}
-      </div>
-
-                  {/* No sticky footer: below-image info fully removed */}
+                <div className={cn(
+                  isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200 flex-shrink-0" : ""
+                )}>
+                  <HeaderComp
+                    selectedProducts={selectedItems}
+                    currentProducts={filteredData}
+                    onSelectAll={handleSelectAll}
+                    activeColumnFilter={activeColumnFilter}
+                    columnFilters={localColumnFilters}
+                    onFilterClick={onFilterClickHeader}
+                    onColumnFilterChange={onColumnFilterChangeHeader}
+                    getUniqueValues={getUniqueValues}
+                    cardsPerRow={cardCardsPerRow}
+                    onCardsPerRowChange={(v: number) => setCardCardsPerRow(v)}
+                  />
                 </div>
               )
-            })}
-          </div>
-          <div className={cn("border-t border-gray-200", isFullScreen ? "sticky bottom-0 bg-white z-10" : "") }>
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          itemsPerPage={itemsPerPage}
-          totalItems={data.length}
-          onPageChange={handlePageChange}
-          onItemsPerPageChange={handleItemsPerPageChange}
-        />
-      </div>
+            })()}
+            {/* Card Content - Scrollable */}
+            <div className={cn(
+              getGridClasses(cardCardsPerRow).className, 
+              isFullScreen ? "flex-1 overflow-auto px-4" : ""
+            )} style={getGridClasses(cardCardsPerRow).style}>
+              {filteredData.map((item: T) => {
+                const anyItem: any = item as any
+                const title = anyItem.title || anyItem.name || 'Untitled'
+                const subtitle = anyItem.vendor || anyItem.board || anyItem.owner || anyItem.client || anyItem.designer || ''
+                const leftInfo =
+                  anyItem.inventoryQuantity != null ? `Stock: ${anyItem.inventoryQuantity}` :
+                  anyItem.pinCount != null ? `Pins: ${anyItem.pinCount}` :
+                  anyItem.views != null ? `Views: ${anyItem.views}` : ''
+                const rightInfo = anyItem.type || anyItem.category || ''
+                return (
+                  <div
+                    key={item.id}
+                    className="relative group cursor-pointer transition-all duration-200 hover:scale-105 hover:shadow-lg border border-gray-300 rounded-lg"
+                    onClick={(e) => handleItemClick(item, e)}
+                    onMouseEnter={() => setHoveredItemId(item.id)}
+                    onMouseLeave={() => setHoveredItemId(null)}
+                  >
+                    {/* Checkbox overlay */}
+                    <div className="absolute top-2 left-2 z-10">
+                      <input
+                        type="checkbox"
+                        checked={selectedItems.includes(item.id)}
+                        onChange={() => handleSelectItem(item.id, !selectedItems.includes(item.id))}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 bg-white/80 backdrop-blur-sm"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+
+                    {/* Image */}
+                    <div className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
+                      {anyItem.image ? (
+                        <img 
+                          src={anyItem.image} 
+                          alt={title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-gray-200">
+                          <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                      )}
+
+                      {/* Hover overlay with info */}
+                      <div className={cn(
+                        "absolute inset-0 bg-black/60 text-white p-3 flex flex-col justify-end transition-opacity duration-200",
+                        hoveredItemId === item.id ? "opacity-100" : "opacity-0"
+                      )}>
+                        <div className="space-y-1">
+                          <h3 className="text-sm font-medium line-clamp-2">{title}</h3>
+                          {subtitle && <p className="text-xs text-gray-300">{subtitle}</p>}
+                          <div className="flex items-center justify-between">
+                            {anyItem.price != null && (
+                              <span className="text-sm font-semibold">₹{anyItem.price}</span>
+                            )}
+                            {anyItem.status && (
+                              <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-200">
+                                {String(anyItem.status)}
+                              </span>
+                            )}
+                          </div>
+                          {(leftInfo || rightInfo) && (
+                            <div className="flex items-center justify-between text-xs text-gray-300">
+                              <span>{leftInfo}</span>
+                              <span>{rightInfo}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Status indicator dot */}
+                      {anyItem.status && (
+                        <div className={cn(
+                          "absolute top-2 right-2 w-3 h-3 rounded-full border-2 border-white",
+                          String(anyItem.status).toLowerCase().includes('active') || String(anyItem.status).toLowerCase().includes('completed') || String(anyItem.status).toLowerCase().includes('approved')
+                            ? "bg-green-500" :
+                          String(anyItem.status).toLowerCase().includes('draft') || String(anyItem.status).toLowerCase().includes('in_progress')
+                            ? "bg-blue-500" :
+                          String(anyItem.status).toLowerCase().includes('archived') || String(anyItem.status).toLowerCase().includes('rejected')
+                            ? "bg-gray-500" : "bg-gray-400"
+                        )} />
+                      )}
+                    </div>
+
+                    {/* No sticky footer: below-image info fully removed */}
+                  </div>
+                )
+              })}
+            </div>
+            {/* Pagination - Fixed at bottom */}
+            <div className={cn(
+              "border-t border-gray-200", 
+              isFullScreen ? "sticky bottom-0 bg-white z-10 flex-shrink-0" : ""
+            )}>
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                itemsPerPage={itemsPerPage}
+                totalItems={data.length}
+                onPageChange={handlePageChange}
+                onItemsPerPageChange={handleItemsPerPageChange}
+              />
+            </div>
           </>
         )}
       </div>
 
-      {/* Removed outer fallback pagination to avoid duplicates; pagination is rendered within each view */}
-
       {/* Modals */}
+      {showPreviewModal && previewItem && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-gray-900">{config.title.replace(/s$/,'')} Details</h3>
+              <button onClick={() => setShowPreviewModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left Column */}
+              <div className="space-y-6 lg:col-span-2">
+                {/* Image and Title */}
+                <div className="flex items-start space-x-4">
+                  {(previewItem as any).image ? (
+                    <div className="w-32 h-32 rounded-lg overflow-hidden bg-gray-100">
+                      <img src={(previewItem as any).image} alt={(previewItem as any).title || (previewItem as any).name || 'Item'} className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="w-32 h-32 flex items-center justify-center bg-gray-200 rounded-lg">
+                      <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <h4 className="text-xl font-semibold text-gray-900 mb-1">{(previewItem as any).title || (previewItem as any).name || 'Untitled'}</h4>
+                    {(previewItem as any).vendor && (<p className="text-sm text-gray-500 mb-2">Vendor: {(previewItem as any).vendor}</p>)}
+                  </div>
+                </div>
+
+                {/* Basic Info */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h5 className="font-medium text-gray-900 mb-3">Basic Information</h5>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    {(previewItem as any).price != null && (<div><span className="font-medium text-gray-600">Price:</span><div className="text-green-600 font-semibold">₹{(previewItem as any).price}</div></div>)}
+                    {(previewItem as any).cost != null && (<div><span className="font-medium text-gray-600">Cost:</span><div>₹{(previewItem as any).cost}</div></div>)}
+                    {(previewItem as any).type && (<div><span className="font-medium text-gray-600">Type:</span><div>{(previewItem as any).type}</div></div>)}
+                    {(previewItem as any).category && (<div><span className="font-medium text-gray-600">Category:</span><div>{(previewItem as any).category}</div></div>)}
+                    {(previewItem as any).handle && (<div><span className="font-medium text-gray-600">Handle:</span><div className="text-blue-600">{(previewItem as any).handle}</div></div>)}
+                    {(previewItem as any).salesChannels && (<div><span className="font-medium text-gray-600">Sales Channels:</span><div>{(previewItem as any).salesChannels}</div></div>)}
+                  </div>
+                </div>
+
+                {/* Dates */}
+                {((previewItem as any).createdAt || (previewItem as any).updatedAt || (previewItem as any).publishedAt) && (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h5 className="font-medium text-gray-900 mb-3">Dates</h5>
+                    <div className="space-y-2 text-sm">
+                      {(previewItem as any).createdAt && (<div><span className="font-medium text-gray-600">Created:</span><div>{new Date((previewItem as any).createdAt).toLocaleDateString()}</div></div>)}
+                      {(previewItem as any).updatedAt && (<div><span className="font-medium text-gray-600">Updated:</span><div>{new Date((previewItem as any).updatedAt).toLocaleDateString()}</div></div>)}
+                      {(previewItem as any).publishedAt && (<div><span className="font-medium text-gray-600">Published:</span><div>{new Date((previewItem as any).publishedAt).toLocaleDateString()}</div></div>)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Additional Details - auto-fill common fields */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h5 className="font-medium text-gray-900 mb-3">Details</h5>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    {(previewItem as any).status && (<div><span className="font-medium text-gray-600">Status:</span><div>{(previewItem as any).status}</div></div>)}
+                    {(previewItem as any).owner && (<div><span className="font-medium text-gray-600">Owner:</span><div>{(previewItem as any).owner}</div></div>)}
+                    {(previewItem as any).vendor && (<div><span className="font-medium text-gray-600">Vendor:</span><div>{(previewItem as any).vendor}</div></div>)}
+                    {(previewItem as any).board && (<div><span className="font-medium text-gray-600">Board:</span><div>{(previewItem as any).board}</div></div>)}
+                    {(previewItem as any).client && (<div><span className="font-medium text-gray-600">Client:</span><div>{(previewItem as any).client}</div></div>)}
+                    {(previewItem as any).designer && (<div><span className="font-medium text-gray-600">Designer:</span><div>{(previewItem as any).designer}</div></div>)}
+                    {(previewItem as any).size && (<div><span className="font-medium text-gray-600">Size:</span><div>{(previewItem as any).size}</div></div>)}
+                    {(previewItem as any).inventoryQuantity != null && (<div><span className="font-medium text-gray-600">Inventory:</span><div>{(previewItem as any).inventoryQuantity}</div></div>)}
+                    {(previewItem as any).likes != null && (<div><span className="font-medium text-gray-600">Likes:</span><div>{(previewItem as any).likes}</div></div>)}
+                    {(previewItem as any).comments != null && (<div><span className="font-medium text-gray-600">Comments:</span><div>{(previewItem as any).comments}</div></div>)}
+                    {(previewItem as any).repins != null && (<div><span className="font-medium text-gray-600">Repins:</span><div>{(previewItem as any).repins}</div></div>)}
+                    {(previewItem as any).followers != null && (<div><span className="font-medium text-gray-600">Followers:</span><div>{(previewItem as any).followers}</div></div>)}
+                    {(previewItem as any).views != null && (<div><span className="font-medium text-gray-600">Views:</span><div>{(previewItem as any).views}</div></div>)}
+                    {(previewItem as any).downloads != null && (<div><span className="font-medium text-gray-600">Downloads:</span><div>{(previewItem as any).downloads}</div></div>)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column */}
+              <div className="space-y-6">
+                {(previewItem as any).tags && Array.isArray((previewItem as any).tags) && (previewItem as any).tags.length > 0 && (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h5 className="font-medium text-gray-900 mb-3">Tags</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {(previewItem as any).tags.map((tag: string, idx: number) => (
+                        <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(previewItem as any).variants && Array.isArray((previewItem as any).variants) && (previewItem as any).variants.length > 0 && (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h5 className="font-medium text-gray-900 mb-3">Variants ({(previewItem as any).variants.length})</h5>
+                    <div className="space-y-3">
+                      {(previewItem as any).variants.map((variant: any) => (
+                        <div key={variant.id || variant.title} className="border border-gray-200 rounded p-3 bg-white">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="font-medium text-sm">{variant.title || variant.name}</span>
+                            {variant.price != null && (<span className="text-sm font-semibold text-green-600">₹{variant.price}</span>)}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                            {variant.sku && (<div>SKU: {variant.sku}</div>)}
+                            {variant.inventoryQuantity != null && (<div>Stock: {variant.inventoryQuantity}</div>)}
+                            {variant.weight && (<div>Weight: {variant.weight} {variant.weightUnit || ''}</div>)}
+                            {variant.barcode && (<div>Barcode: {variant.barcode}</div>)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Metrics */}
+                {(((previewItem as any).likes != null) || ((previewItem as any).comments != null) || ((previewItem as any).repins != null) || ((previewItem as any).followers != null) || ((previewItem as any).views != null) || ((previewItem as any).downloads != null)) && (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h5 className="font-medium text-gray-900 mb-3">Metrics</h5>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      {(previewItem as any).likes != null && (<div><span className="font-medium text-gray-600">Likes:</span><div>{(previewItem as any).likes}</div></div>)}
+                      {(previewItem as any).comments != null && (<div><span className="font-medium text-gray-600">Comments:</span><div>{(previewItem as any).comments}</div></div>)}
+                      {(previewItem as any).repins != null && (<div><span className="font-medium text-gray-600">Repins:</span><div>{(previewItem as any).repins}</div></div>)}
+                      {(previewItem as any).followers != null && (<div><span className="font-medium text-gray-600">Followers:</span><div>{(previewItem as any).followers}</div></div>)}
+                      {(previewItem as any).views != null && (<div><span className="font-medium text-gray-600">Views:</span><div>{(previewItem as any).views}</div></div>)}
+                      {(previewItem as any).downloads != null && (<div><span className="font-medium text-gray-600">Downloads:</span><div>{(previewItem as any).downloads}</div></div>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {showExportModal && (
         <ExportModal
           isOpen={showExportModal}
@@ -757,75 +973,28 @@ export default function PageTemplate<T extends BaseEntity>({
       )}
 
       {showSettingsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg shadow-lg w-full max-w-xl mx-4">
-            <div className="flex items-start justify-between p-4 border-b border-gray-200">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">{config.title} Settings</h3>
-                <p className="text-sm text-gray-500">Customize display and export settings</p>
-              </div>
-              <button onClick={() => setShowSettingsModal(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="p-4 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-sm font-medium text-gray-700 mb-2">Default View Mode</div>
-                  <select className="w-full border border-gray-300 rounded-md p-2 text-sm" defaultValue={viewMode}>
-                    <option value="table">Table</option>
-                    <option value="grid">Grid</option>
-                    <option value="card">Card</option>
-                  </select>
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-gray-700 mb-2">Items per page</div>
-                  <select className="w-full border border-gray-300 rounded-md p-2 text-sm" defaultValue={itemsPerPage}>
-                    <option value={10}>10</option>
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <div className="text-sm font-medium text-gray-700 mb-2">Filter Settings</div>
-                <label className="flex items-center space-x-2 text-sm text-gray-700 mb-1">
-                  <input type="checkbox" className="text-blue-600" />
-                  <span>Show Advanced Filters</span>
-                </label>
-                <label className="flex items-center space-x-2 text-sm text-gray-700">
-                  <input type="checkbox" className="text-blue-600" />
-                  <span>Auto-save Filters</span>
-                </label>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-sm font-medium text-gray-700 mb-2">Default Export Format</div>
-                  <select className="w-full border border-gray-300 rounded-md p-2 text-sm">
-                    <option>CSV</option>
-                    <option>JSON</option>
-                    <option>PDF</option>
-                  </select>
-                </div>
-                <div className="flex items-end">
-                  <label className="flex items-center space-x-2 text-sm text-gray-700">
-                    <input type="checkbox" className="text-blue-600" />
-                    <span>Include Images in Exports</span>
-                  </label>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-xs text-gray-500 border rounded-md p-2">
-                <div>Total Items: {data.length}</div>
-                <div>Current View: {viewMode}</div>
-              </div>
-            </div>
-            <div className="p-4 border-t border-gray-200 flex justify-end space-x-2">
-              <button onClick={() => setShowSettingsModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
-              <button onClick={() => setShowSettingsModal(false)} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Save Changes</button>
-            </div>
-          </div>
-        </div>
+        <TablePreferencesModal
+          isOpen={showSettingsModal}
+          title={`${config.title}`}
+          pageSize={settingsDraft.pageSize}
+          onChangePageSize={(n) => setSettingsDraft(s => ({ ...s, pageSize: n }))}
+          columns={(config.columns || []).map((c: any) => ({ key: c.key, label: c.label || c.key }))}
+          columnVisibility={settingsDraft.columnVisibility}
+          onToggleColumn={(key, v) => setSettingsDraft(s => ({ ...s, columnVisibility: { ...s.columnVisibility, [key]: v } }))}
+          onSelectAll={() => setSettingsDraft(s => ({ ...s, columnVisibility: Object.fromEntries((config.columns || []).map((c: any) => [c.key, true])) }))}
+          onDeselectAll={() => setSettingsDraft(s => ({ ...s, columnVisibility: Object.fromEntries((config.columns || []).map((c: any) => [c.key, false])) }))}
+          onClose={() => setShowSettingsModal(false)}
+          onSave={() => {
+            setColumnVisibility(settingsDraft.columnVisibility)
+            setItemsPerPage(settingsDraft.pageSize)
+            try {
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(storageKey, JSON.stringify({ columnVisibility: settingsDraft.columnVisibility, pageSize: settingsDraft.pageSize }))
+              }
+            } catch {}
+            setShowSettingsModal(false)
+          }}
+        />
       )}
 
       {showBulkEditModal && (

@@ -11,6 +11,7 @@ interface OrderTableProps {
   selectedItems: string[]
   onSelectItem: (id: string) => void
   onSelectAll: () => void
+  onRowClick?: (order: Order, event: React.MouseEvent) => void
   columns: Array<{
     key: string
     label: string
@@ -34,6 +35,7 @@ export default function OrderTable({
   selectedItems,
   onSelectItem,
   onSelectAll,
+  onRowClick,
   columns,
   loading = false,
   error = null,
@@ -267,7 +269,15 @@ export default function OrderTable({
               <tr
                 key={order.id}
                 className="hover:bg-gray-50 cursor-pointer"
-                onClick={() => onSelectItem(order.id)}
+                onClick={(e) => {
+                  // If clicking checkbox or button, do not open preview
+                  if ((e.target as HTMLElement).closest('input,button')) return
+                  if (onRowClick) {
+                    onRowClick(order, e)
+                  } else {
+                    onSelectItem(order.id)
+                  }
+                }}
               >
                 <td className="px-2 py-1.5">
                   <input

@@ -298,7 +298,7 @@ function BoardsClient() {
       { key: 'privacy', label: 'Privacy', type: 'text' }
     ],
     filterOptions: boardFilters,
-    defaultViewMode: 'grid',
+    defaultViewMode: 'table',
     defaultItemsPerPage: 25
   })
 

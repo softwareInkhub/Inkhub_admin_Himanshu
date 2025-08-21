@@ -131,6 +131,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
   
   // Modal states
   const [showPreviewModal, setShowPreviewModal] = useState(false)
+  const [previewOrder, setPreviewOrder] = useState<Order | null>(null)
   const [showExportModal, setShowExportModal] = useState(false)
   const [showBulkEditModal, setShowBulkEditModal] = useState(false)
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
@@ -1441,6 +1442,12 @@ function OrdersClient({ initialData }: OrdersClientProps) {
             selectedItems={selectedOrders}
             onSelectItem={handleSelectItem}
             onSelectAll={handleSelectAll}
+            onRowClick={(order, e) => {
+              // Guard: ignore checkbox/button clicks
+              if ((e.target as HTMLElement).closest('input,button')) return
+              setPreviewOrder(order)
+              setShowPreviewModal(true)
+            }}
             columns={orderColumns}
             loading={loading}
             error={error}
@@ -1474,7 +1481,11 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                   cardsPerRow={cardsPerRow}
                   selectedOrders={selectedOrders}
                   onSelectOrder={(id) => handleSelectItem(id)}
-                  onOrderClick={(order) => console.log('Order click', order.id)}
+                  onOrderClick={(order, e) => {
+                    if ((e?.target as HTMLElement)?.closest('input,button')) return
+                    setPreviewOrder(order)
+                    setShowPreviewModal(true)
+                  }}
                   getStatusBadge={(status: string) => {
                     switch (status) {
                       case 'fulfilled':
@@ -1516,6 +1527,11 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                 columns={orderColumns}
                 selectedItems={selectedOrders}
                 onSelectItem={handleSelectItem}
+                onOrderClick={(order, e) => {
+                  if ((e.target as HTMLElement).closest('input,button')) return
+                  setPreviewOrder(order)
+                  setShowPreviewModal(true)
+                }}
                 viewMode={viewMode}
                 cardsPerRow={cardsPerRow}
                 loading={loading}
@@ -1544,6 +1560,115 @@ function OrdersClient({ initialData }: OrdersClientProps) {
       </div>
       
       {/* Modals */}
+      {showPreviewModal && previewOrder && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-gray-900">Order Details</h3>
+              <button onClick={() => setShowPreviewModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left Column */}
+              <div className="space-y-6 lg:col-span-2">
+                {/* Header */}
+                <div className="flex items-start space-x-4">
+                  <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center">
+                    <span className="text-gray-500 text-sm">#{previewOrder.orderNumber}</span>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-xl font-semibold text-gray-900 mb-1">{previewOrder.customerName}</h4>
+                    <p className="text-sm text-gray-500">{previewOrder.customerEmail}</p>
+                  </div>
+                </div>
+
+                {/* Basic Info */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h5 className="font-medium text-gray-900 mb-3">Basic Information</h5>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div><span className="font-medium text-gray-600">Total:</span><div className="text-green-600 font-semibold">₹{(previewOrder.total || 0).toFixed(2)}</div></div>
+                    <div><span className="font-medium text-gray-600">Items:</span><div>{previewOrder.items?.length || 0}</div></div>
+                    <div><span className="font-medium text-gray-600">Fulfillment:</span><div>{previewOrder.fulfillmentStatus}</div></div>
+                    <div><span className="font-medium text-gray-600">Payment:</span><div>{previewOrder.financialStatus}</div></div>
+                  </div>
+                </div>
+
+                {/* Dates */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h5 className="font-medium text-gray-900 mb-3">Dates</h5>
+                  <div className="space-y-2 text-sm">
+                    <div><span className="font-medium text-gray-600">Created:</span><div>{new Date(previewOrder.createdAt).toLocaleDateString()}</div></div>
+                    {previewOrder.updatedAt && (<div><span className="font-medium text-gray-600">Updated:</span><div>{new Date(previewOrder.updatedAt).toLocaleDateString()}</div></div>)}
+                  </div>
+                </div>
+
+                {/* Addresses */}
+                {(previewOrder.shippingAddress || previewOrder.billingAddress) && (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h5 className="font-medium text-gray-900 mb-3">Addresses</h5>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      {previewOrder.shippingAddress && (
+                        <div>
+                          <div className="font-medium text-gray-700 mb-1">Shipping</div>
+                          <div className="text-gray-600">{previewOrder.shippingAddress.address1} {previewOrder.shippingAddress.address2}</div>
+                          <div className="text-gray-600">{previewOrder.shippingAddress.city}, {previewOrder.shippingAddress.province}</div>
+                          <div className="text-gray-600">{previewOrder.shippingAddress.country} {previewOrder.shippingAddress.zip}</div>
+                        </div>
+                      )}
+                      {previewOrder.billingAddress && (
+                        <div>
+                          <div className="font-medium text-gray-700 mb-1">Billing</div>
+                          <div className="text-gray-600">{previewOrder.billingAddress.address1} {previewOrder.billingAddress.address2}</div>
+                          <div className="text-gray-600">{previewOrder.billingAddress.city}, {previewOrder.billingAddress.province}</div>
+                          <div className="text-gray-600">{previewOrder.billingAddress.country} {previewOrder.billingAddress.zip}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column */}
+              <div className="space-y-6">
+                {previewOrder.tags && previewOrder.tags.length > 0 && (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h5 className="font-medium text-gray-900 mb-3">Tags</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {previewOrder.tags.map((tag, idx) => (
+                        <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">{tag}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h5 className="font-medium text-gray-900 mb-3">Channel & Delivery</h5>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div><span className="font-medium text-gray-600">Channel:</span><div>{previewOrder.channel || '-'}</div></div>
+                    <div><span className="font-medium text-gray-600">Delivery:</span><div>{previewOrder.deliveryMethod || '-'}</div></div>
+                  </div>
+                </div>
+
+                {/* Line Items */}
+                {previewOrder.lineItems && previewOrder.lineItems.length > 0 && (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h5 className="font-medium text-gray-900 mb-3">Line Items ({previewOrder.lineItems.length})</h5>
+                    <div className="space-y-2">
+                      {previewOrder.lineItems.map((li) => (
+                        <div key={li.id} className="border border-gray-200 rounded p-3 bg-white text-sm">
+                          <div className="flex justify-between"><span className="font-medium">{li.title}</span><span className="text-gray-700">× {li.quantity}</span></div>
+                          <div className="text-xs text-gray-600">SKU: {li.sku || '-'} {li.variantId ? ` • Variant: ${li.variantId}` : ''}</div>
+                          <div className="text-xs text-gray-700">Price: ₹{li.price}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
         {showExportModal && (
         <ExportModal
           isOpen={showExportModal}

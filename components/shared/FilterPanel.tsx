@@ -49,12 +49,12 @@ export default function FilterPanel({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-3">
           <div className="w-3 h-3 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full animate-pulse"></div>
-          <div className="flex items-center space-x-2">
-            <h3 className="text-base font-semibold text-gray-900">Advanced Filters</h3>
+        <div className="flex items-center space-x-2">
+          <h3 className="text-base font-semibold text-gray-900">Advanced Filters</h3>
             <span className="text-xs text-gray-500 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 px-3 py-1 rounded-full font-medium">
               {activeCount} active
-            </span>
-          </div>
+          </span>
+        </div>
           {activeCount > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {(Array.isArray(columnFilters.status) ? columnFilters.status : []).map((status: string) => (
@@ -124,8 +124,8 @@ export default function FilterPanel({
           )}
         </div>
         <div className="flex items-center space-x-2">
-          <button
-            onClick={() => {
+        <button
+          onClick={() => {
               onColumnFilterChange('status', [])
               onColumnFilterChange('tags', [])
               onColumnFilterChange('entity', [])
@@ -137,8 +137,8 @@ export default function FilterPanel({
             className="text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 px-2 py-1 rounded-md transition-all duration-200 flex items-center space-x-1.5 border border-gray-200 hover:border-gray-300"
           >
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-            <span>Clear all</span>
-          </button>
+          <span>Clear all</span>
+        </button>
           {onClose && (
             <button
               onClick={onClose}

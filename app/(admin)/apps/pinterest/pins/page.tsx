@@ -308,7 +308,7 @@ function PinsClient() {
       { key: 'type', label: 'Type', type: 'text' }
     ],
     filterOptions: pinFilters,
-    defaultViewMode: 'grid',
+    defaultViewMode: 'table',
     defaultItemsPerPage: 25
   })
 
