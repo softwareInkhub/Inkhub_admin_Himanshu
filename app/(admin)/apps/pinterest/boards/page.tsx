@@ -35,9 +35,6 @@ const boardColumns = [
           <div className="text-sm font-medium text-gray-900 truncate">
             {board.name || 'Untitled Board'}
           </div>
-          <div className="text-xs text-gray-500 truncate">
-            Click to view details
-          </div>
         </div>
       </div>
     )
@@ -228,7 +225,7 @@ const boardKPIs = [
 
 // Define filter options for boards
 const boardFilters = [
-  { key: 'all', label: 'All' },
+  { key: 'all', label: '' },
   { key: 'public', label: 'Public' },
   { key: 'private', label: 'Private' },
   { key: 'secret', label: 'Secret' },

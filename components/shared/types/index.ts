@@ -60,6 +60,25 @@ export interface TableColumn {
 // View Modes
 export type ViewMode = 'table' | 'grid' | 'card' | 'list'
 
+// Page Configuration Types
+export interface PageConfig {
+  title: string
+  description: string
+  icon: string
+  endpoint: string
+  columns: any[]
+  kpis: any[]
+  filters: any[]
+  searchableFields: any[]
+  actions: {
+    create: () => void
+    export: () => void
+    import: () => void
+    print: () => void
+    settings: () => void
+  }
+}
+
 // Status Types
 export interface StatusConfig {
   value: string

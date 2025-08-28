@@ -1,284 +1,610 @@
-import { 
-  Search, 
-  Filter, 
-  Grid, 
-  List, 
-  Edit, 
-  Download, 
-  Trash,
-  X,
-  ChevronDown
-} from 'lucide-react';
-import { Design, CustomFilter } from '../types';
+'use client'
+
+import { Search, Filter, X, Plus, ChevronDown, Edit, Trash2, Download } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { useEffect, useRef, useState } from 'react'
+import GoogleStyleSearch from './GoogleStyleSearch'
+import { SearchSuggestion, SearchHistory, getSearchSuggestions as getLocalSearchSuggestions, saveSearchToHistory } from '../utils/searchSuggestions'
+import { Design, CustomFilter } from '../types'
 
 interface SearchControlsProps {
-  searchTerm: string;
-  onSearchChange: (value: string) => void;
-  statusFilter: string;
-  onStatusFilterChange: (value: string) => void;
-  typeFilter: string;
-  onTypeFilterChange: (value: string) => void;
-  categoryFilter: string;
-  onCategoryFilterChange: (value: string) => void;
-  priceFilter: string;
-  onPriceFilterChange: (value: string) => void;
-  viewMode: 'table' | 'grid' | 'list';
-  onViewModeChange: (mode: 'table' | 'grid' | 'list') => void;
-  showAdvancedSearch: boolean;
-  onAdvancedSearchToggle: () => void;
-  showAdvancedFilter: boolean;
-  onAdvancedFilterToggle: () => void;
-  customFilters: CustomFilter[];
-  onAddCustomFilter: (filter: CustomFilter) => void;
-  onRemoveCustomFilter: (index: number) => void;
-  selectedDesigns: string[];
-  onBulkEdit: () => void;
-  onExportSelected: () => void;
-  onBulkDelete: () => void;
-  designs: Design[];
+  searchQuery: string
+  setSearchQuery: (query: string) => void
+  searchConditions: Array<{
+    field: string
+    operator: 'contains' | 'equals' | 'starts_with' | 'ends_with'
+    value: string
+    connector: 'AND' | 'OR'
+  }>
+  showSearchBuilder: boolean
+  setShowSearchBuilder: (show: boolean) => void
+  showAdditionalControls: boolean
+  setShowAdditionalControls: (show: boolean) => void
+  activeFilter: string
+  setActiveFilter: (filter: string) => void
+  customFilters: Array<{
+    id: string
+    name: string
+    field: string
+    operator: string
+    value: string
+  }>
+  onAddCustomFilter: (filter: { name: string; field: string; operator: string; value: string }) => void
+  onRemoveCustomFilter: (filterId: string) => void
+  showCustomFilterDropdown: boolean
+  setShowCustomFilterDropdown: (show: boolean) => void
+  hiddenDefaultFilters: Set<string>
+  onShowAllFilters: () => void
+  onClearSearch: () => void
+  onClearSearchConditions: () => void
+  selectedDesigns: string[]
+  onBulkEdit: () => void
+  onExportSelected: () => void
+  onBulkDelete: () => void
+  // Column filter props
+  currentDesigns: Design[]
+  onSelectAll: () => void
+  activeColumnFilter: string | null
+  columnFilters: Record<string, any>
+  onFilterClick: (column: string) => void
+  onColumnFilterChange: (column: string, value: any) => void
+  getUniqueValues: (field: string) => string[]
+  // Header action props
+  onExport: () => void
+  onImport: () => void
+  onPrint: () => void
+  onSettings: () => void
+  showHeaderDropdown: boolean
+  setShowHeaderDropdown: (show: boolean) => void
+  // View and control props
+  viewMode: 'table' | 'grid' | 'card'
+  setViewMode: (mode: 'table' | 'grid' | 'card') => void
+  showAdvancedFilter: boolean
+  setShowAdvancedFilter: (show: boolean) => void
+  isFullScreen: boolean
+  onToggleFullScreen: () => void
+  // Search props
+  isSearching?: boolean
+  useAdvancedSearch?: boolean
 }
 
-export const SearchControls = ({
-  searchTerm,
-  onSearchChange,
-  statusFilter,
-  onStatusFilterChange,
-  typeFilter,
-  onTypeFilterChange,
-  categoryFilter,
-  onCategoryFilterChange,
-  priceFilter,
-  onPriceFilterChange,
-  viewMode,
-  onViewModeChange,
-  showAdvancedSearch,
-  onAdvancedSearchToggle,
-  showAdvancedFilter,
-  onAdvancedFilterToggle,
+export default function SearchControls({
+  searchQuery,
+  setSearchQuery,
+  searchConditions,
+  showSearchBuilder,
+  setShowSearchBuilder,
+  showAdditionalControls,
+  setShowAdditionalControls,
+  activeFilter,
+  setActiveFilter,
   customFilters,
   onAddCustomFilter,
   onRemoveCustomFilter,
+  showCustomFilterDropdown,
+  setShowCustomFilterDropdown,
+  hiddenDefaultFilters,
+  onShowAllFilters,
+  onClearSearch,
+  onClearSearchConditions,
   selectedDesigns,
   onBulkEdit,
   onExportSelected,
   onBulkDelete,
-  designs
-}: SearchControlsProps) => {
-  const statusOptions = ['All', ...Array.from(new Set(designs.map(d => d.status)))];
-  const typeOptions = ['All', ...Array.from(new Set(designs.map(d => d.type)))];
-  const categoryOptions = ['All', ...Array.from(new Set(designs.map(d => d.category)))];
-  const priceOptions = ['All', 'Under $100', '$100-$300', '$300-$500', 'Over $500'];
+  // Column filter props
+  currentDesigns,
+  onSelectAll,
+  activeColumnFilter,
+  columnFilters,
+  onFilterClick,
+  onColumnFilterChange,
+  getUniqueValues,
+  // Header action props
+  onExport,
+  // Search props
+  isSearching = false,
+  useAdvancedSearch = false,
+  onImport,
+  onPrint,
+  onSettings,
+  showHeaderDropdown,
+  setShowHeaderDropdown,
+  // View and control props
+  viewMode,
+  setViewMode,
+  showAdvancedFilter,
+  setShowAdvancedFilter,
+  isFullScreen,
+  onToggleFullScreen
+}: SearchControlsProps) {
+  // Search toggle state
+  const [showSearch, setShowSearch] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  // Search history state
+  const [searchHistory, setSearchHistory] = useState<SearchHistory[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
 
-  const getCustomFilterOptions = () => [
-    { key: 'name', label: 'Name', field: 'name', operator: 'contains', value: '' },
-    { key: 'status', label: 'Status', field: 'status', operator: 'equals', value: '' },
-    { key: 'type', label: 'Type', field: 'type', operator: 'equals', value: '' },
-    { key: 'category', label: 'Category', field: 'category', operator: 'equals', value: '' },
-    { key: 'price', label: 'Price', field: 'price', operator: 'greater_than', value: '' },
-    { key: 'client', label: 'Client', field: 'client', operator: 'contains', value: '' },
-    { key: 'designer', label: 'Designer', field: 'designer', operator: 'contains', value: '' }
-  ];
+  // Load search history from localStorage
+  useEffect(() => {
+    const savedHistory = localStorage.getItem('design-search-history')
+    if (savedHistory) {
+      try {
+        setSearchHistory(JSON.parse(savedHistory))
+      } catch (error) {
+        console.error('Failed to load search history:', error)
+      }
+    }
+  }, [])
+
+  // Save search history to localStorage
+  useEffect(() => {
+    localStorage.setItem('design-search-history', JSON.stringify(searchHistory))
+  }, [searchHistory])
+
+  // Generate suggestions when search query changes
+  useEffect(() => {
+    const newSuggestions = getLocalSearchSuggestions(searchQuery, currentDesigns, searchHistory)
+    setSuggestions(newSuggestions)
+    setShowSuggestions(searchQuery.length > 0 || searchHistory.length > 0)
+  }, [searchQuery, currentDesigns, searchHistory])
+
+  // Handle search
+  const handleSearch = (query: string) => {
+    if (query.trim()) {
+      // Save to history
+      const newHistory = saveSearchToHistory(query, currentDesigns.length, searchHistory)
+      setSearchHistory(newHistory)
+    }
+    setShowSuggestions(false)
+  }
+
+  // Handle suggestion click
+  const handleSuggestionClick = (suggestion: SearchSuggestion) => {
+    setSearchQuery(suggestion.text)
+    handleSearch(suggestion.text)
+  }
+
+  // Handle clear history
+  const handleClearHistory = () => {
+    setSearchHistory([])
+    localStorage.removeItem('design-search-history')
+  }
+
+  const getCustomFilterOptions = () => {
+    const options: Array<{
+      key: string
+      label: string
+      field: string
+      operator: string
+      value: string
+    }> = []
+    
+    // Dynamic options based on table headers and their values
+    const columnMappings = [
+      { 
+        field: 'name', 
+        label: 'Design Name', 
+        operators: ['contains', 'equals', 'starts_with', 'ends_with'],
+        sampleValues: getUniqueValues('name').slice(0, 5)
+      },
+      { 
+        field: 'status', 
+        label: 'Status', 
+        operators: ['equals'],
+        sampleValues: ['completed', 'in_progress', 'pending', 'approved', 'rejected']
+      },
+      { 
+        field: 'type', 
+        label: 'Type', 
+        operators: ['equals'],
+        sampleValues: ['logo', 'banner', 'social_media', 'print', 'web', 'illustration']
+      },
+      { 
+        field: 'category', 
+        label: 'Category', 
+        operators: ['contains', 'equals'],
+        sampleValues: getUniqueValues('category').slice(0, 5)
+      },
+      { 
+        field: 'price', 
+        label: 'Price', 
+        operators: ['greater_than', 'less_than', 'equals'],
+        sampleValues: ['100', '500', '1000', '2000']
+      },
+      { 
+        field: 'designer', 
+        label: 'Designer', 
+        operators: ['contains', 'equals'],
+        sampleValues: getUniqueValues('designer').slice(0, 5)
+      },
+      { 
+        field: 'client', 
+        label: 'Client', 
+        operators: ['contains', 'equals'],
+        sampleValues: getUniqueValues('client').slice(0, 5)
+      },
+      { 
+        field: 'tags', 
+        label: 'Tags', 
+        operators: ['contains'],
+        sampleValues: getUniqueValues('tags').slice(0, 5)
+      },
+      { 
+        field: 'createdAt', 
+        label: 'Created Date', 
+        operators: ['last_7_days', 'last_30_days', 'last_90_days'],
+        sampleValues: ['last_7_days', 'last_30_days', 'last_90_days']
+      }
+    ]
+
+    // Generate options for each column
+    columnMappings.forEach((column, index) => {
+      column.operators.forEach((operator, opIndex) => {
+        column.sampleValues.forEach((value, valIndex) => {
+          const key = `${column.field}-${operator}-${valIndex}`
+          const label = `${column.label} ${operator.replace('_', ' ')} ${value}`
+          
+          options.push({
+            key,
+            label,
+            field: column.field,
+            operator,
+            value: value.toString()
+          })
+        })
+      })
+    })
+
+    // Add some common predefined filters
+    const predefinedFilters = [
+      { key: 'high-value', label: 'High-value designs', field: 'price', operator: 'greater_than', value: '1000' },
+      { key: 'recent', label: 'Recently created', field: 'createdAt', operator: 'last_7_days', value: '' },
+      { key: 'featured', label: 'Featured designs', field: 'tags', operator: 'contains', value: 'featured' },
+      { key: 'completed', label: 'Completed designs', field: 'status', operator: 'equals', value: 'completed' },
+      { key: 'in-progress', label: 'In progress designs', field: 'status', operator: 'equals', value: 'in_progress' },
+      { key: 'pending', label: 'Pending designs', field: 'status', operator: 'equals', value: 'pending' },
+      { key: 'approved', label: 'Approved designs', field: 'status', operator: 'equals', value: 'approved' },
+      { key: 'rejected', label: 'Rejected designs', field: 'status', operator: 'equals', value: 'rejected' }
+    ]
+
+    return [...predefinedFilters, ...options.slice(0, 20)] // Limit to first 20 dynamic options + predefined
+  }
+
+  const columns = [
+    { key: 'design', title: 'DESIGN', width: 'w-64', filterType: 'text' },
+    { key: 'status', title: 'STATUS', width: 'w-24', filterType: 'select', options: ['completed', 'in_progress', 'pending', 'approved', 'rejected'] },
+    { key: 'type', title: 'TYPE', width: 'w-24', filterType: 'select', options: ['logo', 'banner', 'social_media', 'print', 'web', 'illustration'] },
+    { key: 'category', title: 'CATEGORY', width: 'w-32', filterType: 'multi-select', options: getUniqueValues('category') },
+    { key: 'price', title: 'PRICE', width: 'w-24', filterType: 'text' },
+    { key: 'designer', title: 'DESIGNER', width: 'w-32', filterType: 'multi-select', options: getUniqueValues('designer') },
+    { key: 'client', title: 'CLIENT', width: 'w-32', filterType: 'multi-select', options: getUniqueValues('client') },
+    { key: 'created', title: 'CREATED', width: 'w-24', filterType: 'date' }
+  ]
+
+  const handleFilterClick = (column: string, event: React.MouseEvent) => {
+    event.stopPropagation()
+    onFilterClick(column)
+  }
+
+  const handleFilterChange = (column: string, value: any) => {
+    onColumnFilterChange(column, value)
+  }
+
+  const handleClearFilter = (column: string) => {
+    const columnConfig = columns.find(col => col.key === column)
+    if (columnConfig) {
+      if (columnConfig.filterType === 'text' || columnConfig.filterType === 'date') {
+        onColumnFilterChange(column, '')
+      } else {
+        onColumnFilterChange(column, [])
+      }
+    }
+    onFilterClick(column)
+  }
+
+  const isFilterActive = (column: string) => {
+    const value = columnFilters[column]
+    if (Array.isArray(value)) {
+      return value.length > 0
+    }
+    return value && value !== ''
+  }
 
   return (
-    <div className="bg-white border-b px-6 py-4">
-      <div className="flex flex-wrap gap-4 items-center">
-        {/* Search Input */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search designs..."
-            value={searchTerm}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-          />
-          {searchTerm && (
+    <div className="px-3 py-0.5 border-b-0 bg-white shadow-sm">
+      {/* Main Search Bar Layout - Single Horizontal Row */}
+      <div className="flex items-center justify-between space-x-2">
+        
+        {/* LEFT SECTION: Add Filter and Search Bar */}
+        <div className="flex items-center space-x-2">
+          
+          {/* Custom Filters */}
+          {customFilters.map((customFilter) => (
             <button
-              onClick={() => onSearchChange('')}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              key={customFilter.id}
+              onClick={() => {
+                // Prevent double tabs - only set if not already active
+                if (activeFilter !== customFilter.id) {
+                  setActiveFilter(customFilter.id)
+                }
+              }}
+              className={cn(
+                'px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 flex items-center space-x-1 border shadow-sm hover:shadow-md h-10 max-w-32',
+                activeFilter === customFilter.id
+                  ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white border-blue-500 shadow-md hover:shadow-lg transform hover:scale-105'
+                  : 'bg-white text-gray-700 hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 hover:text-gray-900 border-gray-300 hover:border-gray-400'
+              )}
+              title={customFilter.name}
             >
-              <X className="h-4 w-4" />
+              <span className="truncate">{customFilter.name}</span>
+              <span
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onRemoveCustomFilter(customFilter.id)
+                  if (activeFilter === customFilter.id) {
+                    setActiveFilter('')
+                  }
+                }}
+                className="ml-1 hover:text-red-500 cursor-pointer flex-shrink-0"
+              >
+                <X className="h-3 w-3" />
+              </span>
             </button>
-          )}
-        </div>
-
-        {/* Filter Dropdowns */}
-        <select
-          value={statusFilter}
-          onChange={(e) => onStatusFilterChange(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-        >
-          {statusOptions.map(option => (
-            <option key={option} value={option}>{option}</option>
           ))}
-        </select>
 
-        <select
-          value={typeFilter}
-          onChange={(e) => onTypeFilterChange(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-        >
-          {typeOptions.map(option => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
-
-        <select
-          value={categoryFilter}
-          onChange={(e) => onCategoryFilterChange(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-        >
-          {categoryOptions.map(option => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
-
-        <select
-          value={priceFilter}
-          onChange={(e) => onPriceFilterChange(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-        >
-          {priceOptions.map(option => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
-
-        {/* Advanced Search Toggle */}
-        <button
-          onClick={onAdvancedSearchToggle}
-          className={`px-3 py-2 border rounded-lg transition-all ${
-            showAdvancedSearch 
-              ? 'bg-blue-50 border-blue-300 text-blue-700' 
-              : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          Advanced Search
-        </button>
-
-        {/* Advanced Filter Toggle */}
-        <button
-          onClick={onAdvancedFilterToggle}
-          className={`px-3 py-2 border rounded-lg transition-all ${
-            showAdvancedFilter 
-              ? 'bg-purple-50 border-purple-300 text-purple-700' 
-              : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-          }`}
-        >
-          <Filter className="h-4 w-4 inline mr-1" />
-          Advanced Filter
-        </button>
-
-        {/* Custom Filters Dropdown */}
-        <div className="relative">
-          <button className="px-3 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-all">
-            Custom Filters
-            <ChevronDown className="h-4 w-4 inline ml-1" />
-          </button>
-          <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-            <div className="p-3">
-              <h4 className="font-medium text-gray-900 mb-2">Add Custom Filter</h4>
-              {getCustomFilterOptions().map((option) => (
-                <button
-                  key={option.key}
-                  onClick={() => onAddCustomFilter({ 
-                    name: option.label, 
-                    field: option.field, 
-                    operator: option.operator, 
-                    value: option.value 
-                  })}
-                  className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded"
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+          {/* Search Bar - Toggle Functionality */}
+          <div className="relative">
+            {!showSearch ? (
+              /* Search Button - When Search is Hidden */
+              <button
+                onClick={() => {
+                  setShowSearch(true)
+                  setTimeout(() => searchInputRef.current?.focus(), 0)
+                }}
+                className="px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10 text-gray-700 hover:text-blue-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 hover:border-blue-400"
+                title="Search designs"
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            ) : (
+              /* Search Input - When Search is Visible */
+              <div className="flex items-center animate-fade-in">
+                <div className="relative flex items-center">
+                  <GoogleStyleSearch
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    onSearch={handleSearch}
+                    placeholder={searchConditions.length > 0 ? "Advanced search active..." : "Search designs... (e.g., Logo)"}
+                    className={cn(
+                      "transition-all duration-200",
+                      searchQuery.length > 60 ? "w-[600px]" :
+                      searchQuery.length > 50 ? "w-[580px]" :
+                      searchQuery.length > 40 ? "w-[560px]" : 
+                      searchQuery.length > 30 ? "w-[540px]" : 
+                      searchQuery.length > 20 ? "w-[520px]" : 
+                      searchQuery.length > 10 ? "w-[500px]" : "w-[480px]"
+                    )}
+                    suggestions={suggestions}
+                    isLoading={isSearching}
+                    showSuggestions={showSuggestions && !searchConditions.length}
+                    onSuggestionClick={handleSuggestionClick}
+                    onClearHistory={handleClearHistory}
+                  />
+                  
+                  {/* Advanced Search Indicator */}
+                  {searchConditions.length > 0 && (
+                    <div className="absolute -top-1 -right-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center shadow-md animate-pulse z-10">
+                      {searchConditions.length}
+                    </div>
+                  )}
+                  
+                  {/* Add Custom Filter Button - Auto-adjustable positioning */}
+                  <button 
+                    onClick={() => setShowCustomFilterDropdown(!showCustomFilterDropdown)}
+                    className={cn(
+                      "px-3 py-2 text-sm text-blue-600 hover:text-blue-700 border border-blue-300 rounded-md hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 transition-all duration-200 flex items-center space-x-1 bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10 flex-shrink-0",
+                      searchQuery.length > 40 ? "ml-3" : "ml-2"
+                    )}
+                    title="Add Custom Filter"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                  
+                  {/* Custom Filter Dropdown - When search is open */}
+                  {showCustomFilterDropdown && showSearch && (
+                    <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-30 custom-filter-dropdown">
+                      <div className="p-3">
+                        <div className="text-sm font-medium text-gray-700 mb-3">Add Custom Filter</div>
+                        <div className="max-h-64 overflow-y-auto space-y-1">
+                          {getCustomFilterOptions().map((option) => (
+                            <button
+                              key={option.key}
+                              onClick={() => {
+                                onAddCustomFilter({
+                                name: option.label,
+                                field: option.field,
+                                operator: option.operator,
+                                value: option.value
+                                })
+                                setShowCustomFilterDropdown(false)
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Close Button - Auto-adjustable positioning */}
+                  <button
+                    onClick={() => {
+                      setShowSearch(false)
+                      setSearchQuery('')
+                    }}
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-all duration-200 hover:shadow-md relative z-20 flex-shrink-0",
+                      searchQuery.length > 40 ? "ml-3" : "ml-2"
+                    )}
+                    title="Close search"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* View Mode Toggle */}
-        <div className="flex border border-gray-300 rounded-lg">
+        {/* RIGHT SECTION: Export, More Actions, Filter, View, Full Screen */}
+        <div className="flex items-center space-x-2">
+          {/* Export Button */}
           <button
-            onClick={() => onViewModeChange('table')}
-            className={`px-3 py-2 transition-all ${
-              viewMode === 'table' 
-                ? 'bg-blue-50 text-blue-700 border-r border-gray-300' 
-                : 'text-gray-600 hover:bg-gray-50 border-r border-gray-300'
-            }`}
+            onClick={onExport}
+            className="px-3 py-2 text-gray-700 hover:text-green-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 transition-all duration-200 hover:shadow-md text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-green-400 h-10"
           >
-            <List className="h-4 w-4" />
+            <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span>Export</span>
+            </span>
           </button>
-          <button
-            onClick={() => onViewModeChange('grid')}
-            className={`px-3 py-2 transition-all ${
-              viewMode === 'grid' 
-                ? 'bg-blue-50 text-blue-700 border-r border-gray-300' 
-                : 'text-gray-600 hover:bg-gray-50 border-r border-gray-300'
-            }`}
-          >
-            <Grid className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => onViewModeChange('list')}
-            className={`px-3 py-2 transition-all ${
-              viewMode === 'list' 
-                ? 'bg-blue-50 text-blue-700' 
-                : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            <List className="h-4 w-4" />
-          </button>
-        </div>
+          
+          {/* More Actions Button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowHeaderDropdown(!showHeaderDropdown)}
+              className="px-3 py-2 text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 hover:shadow-md flex items-center space-x-1 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-purple-400 h-10"
+            >
+              <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
+                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                </svg>
+                <span>More actions</span>
+              </span>
+              <ChevronDown className={cn(
+                "h-3 w-3 group-hover:rotate-180 transition-transform duration-200",
+                showHeaderDropdown ? "rotate-180" : ""
+              )} />
+            </button>
+            
+            {/* Header Dropdown */}
+            {showHeaderDropdown && (
+              <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-xl z-20 header-dropdown backdrop-blur-sm bg-white/95">
+                <div className="p-2">
+                  <div className="space-y-1">
+                    <button
+                      onClick={onImport}
+                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 hover:text-blue-700 flex items-center space-x-2"
+                    >
+                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <span>Import Designs</span>
+                    </button>
+                    <button
+                      onClick={onPrint}
+                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 hover:text-green-700 flex items-center space-x-2"
+                    >
+                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                      </svg>
+                      <span>Print Designs</span>
+                    </button>
+                    <button
+                      onClick={onSettings}
+                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 hover:text-purple-700 flex items-center space-x-2"
+                    >
+                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <span>Settings</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
-        {/* Bulk Action Buttons */}
-        <div className="flex gap-2">
+          {/* Advanced Filter Button */}
           <button
-            onClick={onBulkEdit}
-            disabled={selectedDesigns.length === 0}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            onClick={() => setShowAdvancedFilter(!showAdvancedFilter)}
+            className={cn(
+              "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
+              showAdvancedFilter
+                ? "bg-gradient-to-r from-orange-50 to-orange-100 border-orange-300 text-orange-600 shadow-md hover:shadow-lg"
+                : "text-gray-700 hover:text-orange-700 hover:bg-gradient-to-r hover:from-orange-50 hover:to-orange-100 hover:border-orange-400"
+            )}
+            title="Advanced Filter"
           >
-            <Edit className="h-4 w-4" />
-            Bulk Edit {selectedDesigns.length > 0 && `(${selectedDesigns.length})`}
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+            </svg>
           </button>
           
+          {/* View Mode Button */}
           <button
-            onClick={onExportSelected}
-            disabled={selectedDesigns.length === 0}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            onClick={() => {
+              // Cycle through views: table -> grid -> card -> table
+              if (viewMode === 'table') {
+                setViewMode('grid')
+              } else if (viewMode === 'grid') {
+                setViewMode('card')
+              } else {
+                setViewMode('table')
+              }
+            }}
+            className={cn(
+              "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
+              "text-gray-700 hover:text-indigo-700 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-indigo-100 hover:border-indigo-400"
+            )}
+            title={`Switch to ${viewMode === 'table' ? 'Grid' : viewMode === 'grid' ? 'Card' : 'Table'} View`}
           >
-            <Download className="h-4 w-4" />
-            Export Selected {selectedDesigns.length > 0 && `(${selectedDesigns.length})`}
+            {viewMode === 'table' ? (
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M3 18h18M3 6h18" />
+              </svg>
+            ) : viewMode === 'grid' ? (
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z" />
+              </svg>
+            )}
           </button>
           
+          {/* Full Screen Button */}
           <button
-            onClick={onBulkDelete}
-            disabled={selectedDesigns.length === 0}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-red-600 hover:bg-red-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            onClick={onToggleFullScreen}
+            className={cn(
+              "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
+              isFullScreen
+                ? "bg-gradient-to-r from-teal-50 to-teal-100 border-teal-300 text-teal-600 shadow-md hover:shadow-lg"
+                : "text-gray-700 hover:text-teal-700 hover:bg-gradient-to-r hover:from-teal-50 hover:to-teal-100 hover:border-teal-400"
+            )}
+            title={isFullScreen ? "Exit Full Screen" : "Enter Full Screen"}
           >
-            <Trash className="h-4 w-4" />
-            Delete Selected {selectedDesigns.length > 0 && `(${selectedDesigns.length})`}
+            {isFullScreen ? (
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+            )}
           </button>
         </div>
       </div>
 
-      {/* Custom Filters Display */}
-      {customFilters.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {customFilters.map((filter, index) => (
-            <div
-              key={index}
-              className="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm"
-            >
-              <span>{filter.name}: {filter.operator} {filter.value}</span>
-              <button
-                onClick={() => onRemoveCustomFilter(index)}
-                className="text-blue-600 hover:text-blue-800"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      
     </div>
-  );
-};
+  )
+}

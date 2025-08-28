@@ -147,7 +147,6 @@ export const DesignTable = ({
         return (
           <div>
             <div className="font-medium text-gray-900">{design.name}</div>
-            <div className="text-sm text-gray-500 line-clamp-1">Click to view details</div>
           </div>
         );
       

@@ -236,6 +236,8 @@ export default function DataTable<T extends BaseEntity>({
                 <option value={25}>25</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
+                <option value={200}>200</option>
+                <option value={300}>300</option>
               </select>
               <span className="text-sm text-gray-700">per page</span>
             </div>

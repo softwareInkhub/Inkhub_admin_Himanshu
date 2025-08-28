@@ -1,5 +1,6 @@
-export interface Design {
-  id: string;
+import { BaseEntity } from '@/components/shared/types';
+
+export interface Design extends BaseEntity {
   name: string;
   description: string;
   status: 'completed' | 'in_progress' | 'pending' | 'approved' | 'rejected';
@@ -8,8 +9,6 @@ export interface Design {
   price: number;
   size: string;
   image: string;
-  createdAt: string;
-  updatedAt: string;
   tags: string[];
   isStarred: boolean;
   isLiked: boolean;

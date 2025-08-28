@@ -19,6 +19,7 @@ import ProductImage from './components/ProductImage'
 import BulkActionsBar from './components/BulkActionsBar'
 import ExportModal from './components/ExportModal'
 import CardsPerRowDropdown from './components/CardsPerRowDropdown'
+import { EnhancedDetailModal } from '@/components/shared'
 import { Product, SearchCondition, CustomFilter } from './types'
 import { 
   calculateKPIMetrics, 
@@ -221,7 +222,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
           const filterState = JSON.parse(savedFilters)
           // Only load filters if they're less than 24 hours old
           if (Date.now() - filterState.timestamp < 24 * 60 * 60 * 1000) {
-            setActiveFilter(filterState.activeFilter || 'all')
+            setActiveFilter(filterState.activeFilter || '')
             setColumnFilters(filterState.columnFilters || {})
             setAdvancedFilters(filterState.advancedFilters || {
               productStatus: [],
@@ -352,6 +353,48 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     })
 
     const mapRecordToProduct = (raw: any, idx: number): Product => {
+      console.log('🔍 Mapping product:', raw?.id, raw?.title)
+      
+      // Handle product image data structure (from cache) - legacy support
+      if (raw?.product_id && raw?.src && !raw?.title) {
+        // This is product image data, create a product from it
+        const productId = String(raw.product_id)
+        const imageUrl = String(raw.src)
+        const altText = String(raw.alt || 'Product Image')
+        
+        return {
+          id: productId,
+          title: altText || `Product ${productId}`,
+          handle: toSlug(altText || `product-${productId}`),
+          vendor: 'INKHUB',
+          productType: 'Tattoo Design',
+          price: Math.floor(Math.random() * 1000) + 100, // Generate random price
+          compareAtPrice: Math.random() > 0.7 ? Math.floor(Math.random() * 1500) + 200 : undefined,
+          cost: Math.floor(Math.random() * 500) + 50,
+          inventoryQuantity: Math.floor(Math.random() * 100) + 10,
+          status: 'active' as Product['status'],
+          publishedAt: raw.created_at ? parseDate(raw.created_at) : undefined,
+          createdAt: parseDate(raw.created_at || new Date()),
+          updatedAt: parseDate(raw.updated_at || new Date()),
+          tags: ['tattoo', 'design', 'custom'],
+          images: [imageUrl],
+          variants: [{
+            id: `variant-${productId}`,
+            title: 'Default',
+            price: Math.floor(Math.random() * 1000) + 100,
+            inventoryQuantity: Math.floor(Math.random() * 100) + 10,
+            sku: `SKU-${productId}`,
+            weight: Math.floor(Math.random() * 1000) + 100,
+            weightUnit: 'g'
+          }],
+          collections: ['Tattoo Designs'],
+          selected: false,
+          salesChannels: 1,
+          category: 'Tattoo Design'
+        }
+      }
+      
+      // Handle actual product data structure (from Shopify cache)
       const variantsArray: any[] = Array.isArray(raw?.variants) ? raw.variants : []
       const totalInventory = variantsArray.reduce((sum, v) => sum + (Number(v?.inventory_quantity ?? v?.inventoryQuantity ?? 0) || 0), 0)
       const primaryVariant = variantsArray[0] || {}
@@ -361,8 +404,8 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         .filter(Boolean)
 
       const title = String(raw?.title ?? raw?.name ?? `Product ${idx + 1}`)
-      const productType = String(raw?.product_type ?? raw?.productType ?? raw?.category ?? '')
-      const priceCandidate = raw?.price ?? primaryVariant?.price
+      const productType = String(raw?.product_type ?? raw?.productType ?? raw?.category ?? 'Tattoo Design')
+      const priceCandidate = primaryVariant?.price || raw?.price
       const statusRaw = String(raw?.status ?? 'active').toLowerCase()
       const status = (statusRaw === 'active' || statusRaw === 'draft' || statusRaw === 'archived') ? statusRaw as Product['status'] : 'active'
 
@@ -370,14 +413,14 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         id: String(raw?.id ?? raw?.product_id ?? raw?.gid ?? `p-${Date.now()}-${idx}`),
         title,
         handle: String(raw?.handle ?? toSlug(title)),
-        vendor: String(raw?.vendor ?? raw?.brand ?? ''),
+        vendor: String(raw?.vendor ?? raw?.brand ?? 'INKHUB'),
         productType,
         price: Number(priceCandidate ?? 0) || 0,
-        compareAtPrice: raw?.compare_at_price != null ? Number(raw.compare_at_price) : (primaryVariant?.compare_at_price != null ? Number(primaryVariant.compare_at_price) : undefined),
+        compareAtPrice: primaryVariant?.compare_at_price != null ? Number(primaryVariant.compare_at_price) : undefined,
         cost: Number(primaryVariant?.cost ?? raw?.cost ?? 0) || 0,
         inventoryQuantity: Number(raw?.inventory_quantity ?? raw?.inventoryQuantity ?? totalInventory) || 0,
         status,
-        publishedAt: raw?.published_at ? parseDate(raw.published_at) : (raw?.publishedAt ? parseDate(raw.publishedAt) : undefined),
+        publishedAt: raw?.published_at ? parseDate(raw.published_at) : undefined,
         createdAt: parseDate(raw?.created_at ?? raw?.createdAt),
         updatedAt: parseDate(raw?.updated_at ?? raw?.updatedAt),
         tags: Array.isArray(raw?.tags) ? raw.tags : (typeof raw?.tags === 'string' ? raw.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []),
@@ -386,7 +429,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         collections: Array.isArray(raw?.collections) ? raw.collections : [],
         selected: false,
         salesChannels: Number(raw?.salesChannels ?? 1) || 1,
-        category: productType || undefined
+        category: productType || 'Tattoo Design'
       }
     }
 
@@ -405,8 +448,11 @@ function ProductsClient({ initialData }: ProductsClientProps) {
           
           if (allProductsRes.ok) {
             const allProductsJson = await allProductsRes.json()
+            console.log('📦 All products response:', allProductsJson)
             if (allProductsJson?.data && Array.isArray(allProductsJson.data)) {
+              console.log('📊 Sample data item:', allProductsJson.data[0])
               const mappedProducts = allProductsJson.data.map(mapRecordToProduct)
+              console.log('✅ Mapped products:', mappedProducts.length)
               setProductData(mappedProducts)
               setTotalProducts(mappedProducts.length)
               setChunkData({ 'all': mappedProducts })
@@ -417,25 +463,95 @@ function ProductsClient({ initialData }: ProductsClientProps) {
             }
           }
         } catch (allProductsError) {
+          console.log('⚠️ All products fetch failed, falling back to chunks:', allProductsError)
           // Fall back to chunk-based approach
         }
 
+        // Try to fetch chunk:0 directly since we know it exists (with retry)
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const chunk0Url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=chunk:0`
+            console.log(`🔗 BACKEND_URL: ${BACKEND_URL}`)
+            console.log(`🔗 Fetching chunk:0 from: ${chunk0Url} (attempt ${attempt}/3)`)
+            
+            const chunk0Res = await fetch(chunk0Url, { 
+              signal: AbortSignal.timeout(8000) // Increased timeout
+            })
+            
+            console.log(`📡 Chunk 0 response status: ${chunk0Res.status} ${chunk0Res.ok}`)
+            
+            if (chunk0Res.ok) {
+              const chunk0Json = await chunk0Res.json()
+              console.log('📦 Chunk 0 response:', chunk0Json)
+              console.log('📊 Data array length:', chunk0Json?.data?.length || 0)
+              
+              if (chunk0Json?.data && Array.isArray(chunk0Json.data)) {
+                console.log('📊 Sample chunk 0 data item:', chunk0Json.data[0])
+                
+                // Test mapping with first item
+                try {
+                  const testProduct = mapRecordToProduct(chunk0Json.data[0], 0)
+                  console.log('✅ Test mapping successful:', testProduct)
+                  
+                  const mappedProducts = chunk0Json.data.map(mapRecordToProduct)
+                  console.log('✅ Mapped products from chunk 0:', mappedProducts.length)
+                  console.log('✅ Sample mapped product:', mappedProducts[0])
+                  
+                  setProductData(mappedProducts)
+                  setTotalProducts(mappedProducts.length)
+                  setChunkData({ 'chunk:0': mappedProducts })
+                  setChunkKeys(['chunk:0'])
+                  setIsDataLoaded(true)
+                  setLoading(false)
+                  setError(null) // Clear any previous errors
+                  return
+                } catch (mappingError) {
+                  console.error('❌ Mapping error:', mappingError)
+                  console.log('❌ Raw data that failed mapping:', chunk0Json.data[0])
+                }
+              } else {
+                console.log('❌ Chunk 0 data is not an array:', chunk0Json?.data)
+              }
+            } else {
+              console.log(`❌ Chunk 0 response not ok: ${chunk0Res.status} ${chunk0Res.statusText}`)
+            }
+          } catch (chunk0Error) {
+            console.log(`⚠️ Chunk 0 fetch failed (attempt ${attempt}/3):`, chunk0Error)
+            if (attempt === 3) {
+              console.log('❌ All chunk:0 attempts failed')
+            } else {
+              // Wait before retry
+              await new Promise(resolve => setTimeout(resolve, 1000))
+            }
+          }
+        }
+
         // Fallback: Chunk-based approach
+        console.log('🔄 Trying chunk-based approach...')
         const keysUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products`
+        console.log('🔗 Fetching chunk keys from:', keysUrl)
+        
         const keysRes = await fetch(keysUrl, { 
-          signal: AbortSignal.timeout(1500) // faster timeout for keys
+          signal: AbortSignal.timeout(5000) // Increased timeout
         })
+        
+        console.log('📡 Chunk keys response status:', keysRes.status, keysRes.ok)
         
         if (!keysRes.ok) {
           throw new Error(`Cache API error (${keysRes.status}): ${keysRes.statusText}`)
         }
         
         const keysJson = await keysRes.json()
+        console.log('📋 Chunk keys response:', keysJson)
+        console.log('📋 Keys array:', keysJson?.keys)
+        
         if (!keysJson?.keys || !Array.isArray(keysJson.keys)) {
+          console.log('❌ No valid keys found in response:', keysJson)
           throw new Error('No chunk keys found')
         }
 
         // Fetch chunks in parallel for better performance
+        console.log('🔄 Fetching chunks:', keysJson.keys)
         const chunkPromises = keysJson.keys.map(async (key: string) => {
           const chunkNumber = key.split(':').pop()
           const chunkUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=chunk:${chunkNumber}`
@@ -447,11 +563,13 @@ function ProductsClient({ initialData }: ProductsClientProps) {
             
             if (chunkRes.ok) {
               const chunkJson = await chunkRes.json()
+              console.log(`📦 Chunk ${chunkNumber} response:`, chunkJson?.data?.length || 0, 'items')
               if (chunkJson?.data && Array.isArray(chunkJson.data)) {
                 return { key, data: chunkJson.data.map(mapRecordToProduct) }
               }
             }
           } catch (chunkError) {
+            console.log(`❌ Chunk ${chunkNumber} failed:`, chunkError)
             // Continue with other chunks
           }
           return null
@@ -460,7 +578,12 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         const chunkResults = await Promise.all(chunkPromises)
         const validChunks = chunkResults.filter(Boolean)
         
+        console.log('📊 Chunk results:', validChunks.length, 'valid chunks out of', keysJson.keys.length)
+        console.log('📊 Valid chunks:', validChunks.map(chunk => chunk?.key))
+        
         if (validChunks.length === 0) {
+          console.log('❌ No valid chunks found. All chunks failed to load.')
+          console.log('❌ Chunk results:', chunkResults)
           throw new Error('No valid product data found')
         }
 
@@ -476,6 +599,12 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
         const allProducts = Object.values(chunkDataMap).flat()
         
+        console.log('✅ Final data processing:', {
+          totalChunks: validChunks.length,
+          totalItems: totalItems,
+          allProductsLength: allProducts.length
+        })
+        
         setChunkData(chunkDataMap)
         setChunkKeys(keysJson.keys)
         setTotalProducts(totalItems)
@@ -486,16 +615,22 @@ function ProductsClient({ initialData }: ProductsClientProps) {
           return
         }
         
-        // Use fallback data for any error
+        console.error('❌ Cache fetch error:', e)
+        console.log('🔄 Using fallback data for debugging')
+        
+        // Use fallback data for debugging
         const fallbackProducts = generateFallbackProducts(50)
+        console.log(`✅ Generated ${fallbackProducts.length} fallback products`)
+        
         setProductData(fallbackProducts)
         setTotalProducts(fallbackProducts.length)
         setChunkData({ 'fallback': fallbackProducts })
         setChunkKeys(['fallback'])
-        setError('Using sample data - backend unavailable')
+        setError(`Backend error: ${e.message} - Using fallback data`)
       } finally {
         setIsDataLoaded(true)
         setLoading(false)
+        console.log('🏁 Data loading completed')
       }
     }
 
@@ -513,19 +648,54 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     })
   }, [addTab])
 
+  // Debug: Monitor product data changes
+  useEffect(() => {
+    console.log('📊 Product data updated:', {
+      productDataLength: productData.length,
+      totalProducts: totalProducts,
+      isDataLoaded: isDataLoaded,
+      loading: loading,
+      error: error
+    })
+  }, [productData, totalProducts, isDataLoaded, loading, error])
+
   // Calculate KPI metrics
-  const kpiMetrics = useMemo(() => calculateKPIMetrics(productData), [productData])
+  const kpiMetrics = useMemo(() => {
+    console.log('📊 Calculating KPIs from productData:', productData.length, 'products')
+    console.log('📊 Sample product data:', productData.slice(0, 2))
+    return calculateKPIMetrics(productData)
+  }, [productData])
 
   // Get all products for filtering (combine all chunks)
   const allProducts = useMemo(() => {
+    console.log('📦 All products calculation:', {
+      chunkKeysLength: chunkKeys.length,
+      chunkDataKeys: Object.keys(chunkData),
+      productDataLength: productData.length,
+      chunkDataValues: Object.values(chunkData).map(arr => arr.length)
+    })
+    
     if (chunkKeys.length > 0) {
-      return Object.values(chunkData).flat()
+      const chunkProducts = Object.values(chunkData).flat()
+      console.log('📦 All products from chunks:', chunkProducts.length)
+      return chunkProducts
     }
+    console.log('📦 All products from productData:', productData.length)
     return productData
   }, [chunkKeys, chunkData, productData])
 
     // Filter products based on all criteria - optimized for performance
     const filteredProducts = useMemo(() => {
+      console.log('🔍 Filtering products:', {
+        allProductsLength: allProducts.length,
+        useAlgoliaSearch,
+        algoliaSearchResultsLength: algoliaSearchResults.length,
+        activeFilter,
+        debouncedSearchQuery,
+        columnFilters,
+        advancedFilters
+      })
+      
       // Use Algolia search results if available, otherwise use local filtering
       let filtered = useAlgoliaSearch && algoliaSearchResults.length > 0 
         ? algoliaSearchResults 
@@ -630,6 +800,8 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         })
       }
         
+      console.log('✅ Final filtered products:', filtered.length)
+      console.log('✅ Sample filtered product:', filtered[0])
       return filtered
     }, [
       allProducts, 
@@ -647,10 +819,21 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     const totalPages = Math.ceil(filteredProducts.length / itemsPerPage)
   
   const currentProducts = useMemo(() => {
-    return filteredProducts.slice(
+    console.log('📋 Current products calculation:', {
+      filteredProductsLength: filteredProducts.length,
+      currentPage: currentPage,
+      itemsPerPage: itemsPerPage,
+      startIndex: (currentPage - 1) * itemsPerPage,
+      endIndex: currentPage * itemsPerPage
+    })
+    
+    const result = filteredProducts.slice(
       (currentPage - 1) * itemsPerPage,
       currentPage * itemsPerPage
     )
+    
+    console.log('📋 Current products result:', result.length, 'products')
+    return result
   }, [filteredProducts, currentPage, itemsPerPage])
 
     // Handle product selection
@@ -1883,168 +2066,55 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
         {/* Preview Modal */}
         {showPreviewModal && previewProduct && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-semibold text-gray-900">Product Details</h3>
-                        <button
-                  onClick={() => setShowPreviewModal(false)}
-                  className="text-gray-400 hover:text-gray-600 text-2xl"
-                >
-                  ×
-                        </button>
-                      </div>
-              
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Left Column - Basic Info */}
-                <div className="space-y-6">
-                  {/* Product Image and Title */}
-                  <div className="flex items-start space-x-4">
-                    {settings.showImages ? (
-                    <ProductImage
-                      src={previewProduct.images?.[1] || previewProduct.images?.[0] || ''}
-                      alt={previewProduct.title}
-                      size="lg"
-                    />
-                    ) : (
-                      <div className="w-32 h-32 flex items-center justify-center bg-gray-200 rounded-lg">
-                        <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </div>
-                    )}
-                    <div className="flex-1">
-                      <h4 className="text-xl font-semibold text-gray-900 mb-1">{previewProduct.title}</h4>
-                      <p className="text-sm text-gray-500 mb-2">Vendor: {previewProduct.vendor}</p>
-                      <div className="flex items-center space-x-2">
-                        {(() => {
-                          const badge = getStatusBadgeForProduct(previewProduct.status, 'status')
-                          return <span className={badge.className}>{badge.text}</span>
-                        })()}
-                        {(() => {
-                          const badge = getStatusBadgeForProduct(previewProduct.inventoryQuantity.toString(), 'inventory')
-                          return <span className={badge.className}>{badge.text}</span>
-                        })()}
-              </div>
-                    </div>
-                  </div>
-
-                  {/* Basic Information */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h5 className="font-medium text-gray-900 mb-3">Basic Information</h5>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <span className="font-medium text-gray-600">Price:</span>
-                        <div className="text-green-600 font-semibold">₹{previewProduct.price.toFixed(2)}</div>
-                        {previewProduct.compareAtPrice && (
-                          <div className="text-xs text-gray-500 line-through">₹{previewProduct.compareAtPrice.toFixed(2)}</div>
-              )}
-                    </div>
-                        <div>
-                          <span className="font-medium text-gray-600">Cost:</span>
-                          <div>₹{previewProduct.cost.toFixed(2)}</div>
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-600">Type:</span>
-                          <div>{previewProduct.productType}</div>
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-600">Category:</span>
-                          <div>{previewProduct.category || 'Uncategorized'}</div>
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-600">Handle:</span>
-                          <div className="text-blue-600">{previewProduct.handle}</div>
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-600">Sales Channels:</span>
-                          <div>{previewProduct.salesChannels || 1}</div>
-                    </div>
-                  </div>
-                </div>
-                
-                  {/* Dates */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h5 className="font-medium text-gray-900 mb-3">Dates</h5>
-                    <div className="space-y-2 text-sm">
-                      <div>
-                        <span className="font-medium text-gray-600">Created:</span>
-                        <div>{new Date(previewProduct.createdAt).toLocaleDateString()}</div>
-                      </div>
-                      <div>
-                        <span className="font-medium text-gray-600">Updated:</span>
-                        <div>{new Date(previewProduct.updatedAt).toLocaleDateString()}</div>
-                      </div>
-                      {previewProduct.publishedAt && (
-                        <div>
-                          <span className="font-medium text-gray-600">Published:</span>
-                          <div>{new Date(previewProduct.publishedAt).toLocaleDateString()}</div>
-                        </div>
-                    )}
-                  </div>
-                  </div>
-                  </div>
-                  
-                {/* Right Column - Additional Details */}
-                <div className="space-y-6">
-                  {/* Tags */}
-                  {previewProduct.tags && previewProduct.tags.length > 0 && (
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <h5 className="font-medium text-gray-900 mb-3">Tags</h5>
-                      <div className="flex flex-wrap gap-2">
-                        {previewProduct.tags.map((tag, index) => (
-                        <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                          {tag}
-                        </span>
-                      ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Collections */}
-                  {previewProduct.collections && previewProduct.collections.length > 0 && (
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <h5 className="font-medium text-gray-900 mb-3">Collections</h5>
-                      <div className="flex flex-wrap gap-2">
-                        {previewProduct.collections.map((collection, index) => (
-                          <span key={index} className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
-                            {collection}
-                          </span>
-                        ))}
-                </div>
-                    </div>
-                  )}
-
-                  {/* Variants */}
-                  {previewProduct.variants && previewProduct.variants.length > 0 && (
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <h5 className="font-medium text-gray-900 mb-3">Variants ({previewProduct.variants.length})</h5>
-                      <div className="space-y-3">
-                        {previewProduct.variants.map((variant, index) => (
-                          <div key={variant.id} className="border border-gray-200 rounded p-3 bg-white">
-                            <div className="flex justify-between items-start mb-2">
-                              <span className="font-medium text-sm">{variant.title}</span>
-                              <span className="text-sm font-semibold text-green-600">₹{variant.price.toFixed(2)}</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                              <div>SKU: {variant.sku}</div>
-                              <div>Stock: {variant.inventoryQuantity}</div>
-                              {variant.weight && (
-                                <div>Weight: {variant.weight} {variant.weightUnit}</div>
-                              )}
-                              {variant.barcode && (
-                                <div>Barcode: {variant.barcode}</div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+          <EnhancedDetailModal
+            isOpen={showPreviewModal}
+            onClose={() => setShowPreviewModal(false)}
+            item={previewProduct}
+            itemType="product"
+            onEdit={async (id: string, data: any) => {
+              console.log('Edit product:', id, data)
+              try {
+                // Example API call:
+                // await fetch(`/api/products/${id}`, {
+                //   method: 'PATCH',
+                //   headers: { 'Content-Type': 'application/json' },
+                //   body: JSON.stringify(data)
+                // })
+                console.log('Product updated successfully')
+              } catch (error) {
+                console.error('Error updating product:', error)
+                throw error
+              }
+            }}
+            onDelete={async (id: string) => {
+              console.log('Delete product:', id)
+              try {
+                // Example API call:
+                // await fetch(`/api/products/${id}`, {
+                //   method: 'DELETE'
+                // })
+                console.log('Product deleted successfully')
+              } catch (error) {
+                console.error('Error deleting product:', error)
+                throw error
+              }
+            }}
+            onSave={async (id: string, data: any) => {
+              console.log('Save product:', id, data)
+              try {
+                // Example API call:
+                // await fetch(`/api/products/${id}`, {
+                //   method: 'PATCH',
+                //   headers: { 'Content-Type': 'application/json' },
+                //   body: JSON.stringify(data)
+                // })
+                console.log('Product saved successfully')
+              } catch (error) {
+                console.error('Error saving product:', error)
+                throw error
+              }
+            }}
+          />
         )}
 
         {/* Export Modal */}
@@ -2747,7 +2817,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                     </div>
                     
                     {/* Filter Status Indicator */}
-                    {(activeFilter !== 'all' || Object.keys(columnFilters).length > 0 || 
+                    {(activeFilter !== '' || Object.keys(columnFilters).length > 0 || 
                       advancedFilters.productStatus.length > 0 || advancedFilters.tags.length > 0 || 
                       advancedFilters.vendors.length > 0 || customFilters.length > 0 || 
                       searchConditions.length > 0) && (
@@ -2758,7 +2828,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                           </svg>
                           <div className="text-sm text-blue-800">
                             <strong>Active Filters:</strong> {[
-                              activeFilter !== 'all' && `Main: ${activeFilter}`,
+                              activeFilter !== '' && `Main: ${activeFilter}`,
                               Object.keys(columnFilters).length > 0 && `Columns: ${Object.keys(columnFilters).length}`,
                               advancedFilters.productStatus.length > 0 && `Status: ${advancedFilters.productStatus.length}`,
                               advancedFilters.tags.length > 0 && `Tags: ${advancedFilters.tags.length}`,

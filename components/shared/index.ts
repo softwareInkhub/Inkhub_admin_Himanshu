@@ -25,6 +25,7 @@ export { default as ExportModal } from './ExportModal'
 export { default as ImportModal } from './ImportModal'
 export { default as BulkEditModal } from './BulkEditModal'
 export { default as BulkDeleteModal } from './BulkDeleteModal'
+export { default as EnhancedDetailModal } from './EnhancedDetailModal'
 
 // Display Components
 export { default as StatusBadge } from './StatusBadge'
@@ -36,6 +37,7 @@ export { default as Pagination } from './Pagination'
 export { default as PageHeader } from './PageHeader'
 export { default as ViewToggle } from './ViewToggle'
 export { default as CardsPerRowDropdown } from './CardsPerRowDropdown'
+export { default as TablePreferencesModal } from './TablePreferencesModal'
 
 // Page Template
 export { default as PageTemplate } from './PageTemplate'

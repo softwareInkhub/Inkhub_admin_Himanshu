@@ -164,7 +164,7 @@ export default function CustomCardModal({
       const computedValue = calculateCustomValue(values, card.operation, customFormula, products.length)
       setPreviewValue(computedValue)
     }
-  }, [card, products, customFormula])
+  }, [card.field, card.operation, card.selectedProducts, products, customFormula])
 
   const handleSave = () => {
     if (!card.title || !card.selectedProducts || card.selectedProducts.length === 0) return
