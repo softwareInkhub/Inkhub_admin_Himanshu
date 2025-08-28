@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useAppStore } from '@/lib/store'
 import {
   PageTemplate,
@@ -8,7 +8,7 @@ import {
 } from '@/components/shared'
 import DesignsGridCardFilterHeader from './components/DesignsGridCardFilterHeader'
 import { Design } from './types'
-import { generateDesigns } from './utils'
+import { designAPI } from './services/api'
 
 // Define table columns for designs
 const designColumns = [
@@ -16,37 +16,56 @@ const designColumns = [
     key: 'image',
     label: 'DESIGN',
     sortable: false,
-    render: (design: Design) => (
-      <div className="flex items-center space-x-3">
-        <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100">
-          {design.image ? (
-            <img 
-              src={design.image} 
-              alt={design.name || 'Design'}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+    render: (value: any, design: Design) => {
+      // Optimize image URL for better loading performance
+      const getOptimizedImageUrl = (url: string) => {
+        if (!url) return url
+        
+        // For S3 URLs, add optimization parameters for thumbnail
+        if (url.includes('s3.amazonaws.com')) {
+          const separator = url.includes('?') ? '&' : '?'
+          return `${url}${separator}w=100&h=100&fit=crop&auto=format&q=70`
+        }
+        
+        return url
+      }
+
+      return (
+        <div className="flex items-center space-x-3">
+          <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100 relative">
+            {design.image ? (
+              <img 
+                src={getOptimizedImageUrl(design.image)}
+                alt={design.name || 'Design'}
+                className="w-full h-full object-cover"
+                loading="lazy"
+                onError={(e) => {
+                  // Fallback to placeholder on error
+                  const target = e.target as HTMLImageElement
+                  target.style.display = 'none'
+                  target.nextElementSibling?.classList.remove('hidden')
+                }}
+              />
+            ) : null}
+            {/* Fallback placeholder */}
+            <div className={`w-full h-full bg-gray-200 flex items-center justify-center ${design.image ? 'hidden' : ''}`}>
               <span className="text-xs text-gray-500">No image</span>
             </div>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-gray-900 truncate">
-            {design?.name || 'Untitled Design'}
           </div>
-          <div className="text-sm text-gray-500 truncate">
-            Click to view details
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-gray-900 truncate">
+              {design?.name || 'Untitled Design'}
+            </div>
           </div>
         </div>
-      </div>
-    )
+      )
+    }
   },
   {
     key: 'status',
     label: 'STATUS',
     sortable: true,
-    render: (design: Design) => {
+    render: (value: any, design: Design) => {
       const getStatusBadge = (status: string) => {
         switch (status) {
           case 'completed':
@@ -71,7 +90,7 @@ const designColumns = [
     key: 'type',
     label: 'TYPE',
     sortable: true,
-    render: (design: Design) => {
+    render: (value: any, design: Design) => {
       const getTypeBadge = (type: string) => {
         switch (type) {
           case 'logo':
@@ -98,7 +117,7 @@ const designColumns = [
     key: 'category',
     label: 'CATEGORY',
     sortable: true,
-    render: (design: Design) => (
+    render: (value: any, design: Design) => (
       <div className="text-sm text-gray-900">{design?.category || 'Uncategorized'}</div>
     )
   },
@@ -106,7 +125,7 @@ const designColumns = [
     key: 'price',
     label: 'PRICE',
     sortable: true,
-    render: (design: Design) => (
+    render: (value: any, design: Design) => (
       <span className="text-sm font-medium text-gray-900">
         {design?.price === 0 ? 'Free' : `$${(design?.price || 0).toFixed(2)}`}
       </span>
@@ -116,7 +135,7 @@ const designColumns = [
     key: 'size',
     label: 'SIZE',
     sortable: true,
-    render: (design: Design) => (
+    render: (value: any, design: Design) => (
       <span className="text-sm text-gray-900">{design?.size || 'N/A'}</span>
     )
   },
@@ -124,7 +143,7 @@ const designColumns = [
     key: 'client',
     label: 'CLIENT',
     sortable: true,
-    render: (design: Design) => (
+    render: (value: any, design: Design) => (
       <span className="text-sm text-gray-900">{design?.client || 'N/A'}</span>
     )
   },
@@ -132,7 +151,7 @@ const designColumns = [
     key: 'designer',
     label: 'DESIGNER',
     sortable: true,
-    render: (design: Design) => (
+    render: (value: any, design: Design) => (
       <span className="text-sm text-gray-900">{design?.designer || 'N/A'}</span>
     )
   },
@@ -140,7 +159,7 @@ const designColumns = [
     key: 'views',
     label: 'VIEWS',
     sortable: true,
-    render: (design: Design) => (
+    render: (value: any, design: Design) => (
       <span className="text-sm text-gray-900">{(design?.views || 0).toLocaleString()}</span>
     )
   },
@@ -148,7 +167,7 @@ const designColumns = [
     key: 'downloads',
     label: 'DOWNLOADS',
     sortable: true,
-    render: (design: Design) => (
+    render: (value: any, design: Design) => (
       <span className="text-sm text-gray-900">{(design?.downloads || 0).toLocaleString()}</span>
     )
   },
@@ -156,7 +175,7 @@ const designColumns = [
     key: 'createdAt',
     label: 'CREATED',
     sortable: true,
-    render: (design: Design) => (
+    render: (value: any, design: Design) => (
       <span className="text-sm text-gray-500">
         {design?.createdAt ? new Date(design.createdAt).toLocaleDateString('en-US', {
           month: 'short',
@@ -170,7 +189,7 @@ const designColumns = [
     key: 'updatedAt',
     label: 'UPDATED',
     sortable: true,
-    render: (design: Design) => (
+    render: (value: any, design: Design) => (
       <span className="text-sm text-gray-500">
         {design?.updatedAt ? new Date(design.updatedAt).toLocaleDateString('en-US', {
           month: 'short',
@@ -184,7 +203,7 @@ const designColumns = [
     key: 'tags',
     label: 'TAGS',
     sortable: false,
-    render: (design: Design) => (
+    render: (value: any, design: Design) => (
       <div className="flex flex-wrap gap-0.5">
         {design?.tags?.slice(0, 2).map((tag, index) => (
           <span key={index} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
@@ -275,8 +294,49 @@ const designFilters = [
 function DesignLibraryPage() {
   const { addTab } = useAppStore()
   const hasAddedTab = useRef(false)
+  const [serverData, setServerData] = useState<Design[]>([])
+  const [isLoadingServerData, setIsLoadingServerData] = useState(true)
+  const [dataLoaded, setDataLoaded] = useState(false)
 
-  // Initialize data table hook
+  // Fetch real data from server
+  useEffect(() => {
+    const fetchServerData = async () => {
+      try {
+        setIsLoadingServerData(true)
+        
+        console.log('Fetching design data from server...')
+        
+        // Load all designs from all chunks
+        const allDesigns = await designAPI.getAllDesigns()
+        const designs = allDesigns.map(serverDesign => 
+          designAPI.transformServerDesign(serverDesign)
+        )
+        
+        setServerData(designs)
+        setDataLoaded(true)
+        console.log(`✅ Loaded ${designs.length} designs from all chunks`)
+      } catch (error) {
+        console.error('❌ Error fetching server data:', error)
+        console.log('🔄 Attempting to use fallback method...')
+        try {
+          const mockDesigns = await designAPI.getDesignsWithFallback()
+          console.log('📦 Fallback data loaded:', mockDesigns.length, 'items')
+          setServerData(mockDesigns)
+          setDataLoaded(true)
+        } catch (fallbackError) {
+          console.error('❌ Fallback also failed:', fallbackError)
+          setServerData([])
+          setDataLoaded(true)
+        }
+      } finally {
+        setIsLoadingServerData(false)
+      }
+    }
+
+    fetchServerData()
+  }, [])
+
+  // Initialize data table hook with server data
   const {
     data: designData,
     loading,
@@ -320,12 +380,13 @@ function DesignLibraryPage() {
     clearSearch,
     clearColumnFilters,
     clearCustomFilters,
-    clearAdvancedFilters
+    clearAdvancedFilters,
+    setData
   } = useDataTable<Design>({
-    initialData: generateDesigns(50),
+    initialData: dataLoaded ? serverData : [],
     columns: designColumns,
     searchableFields: [
-      { key: 'title', label: 'Title', type: 'text' },
+      { key: 'name', label: 'Name', type: 'text' },
       { key: 'description', label: 'Description', type: 'text' },
       { key: 'category', label: 'Category', type: 'text' },
       { key: 'type', label: 'Type', type: 'text' },
@@ -334,24 +395,64 @@ function DesignLibraryPage() {
     ],
     filterOptions: designFilters,
     defaultViewMode: 'table',
-    defaultItemsPerPage: 25
+    defaultItemsPerPage: 50
   })
 
-  // Calculate KPI metrics based on filtered data
+
+
+  // Update data table when server data changes
+  useEffect(() => {
+    if (serverData.length > 0) {
+      setData(serverData)
+      console.log('🔄 Server data updated, recalculating KPIs...')
+    }
+  }, [serverData, setData])
+
+
+
+  // Calculate KPI metrics based on server data (not filtered data for accurate totals)
   const calculatedKPIs = designKPIs.map(kpi => {
+    const dataToUse = serverData.length > 0 ? serverData : filteredData; // Use server data if available
+    
+    // Debug: Log sample data to understand structure
+    if (dataToUse.length > 0 && kpi.key === 'totalDesigns') {
+      console.log('📊 KPI Debug - Sample design data:', dataToUse[0]);
+      console.log('📊 KPI Debug - Total designs:', dataToUse.length);
+      console.log('📊 KPI Debug - Sample statuses:', dataToUse.slice(0, 5).map((d: any) => d.designStatus || d.status));
+      console.log('📊 KPI Debug - Sample prices:', dataToUse.slice(0, 5).map((d: any) => d.designPrice || d.price));
+      console.log('📊 KPI Debug - Sample types:', dataToUse.slice(0, 5).map((d: any) => d.designType || d.type));
+    }
+    
     switch (kpi.key) {
       case 'totalDesigns':
-        return { ...kpi, value: filteredData.length }
+        return { ...kpi, value: dataToUse.length }
       case 'totalDownloads':
-        return { ...kpi, value: filteredData.reduce((sum: number, design: Design) => sum + (design.downloads || 0), 0) }
+        // Calculate total downloads from transformed data
+        const downloadCount = dataToUse.reduce((sum: number, design: any) => {
+          return sum + (design.downloads || 0);
+        }, 0);
+        return { ...kpi, value: downloadCount }
       case 'avgRating':
-        return { ...kpi, value: filteredData.length > 0 ? Math.round(filteredData.reduce((sum: number, design: Design) => sum + (design.views || 0), 0) / filteredData.length * 10) / 10 : 0 }
+        // Calculate average rating based on completed designs percentage
+        const completedCount = dataToUse.filter((design: any) => 
+          design.designStatus === 'completed' || design.status === 'completed'
+        ).length;
+        const avgValue = dataToUse.length > 0 ? 
+          Math.round((completedCount / dataToUse.length) * 100) / 10 : 0;
+        return { ...kpi, value: avgValue }
       case 'publishedDesigns':
-        return { ...kpi, value: filteredData.filter((design: Design) => (design.status || 'unknown') === 'completed').length }
+        return { ...kpi, value: dataToUse.filter((design: any) => 
+          (design.designStatus === 'completed' || design.status === 'completed')
+        ).length }
       case 'freeDesigns':
-        return { ...kpi, value: filteredData.filter((design: Design) => design.price === 0).length }
+        return { ...kpi, value: dataToUse.filter((design: any) => {
+          const price = parseFloat(design.designPrice) || design.price || 0;
+          return price === 0;
+        }).length }
       case 'activeCategories':
-        const uniqueCategories = new Set(filteredData.map((design: Design) => design.category || 'Uncategorized'))
+        const uniqueCategories = new Set(dataToUse.map((design: any) => 
+          design.designType || design.category || design.type || 'Uncategorized'
+        ));
         return { ...kpi, value: uniqueCategories.size }
       default:
         return kpi
@@ -374,7 +475,7 @@ function DesignLibraryPage() {
   // Page configuration
   const pageConfig = {
     title: 'Design Library',
-    description: 'Manage and organize your design assets',
+    description: 'Manage and organize your design assets from real server data',
     icon: '🎨',
     endpoint: '/api/designs',
     columns: designColumns,
@@ -396,6 +497,22 @@ function DesignLibraryPage() {
       settings: () => console.log('Design settings')
     }
   }
+
+  // Show loading state while fetching server data
+  if (isLoadingServerData) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="text-gray-600">Loading design data from server...</div>
+          <div className="text-sm text-gray-500 mt-2">Fetching from https://brmh.in/cache/table</div>
+          <div className="text-xs text-gray-400 mt-1">This may take a few seconds for large datasets</div>
+        </div>
+      </div>
+    )
+  }
+
+
 
   if (loading && designData.length === 0) {
     return (
@@ -422,8 +539,13 @@ function DesignLibraryPage() {
     )
   }
 
+
+
+
+
   return (
-    <PageTemplate
+    <div>
+      <PageTemplate
       config={pageConfig}
       data={currentData}
       loading={loading}
@@ -468,7 +590,8 @@ function DesignLibraryPage() {
       clearColumnFilters={clearColumnFilters}
       clearCustomFilters={clearCustomFilters}
       clearAdvancedFilters={clearAdvancedFilters}
-    />
+      />
+    </div>
   )
 }
 

@@ -172,9 +172,6 @@ export default function BoardTable({
                     <div className="text-sm font-medium text-gray-900 truncate">
                       {board.name}
                     </div>
-                    <div className="text-sm text-gray-500 truncate">
-                      Click to view details
-                    </div>
                   </div>
                 </div>
               </td>

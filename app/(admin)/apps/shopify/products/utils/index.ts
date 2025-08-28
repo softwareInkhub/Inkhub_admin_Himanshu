@@ -249,11 +249,20 @@ export const filterProducts = (
     vendors: string[]
   }
 ): Product[] => {
+  console.log('🔍 filterProducts called with:', {
+    productsLength: products.length,
+    activeFilter,
+    searchQuery,
+    columnFilters,
+    advancedFilters
+  })
+  
   let filtered = products
 
   // Filter by status
   if (activeFilter !== 'all' && activeFilter !== 'custom') {
     filtered = filtered.filter(product => product.status === activeFilter)
+    console.log('🔍 After status filter:', filtered.length, 'products')
   }
 
   // Filter by search query - simplified for performance
@@ -268,13 +277,17 @@ export const filterProducts = (
         product.tags?.some(tag => tag.toLowerCase().includes(searchLower))
       )
     })
+    console.log('🔍 After search query filter:', filtered.length, 'products')
   }
 
   // Filter by column filters - optimized
+  console.log('🔍 Starting column filters...')
   Object.entries(columnFilters).forEach(([column, value]) => {
     if (!value || (typeof value === 'string' ? value === '' : Array.isArray(value) ? value.length === 0 : false)) {
+      console.log('🔍 Skipping empty column filter:', column, value)
       return
     }
+    console.log('🔍 Applying column filter:', column, value)
     
     filtered = filtered.filter(product => {
       const productValue = product[column as keyof Product]
@@ -342,6 +355,7 @@ export const filterProducts = (
       
       return false
     })
+    console.log('🔍 After column filter', column, ':', filtered.length, 'products')
   })
 
   // Apply advanced filters
@@ -391,5 +405,6 @@ export const filterProducts = (
     }
   }
 
+  console.log('🔍 filterProducts result:', filtered.length, 'products')
   return filtered
 }

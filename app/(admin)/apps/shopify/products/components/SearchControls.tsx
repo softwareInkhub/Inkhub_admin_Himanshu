@@ -339,20 +339,8 @@ export default function SearchControls({
       {/* Main Search Bar Layout - Single Horizontal Row */}
       <div className="flex items-center justify-between space-x-2">
         
-        {/* LEFT SECTION: All, Add Filter, and Search Bar */}
+        {/* LEFT SECTION: Add Filter and Search Bar */}
         <div className="flex items-center space-x-2">
-          {/* All Products Filter */}
-          <button
-            onClick={() => setActiveFilter('all')}
-            className={cn(
-              'px-3 py-2 text-sm font-medium rounded-md transition-all duration-200 border shadow-sm hover:shadow-md h-10',
-              activeFilter === 'all'
-                ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white border-blue-500 shadow-md hover:shadow-lg transform hover:scale-105'
-                : 'text-gray-700 hover:text-gray-900 hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 bg-white border-gray-300 hover:border-gray-400'
-            )}
-          >
-            All
-          </button>
           
           {/* Custom Filters */}
           {customFilters.map((customFilter) => (
@@ -378,7 +366,7 @@ export default function SearchControls({
                   e.stopPropagation()
                   onRemoveCustomFilter(customFilter.id)
                   if (activeFilter === customFilter.id) {
-                    setActiveFilter('all')
+                    setActiveFilter('')
                   }
                 }}
                 className="ml-1 hover:text-red-500 cursor-pointer flex-shrink-0"
@@ -404,7 +392,7 @@ export default function SearchControls({
               </button>
             ) : (
               /* Search Input - When Search is Visible */
-              <div className="flex items-center animate-fade-in max-w-2xl">
+              <div className="flex items-center animate-fade-in">
                 <div className="relative flex items-center">
                   <GoogleStyleSearch
                     value={searchQuery}
@@ -413,12 +401,12 @@ export default function SearchControls({
                     placeholder={searchConditions.length > 0 ? "Advanced search active..." : "Search products... (e.g., Love)"}
                     className={cn(
                       "transition-all duration-200",
-                      searchQuery.length > 60 ? "w-[400px]" :
-                      searchQuery.length > 50 ? "w-[380px]" :
-                      searchQuery.length > 40 ? "w-[360px]" : 
-                      searchQuery.length > 30 ? "w-[340px]" : 
-                      searchQuery.length > 20 ? "w-[320px]" : 
-                      searchQuery.length > 10 ? "w-[300px]" : "w-[320px]"
+                      searchQuery.length > 60 ? "w-[600px]" :
+                      searchQuery.length > 50 ? "w-[580px]" :
+                      searchQuery.length > 40 ? "w-[560px]" : 
+                      searchQuery.length > 30 ? "w-[540px]" : 
+                      searchQuery.length > 20 ? "w-[520px]" : 
+                      searchQuery.length > 10 ? "w-[500px]" : "w-[480px]"
                     )}
                     suggestions={suggestions}
                     isLoading={isAlgoliaSearching}

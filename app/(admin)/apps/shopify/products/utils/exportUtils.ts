@@ -7,12 +7,13 @@ export type ExportFormat = 'csv' | 'json' | 'pdf'
 export interface ExportField {
   key: keyof Product
   label: string
-  type: 'string' | 'number' | 'date' | 'array' | 'object'
+  type: 'string' | 'number' | 'date' | 'array' | 'object' | 'image'
 }
 
 export const EXPORT_FIELDS: ExportField[] = [
   { key: 'id', label: 'ID', type: 'string' },
   { key: 'title', label: 'Product Name', type: 'string' },
+  { key: 'images', label: 'Images', type: 'image' },
   { key: 'vendor', label: 'Vendor', type: 'string' },
   { key: 'productType', label: 'Product Type', type: 'string' },
   { key: 'price', label: 'Price', type: 'number' },
@@ -41,9 +42,62 @@ const formatValue = (value: any, type: string): string => {
       return typeof value === 'number' ? value.toString() : String(value)
     case 'object':
       return typeof value === 'object' ? JSON.stringify(value) : String(value)
+    case 'image':
+      return Array.isArray(value) && value.length > 0 ? value[0] : ''
     default:
       return String(value)
   }
+}
+
+// Helper function to get optimized image URL
+const getOptimizedImageUrl = (imageUrl: string, width: number = 100, height: number = 100): string => {
+  if (!imageUrl) return ''
+  
+  // If it's already an S3 URL with parameters, return as is
+  if (imageUrl.includes('?') && imageUrl.includes('w=')) {
+    return imageUrl
+  }
+  
+  // Add S3 optimization parameters
+  const separator = imageUrl.includes('?') ? '&' : '?'
+  return `${imageUrl}${separator}w=${width}&h=${height}&fit=crop&auto=format&q=80`
+}
+
+// Load image as base64
+const loadImageAsBase64 = async (imageUrl: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    
+    // Set timeout for image loading
+    const timeout = setTimeout(() => {
+      reject(new Error('Image loading timeout'))
+    }, 10000) // 10 second timeout
+    
+    img.onload = () => {
+      clearTimeout(timeout)
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      
+      // Set canvas size
+      canvas.width = img.width
+      canvas.height = img.height
+      
+      // Draw image
+      ctx?.drawImage(img, 0, 0)
+      
+      // Convert to base64
+      const dataURL = canvas.toDataURL('image/jpeg', 0.8)
+      resolve(dataURL)
+    }
+    
+    img.onerror = () => {
+      clearTimeout(timeout)
+      reject(new Error(`Failed to load image: ${imageUrl}`))
+    }
+    
+    img.src = imageUrl
+  })
 }
 
 // Export to CSV
@@ -110,7 +164,7 @@ export const exportToJSON = (products: Product[], selectedFields: string[]): voi
   URL.revokeObjectURL(url)
 }
 
-// Export to PDF
+// Export to PDF with improved layout and images
 export const exportToPDF = async (products: Product[], selectedFields: string[]): Promise<void> => {
   try {
     // Check if we're in a browser environment
@@ -118,7 +172,7 @@ export const exportToPDF = async (products: Product[], selectedFields: string[])
       throw new Error('PDF generation is only available in browser environment')
     }
 
-    // Dynamic import for PDF generation - jsPDF v3 syntax
+    // Dynamic import for PDF generation
     let jsPDF: any
     try {
       const { jsPDF: jsPDFClass } = await import('jspdf')
@@ -128,92 +182,127 @@ export const exportToPDF = async (products: Product[], selectedFields: string[])
       throw new Error('jsPDF library not available')
     }
     
-    // Import autoTable plugin
-    try {
-      await import('jspdf-autotable')
-    } catch (autoTableError) {
-      console.warn('autoTable plugin not available, using fallback PDF generation')
-    }
-    
     // Filter fields based on selection
     const fields = EXPORT_FIELDS.filter(field => selectedFields.includes(field.key))
+    const hasImages = fields.some(field => field.type === 'image')
     
     // Create PDF document
-    const doc = new jsPDF()
+    const doc = new jsPDF('p', 'mm', 'a4')
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const margin = 15
     
-    // Add title
-    doc.setFontSize(16)
-    doc.text('Products Export', 14, 20)
+    // Calculate available space
+    const availableWidth = pageWidth - (2 * margin)
+    
+    // Add title and header
+    doc.setFontSize(18)
+    doc.setFont(undefined, 'bold')
+    doc.text('Products Export', margin, margin + 10)
+    
     doc.setFontSize(10)
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 30)
-    doc.text(`Total Products: ${products.length}`, 14, 35)
+    doc.setFont(undefined, 'normal')
+    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, margin, margin + 20)
+    doc.text(`Total Products: ${products.length}`, margin, margin + 25)
     
-    // Prepare table data
-    const headers = fields.map(field => field.label)
-    const tableData = products.map(product => 
-      fields.map(field => formatValue(product[field.key], field.type))
-    )
+    let currentY = margin + 35
     
-    // Try to use autoTable if available
-    if (typeof (doc as any).autoTable === 'function') {
-      try {
-        (doc as any).autoTable({
-          head: [headers],
-          body: tableData,
-          startY: 45,
-          styles: {
-            fontSize: 8,
-            cellPadding: 2
-          },
-          headStyles: {
-            fillColor: [59, 130, 246], // Blue color
-            textColor: 255
-          },
-          alternateRowStyles: {
-            fillColor: [248, 250, 252] // Light gray
-          },
-          margin: { top: 45 }
-        })
-      } catch (autoTableError) {
-        console.warn('autoTable failed, using fallback:', autoTableError)
-        // Fall through to fallback
+    // Process each product
+    for (let i = 0; i < products.length; i++) {
+      const product = products[i]
+      
+      // Check if we need a new page
+      if (currentY > pageHeight - 50) {
+        doc.addPage()
+        currentY = margin + 10
       }
-    }
-    
-    // Fallback: create simple text-based PDF
-    if (typeof (doc as any).autoTable !== 'function' || !(doc as any).autoTable) {
-      let yPosition = 45
       
-      // Add headers
-      doc.setFontSize(12)
+      // Product header
+      doc.setFontSize(14)
       doc.setFont(undefined, 'bold')
-      headers.forEach((header, index) => {
-        doc.text(`${header}:`, 14, yPosition)
-        yPosition += 10
-      })
+      doc.text(`Product ${i + 1}: ${product.title || 'Untitled'}`, margin, currentY)
+      currentY += 8
       
-      // Add data
+      // Product content container
+      const contentStartY = currentY
+      let contentMaxY = currentY
+      
+      // Left column (text data)
+      const leftColumnX = margin
+      const leftColumnWidth = hasImages ? availableWidth * 0.6 : availableWidth
+      
+      // Right column (image)
+      const rightColumnX = margin + leftColumnWidth + 10
+      const rightColumnWidth = availableWidth * 0.35
+      
+      // Process text fields
       doc.setFontSize(10)
       doc.setFont(undefined, 'normal')
-      tableData.forEach((row, rowIndex) => {
-        if (yPosition > 280) {
-          doc.addPage()
-          yPosition = 20
+      
+      let fieldY = currentY
+      const lineHeight = 6
+      const fieldSpacing = 2
+      
+      fields.forEach(field => {
+        if (field.type === 'image') return // Handle images separately
+        
+        const value = product[field.key]
+        const formattedValue = formatValue(value, field.type)
+        
+        if (formattedValue) {
+          // Field label
+          doc.setFont(undefined, 'bold')
+          doc.text(`${field.label}:`, leftColumnX, fieldY)
+          
+          // Field value
+          doc.setFont(undefined, 'normal')
+          const valueX = leftColumnX + 40
+          
+          // Handle long text by wrapping
+          const maxWidth = leftColumnWidth - 45
+          const lines = doc.splitTextToSize(formattedValue, maxWidth)
+          
+          lines.forEach((line: string, lineIndex: number) => {
+            doc.text(line, valueX, fieldY + (lineIndex * lineHeight))
+          })
+          
+          fieldY += Math.max(lines.length * lineHeight, lineHeight) + fieldSpacing
+          contentMaxY = Math.max(contentMaxY, fieldY)
         }
-        
-        doc.text(`Product ${rowIndex + 1}:`, 14, yPosition)
-        yPosition += 8
-        
-        row.forEach((cell, cellIndex) => {
-          if (yPosition > 280) {
-            doc.addPage()
-            yPosition = 20
-          }
-          doc.text(`  ${headers[cellIndex]}: ${cell}`, 20, yPosition)
-          yPosition += 6
-        })
-        yPosition += 5
       })
+      
+      // Handle image if present
+      if (hasImages) {
+        const imageField = fields.find(f => f.type === 'image')
+        if (imageField) {
+          const images = product[imageField.key] as string[]
+          if (images && images.length > 0) {
+            try {
+              const imageUrl = getOptimizedImageUrl(images[0], 150, 150)
+              const base64Image = await loadImageAsBase64(imageUrl)
+              
+              // Add image to right column
+              const imageSize = Math.min(rightColumnWidth, 60) // Max 60mm height
+              doc.addImage(base64Image, 'JPEG', rightColumnX, contentStartY, imageSize, imageSize)
+              
+              // Update content max Y to account for image
+              contentMaxY = Math.max(contentMaxY, contentStartY + imageSize)
+            } catch (imageError) {
+              console.warn('Failed to load image:', imageError)
+              // Add placeholder text
+              doc.setFontSize(8)
+              doc.setFont(undefined, 'italic')
+              doc.text('Image not available', rightColumnX, contentStartY + 30)
+            }
+          }
+        }
+      }
+      
+      // Add separator line
+      currentY = contentMaxY + 10
+      doc.setDrawColor(200, 200, 200)
+      doc.line(margin, currentY, pageWidth - margin, currentY)
+      currentY += 15
     }
     
     // Save PDF

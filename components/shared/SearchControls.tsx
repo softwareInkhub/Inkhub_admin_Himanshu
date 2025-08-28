@@ -90,7 +90,7 @@ export default function SearchControls({
   }
 
   const handleResetAll = () => {
-    setActiveFilter('all')
+    setActiveFilter('')
     setShowCustomFilterDropdown(false)
     setShowHeaderDropdown(false)
     setShowAdvancedFilter(false)
@@ -245,22 +245,10 @@ export default function SearchControls({
   return (
     <div ref={containerRef} className="px-3 py-0.5 border-b-0 bg-white shadow-sm relative z-30">
       {/* Main Search Bar Layout - Single Horizontal Row */}
-      <div className="flex items-center justify-between space-x-2">
+      <div className="flex items-center space-x-2">
         
-        {/* LEFT SECTION: All, Add Filter, and Search Bar */}
-        <div className="flex items-center space-x-2">
-          {/* All Items Filter */}
-          <button
-            onClick={handleResetAll}
-            className={cn(
-              'px-3 py-2 text-sm font-medium rounded-md transition-all duration-200 border shadow-sm hover:shadow-md h-10',
-              activeFilter === 'all'
-                ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white border-blue-500 shadow-md hover:shadow-lg transform hover:scale-105'
-                : 'text-gray-700 hover:text-gray-900 hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 bg-white border-gray-300 hover:border-gray-400'
-            )}
-          >
-            All
-          </button>
+        {/* LEFT SECTION: Add Filter and Search Bar - Extended to take more space */}
+        <div className="flex items-center space-x-2 flex-1">
           
           {/* Custom Filters */}
           {customFilters.map((customFilter) => (
@@ -285,7 +273,7 @@ export default function SearchControls({
                   e.stopPropagation()
                   onRemoveCustomFilter(customFilter.id)
                   if (activeFilter === customFilter.id) {
-                    setActiveFilter('all')
+                    setActiveFilter('')
                   }
                 }}
                 className="ml-1 hover:text-red-500 cursor-pointer flex-shrink-0"
@@ -311,21 +299,21 @@ export default function SearchControls({
         </button>
             ) : (
               /* Search Input - When Search is Visible */
-              <div className="flex items-center animate-fade-in max-w-2xl">
+              <div className="flex items-center animate-fade-in">
                 <div className="relative flex items-center">
                   <GoogleStyleSearch
                     value={searchQuery}
                     onChange={setSearchQuery}
                     onSearch={handleSearch}
                     placeholder={searchConditions.length > 0 ? "Advanced search active..." : "Search items... (e.g., Love)"}
-          className={cn(
+                              className={cn(
                       "transition-all duration-200",
-                      searchQuery.length > 60 ? "w-[400px]" :
-                      searchQuery.length > 50 ? "w-[380px]" :
-                      searchQuery.length > 40 ? "w-[360px]" : 
-                      searchQuery.length > 30 ? "w-[340px]" : 
-                      searchQuery.length > 20 ? "w-[320px]" : 
-                      searchQuery.length > 10 ? "w-[300px]" : "w-[320px]"
+                      searchQuery.length > 60 ? "w-[600px]" :
+                      searchQuery.length > 50 ? "w-[580px]" :
+                      searchQuery.length > 40 ? "w-[560px]" : 
+                      searchQuery.length > 30 ? "w-[540px]" : 
+                      searchQuery.length > 20 ? "w-[520px]" : 
+                      searchQuery.length > 10 ? "w-[500px]" : "w-[480px]"
                     )}
                     suggestions={suggestions}
                     isLoading={isAlgoliaSearching}
@@ -403,7 +391,7 @@ export default function SearchControls({
         </div>
 
         {/* RIGHT SECTION: Export, More Actions, Filter, View, Full Screen */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-shrink-0">
           {/* Export Button */}
           <button
             onClick={onExport}

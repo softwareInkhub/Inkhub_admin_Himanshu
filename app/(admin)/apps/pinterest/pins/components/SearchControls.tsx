@@ -101,11 +101,11 @@ export default function SearchControls({
 
   return (
     <div className="px-4 py-3 border-b border-gray-200 bg-white">
-      <div className="flex items-center justify-between">
-        {/* Left side - Search and Filters */}
+      <div className="flex items-center space-x-3">
+        {/* Left side - Search and Filters - Extended to take more space */}
         <div className="flex items-center space-x-3 flex-1">
           {/* Search Input */}
-          <div className="relative flex-1 max-w-md">
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
@@ -126,17 +126,6 @@ export default function SearchControls({
 
           {/* Filter Tabs */}
           <div className="flex items-center space-x-1">
-            <button
-              onClick={() => setActiveFilter('all')}
-              className={cn(
-                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-                activeFilter === 'all'
-                  ? "bg-red-100 text-red-700"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-              )}
-            >
-              All
-            </button>
             <button
               onClick={() => setActiveFilter('image')}
               className={cn(
@@ -252,7 +241,7 @@ export default function SearchControls({
         </div>
 
         {/* Right side - View Controls */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-shrink-0">
           {/* View Mode Toggle */}
           <div className="relative">
             <button

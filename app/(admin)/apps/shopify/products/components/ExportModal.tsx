@@ -15,7 +15,7 @@ interface ExportModalProps {
 export default function ExportModal({ isOpen, onClose, products, selectedProducts }: ExportModalProps) {
   const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
   const [selectedFields, setSelectedFields] = useState<string[]>([
-    'id', 'title', 'vendor', 'price', 'status', 'inventoryQuantity', 'tags', 'createdAt'
+    'id', 'title', 'images', 'vendor', 'price', 'status', 'inventoryQuantity', 'tags', 'createdAt'
   ])
   const [isExporting, setIsExporting] = useState(false)
 
@@ -62,7 +62,7 @@ export default function ExportModal({ isOpen, onClose, products, selectedProduct
   const formatOptions = [
     { value: 'csv' as ExportFormat, label: 'CSV', icon: FileText, description: 'Comma-separated values file' },
     { value: 'json' as ExportFormat, label: 'JSON', icon: FileJson, description: 'JavaScript Object Notation' },
-    { value: 'pdf' as ExportFormat, label: 'PDF', icon: FileType, description: 'Portable Document Format' }
+    { value: 'pdf' as ExportFormat, label: 'PDF', icon: FileType, description: 'Portable Document Format with images & layout' }
   ]
 
   return (
@@ -178,6 +178,11 @@ export default function ExportModal({ isOpen, onClose, products, selectedProduct
               <div>• Format: {formatOptions.find(f => f.value === exportFormat)?.label}</div>
               <div>• Fields: {selectedFields.length} selected</div>
               <div>• File name: products_export_{new Date().toISOString().split('T')[0]}.{exportFormat}</div>
+              {exportFormat === 'pdf' && selectedFields.includes('images') && (
+                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">
+                  📸 PDF will include product images with optimized layout for better readability
+                </div>
+              )}
             </div>
           </div>
         </div>

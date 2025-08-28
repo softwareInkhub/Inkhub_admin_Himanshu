@@ -1,12 +1,10 @@
 'use client'
 
-import React, { useState } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { LucideIcon, Package, ShoppingCart, Image, Palette, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { BaseEntity, ViewMode, TableColumn, KPIMetrics } from './types'
+import { BaseEntity, PageConfig, ViewMode, KPIMetrics } from './types'
 import { 
-  PageHeader, 
-  SearchControls, 
   DataTable, 
   DataGrid, 
   DataCard,
@@ -16,10 +14,15 @@ import {
   ExportModal,
   ImportModal,
   BulkEditModal,
-  BulkDeleteModal
+  BulkDeleteModal,
+  EnhancedDetailModal,
+  SearchControls,
+  ViewToggle,
+  CardsPerRowDropdown,
+  TablePreferencesModal
 } from './index'
-import TablePreferencesModal from './TablePreferencesModal'
 import ProductsGridCardFilterHeader from '@/app/(admin)/apps/shopify/products/components/GridCardFilterHeader'
+import { useDataTable } from './hooks/useDataTable'
 
 // Reusable props contract for grid/card header components
 interface GridHeaderComponentProps {
@@ -33,24 +36,6 @@ interface GridHeaderComponentProps {
   getUniqueValues: (field: string) => string[]
   cardsPerRow?: number
   onCardsPerRowChange?: (value: number) => void
-}
-
-interface PageConfig {
-  title: string
-  description: string
-  icon: string
-  endpoint: string
-  columns: any[]
-  kpis: any[]
-  filters: any[]
-  searchableFields: any[]
-  actions: {
-    create: () => void
-    export: () => void
-    import: () => void
-    print: () => void
-    settings: () => void
-  }
 }
 
 interface PageTemplateProps<T extends BaseEntity> {
@@ -207,6 +192,14 @@ export default function PageTemplate<T extends BaseEntity>({
     columnVisibility
   })
 
+  // Update settingsDraft when itemsPerPage changes
+  useEffect(() => {
+    setSettingsDraft(prev => ({
+      ...prev,
+      pageSize: itemsPerPage || 25
+    }))
+  }, [itemsPerPage])
+
   // Preview modal state for generic entities
   const [showPreviewModal, setShowPreviewModal] = useState<boolean>(false)
   const [previewItem, setPreviewItem] = useState<T | null>(null)
@@ -353,6 +346,15 @@ export default function PageTemplate<T extends BaseEntity>({
     setShowPreviewModal(true)
   }
 
+  const getItemTypeFromConfig = (config: PageConfig) => {
+    if (config.title.toLowerCase().includes('product')) return 'product'
+    if (config.title.toLowerCase().includes('order')) return 'order'
+    if (config.title.toLowerCase().includes('pin')) return 'pin'
+    if (config.title.toLowerCase().includes('board')) return 'board'
+    if (config.title.toLowerCase().includes('design')) return 'design'
+    return 'product' // Default fallback instead of 'item'
+  }
+
   return (
     <div className={cn(
       "min-h-screen bg-gray-50",
@@ -381,6 +383,16 @@ export default function PageTemplate<T extends BaseEntity>({
           }, {} as KPIMetrics)} 
           data={data} 
           compact
+          onRefresh={(kpiKey) => {
+            console.log(`Refreshing ${kpiKey} KPI...`)
+            // Here you can implement actual refresh logic
+            // For now, we'll just log the action
+          }}
+          onConfigure={(kpiKey, config) => {
+            console.log(`Configuring ${kpiKey} KPI:`, config)
+            // Here you can implement configuration saving logic
+            // For now, we'll just log the configuration
+          }}
         />
       </div>
 
@@ -397,7 +409,7 @@ export default function PageTemplate<T extends BaseEntity>({
           setShowSearchBuilder={() => {}}
           showAdditionalControls={false}
           setShowAdditionalControls={() => {}}
-          activeFilter="all"
+          activeFilter=""
           setActiveFilter={() => {}}
           customFilters={customFilters}
           onAddCustomFilter={handleCustomFilter}
@@ -744,135 +756,58 @@ export default function PageTemplate<T extends BaseEntity>({
 
       {/* Modals */}
       {showPreviewModal && previewItem && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-gray-900">{config.title.replace(/s$/,'')} Details</h3>
-              <button onClick={() => setShowPreviewModal(false)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left Column */}
-              <div className="space-y-6 lg:col-span-2">
-                {/* Image and Title */}
-                <div className="flex items-start space-x-4">
-                  {(previewItem as any).image ? (
-                    <div className="w-32 h-32 rounded-lg overflow-hidden bg-gray-100">
-                      <img src={(previewItem as any).image} alt={(previewItem as any).title || (previewItem as any).name || 'Item'} className="w-full h-full object-cover" />
-                    </div>
-                  ) : (
-                    <div className="w-32 h-32 flex items-center justify-center bg-gray-200 rounded-lg">
-                      <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <h4 className="text-xl font-semibold text-gray-900 mb-1">{(previewItem as any).title || (previewItem as any).name || 'Untitled'}</h4>
-                    {(previewItem as any).vendor && (<p className="text-sm text-gray-500 mb-2">Vendor: {(previewItem as any).vendor}</p>)}
-                  </div>
-                </div>
-
-                {/* Basic Info */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h5 className="font-medium text-gray-900 mb-3">Basic Information</h5>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    {(previewItem as any).price != null && (<div><span className="font-medium text-gray-600">Price:</span><div className="text-green-600 font-semibold">₹{(previewItem as any).price}</div></div>)}
-                    {(previewItem as any).cost != null && (<div><span className="font-medium text-gray-600">Cost:</span><div>₹{(previewItem as any).cost}</div></div>)}
-                    {(previewItem as any).type && (<div><span className="font-medium text-gray-600">Type:</span><div>{(previewItem as any).type}</div></div>)}
-                    {(previewItem as any).category && (<div><span className="font-medium text-gray-600">Category:</span><div>{(previewItem as any).category}</div></div>)}
-                    {(previewItem as any).handle && (<div><span className="font-medium text-gray-600">Handle:</span><div className="text-blue-600">{(previewItem as any).handle}</div></div>)}
-                    {(previewItem as any).salesChannels && (<div><span className="font-medium text-gray-600">Sales Channels:</span><div>{(previewItem as any).salesChannels}</div></div>)}
-                  </div>
-                </div>
-
-                {/* Dates */}
-                {((previewItem as any).createdAt || (previewItem as any).updatedAt || (previewItem as any).publishedAt) && (
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h5 className="font-medium text-gray-900 mb-3">Dates</h5>
-                    <div className="space-y-2 text-sm">
-                      {(previewItem as any).createdAt && (<div><span className="font-medium text-gray-600">Created:</span><div>{new Date((previewItem as any).createdAt).toLocaleDateString()}</div></div>)}
-                      {(previewItem as any).updatedAt && (<div><span className="font-medium text-gray-600">Updated:</span><div>{new Date((previewItem as any).updatedAt).toLocaleDateString()}</div></div>)}
-                      {(previewItem as any).publishedAt && (<div><span className="font-medium text-gray-600">Published:</span><div>{new Date((previewItem as any).publishedAt).toLocaleDateString()}</div></div>)}
-                    </div>
-                  </div>
-                )}
-
-                {/* Additional Details - auto-fill common fields */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h5 className="font-medium text-gray-900 mb-3">Details</h5>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    {(previewItem as any).status && (<div><span className="font-medium text-gray-600">Status:</span><div>{(previewItem as any).status}</div></div>)}
-                    {(previewItem as any).owner && (<div><span className="font-medium text-gray-600">Owner:</span><div>{(previewItem as any).owner}</div></div>)}
-                    {(previewItem as any).vendor && (<div><span className="font-medium text-gray-600">Vendor:</span><div>{(previewItem as any).vendor}</div></div>)}
-                    {(previewItem as any).board && (<div><span className="font-medium text-gray-600">Board:</span><div>{(previewItem as any).board}</div></div>)}
-                    {(previewItem as any).client && (<div><span className="font-medium text-gray-600">Client:</span><div>{(previewItem as any).client}</div></div>)}
-                    {(previewItem as any).designer && (<div><span className="font-medium text-gray-600">Designer:</span><div>{(previewItem as any).designer}</div></div>)}
-                    {(previewItem as any).size && (<div><span className="font-medium text-gray-600">Size:</span><div>{(previewItem as any).size}</div></div>)}
-                    {(previewItem as any).inventoryQuantity != null && (<div><span className="font-medium text-gray-600">Inventory:</span><div>{(previewItem as any).inventoryQuantity}</div></div>)}
-                    {(previewItem as any).likes != null && (<div><span className="font-medium text-gray-600">Likes:</span><div>{(previewItem as any).likes}</div></div>)}
-                    {(previewItem as any).comments != null && (<div><span className="font-medium text-gray-600">Comments:</span><div>{(previewItem as any).comments}</div></div>)}
-                    {(previewItem as any).repins != null && (<div><span className="font-medium text-gray-600">Repins:</span><div>{(previewItem as any).repins}</div></div>)}
-                    {(previewItem as any).followers != null && (<div><span className="font-medium text-gray-600">Followers:</span><div>{(previewItem as any).followers}</div></div>)}
-                    {(previewItem as any).views != null && (<div><span className="font-medium text-gray-600">Views:</span><div>{(previewItem as any).views}</div></div>)}
-                    {(previewItem as any).downloads != null && (<div><span className="font-medium text-gray-600">Downloads:</span><div>{(previewItem as any).downloads}</div></div>)}
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Column */}
-              <div className="space-y-6">
-                {(previewItem as any).tags && Array.isArray((previewItem as any).tags) && (previewItem as any).tags.length > 0 && (
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h5 className="font-medium text-gray-900 mb-3">Tags</h5>
-                    <div className="flex flex-wrap gap-2">
-                      {(previewItem as any).tags.map((tag: string, idx: number) => (
-                        <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {(previewItem as any).variants && Array.isArray((previewItem as any).variants) && (previewItem as any).variants.length > 0 && (
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h5 className="font-medium text-gray-900 mb-3">Variants ({(previewItem as any).variants.length})</h5>
-                    <div className="space-y-3">
-                      {(previewItem as any).variants.map((variant: any) => (
-                        <div key={variant.id || variant.title} className="border border-gray-200 rounded p-3 bg-white">
-                          <div className="flex justify-between items-start mb-2">
-                            <span className="font-medium text-sm">{variant.title || variant.name}</span>
-                            {variant.price != null && (<span className="text-sm font-semibold text-green-600">₹{variant.price}</span>)}
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                            {variant.sku && (<div>SKU: {variant.sku}</div>)}
-                            {variant.inventoryQuantity != null && (<div>Stock: {variant.inventoryQuantity}</div>)}
-                            {variant.weight && (<div>Weight: {variant.weight} {variant.weightUnit || ''}</div>)}
-                            {variant.barcode && (<div>Barcode: {variant.barcode}</div>)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Metrics */}
-                {(((previewItem as any).likes != null) || ((previewItem as any).comments != null) || ((previewItem as any).repins != null) || ((previewItem as any).followers != null) || ((previewItem as any).views != null) || ((previewItem as any).downloads != null)) && (
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h5 className="font-medium text-gray-900 mb-3">Metrics</h5>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      {(previewItem as any).likes != null && (<div><span className="font-medium text-gray-600">Likes:</span><div>{(previewItem as any).likes}</div></div>)}
-                      {(previewItem as any).comments != null && (<div><span className="font-medium text-gray-600">Comments:</span><div>{(previewItem as any).comments}</div></div>)}
-                      {(previewItem as any).repins != null && (<div><span className="font-medium text-gray-600">Repins:</span><div>{(previewItem as any).repins}</div></div>)}
-                      {(previewItem as any).followers != null && (<div><span className="font-medium text-gray-600">Followers:</span><div>{(previewItem as any).followers}</div></div>)}
-                      {(previewItem as any).views != null && (<div><span className="font-medium text-gray-600">Views:</span><div>{(previewItem as any).views}</div></div>)}
-                      {(previewItem as any).downloads != null && (<div><span className="font-medium text-gray-600">Downloads:</span><div>{(previewItem as any).downloads}</div></div>)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <EnhancedDetailModal
+          isOpen={showPreviewModal}
+          onClose={() => setShowPreviewModal(false)}
+          item={previewItem}
+          itemType={getItemTypeFromConfig(config)}
+          onEdit={async (id: string, data: any) => {
+            // Implement edit logic - PATCH/PUT request
+            console.log('Edit item:', id, data)
+            try {
+              // Example API call:
+              // await fetch(`/api/${config.title.toLowerCase()}/${id}`, {
+              //   method: 'PATCH',
+              //   headers: { 'Content-Type': 'application/json' },
+              //   body: JSON.stringify(data)
+              // })
+              console.log('Item updated successfully')
+            } catch (error) {
+              console.error('Error updating item:', error)
+              throw error
+            }
+          }}
+          onDelete={async (id: string) => {
+            // Implement delete logic - DELETE request
+            console.log('Delete item:', id)
+            try {
+              // Example API call:
+              // await fetch(`/api/${config.title.toLowerCase()}/${id}`, {
+              //   method: 'DELETE'
+              // })
+              console.log('Item deleted successfully')
+            } catch (error) {
+              console.error('Error deleting item:', error)
+              throw error
+            }
+          }}
+          onSave={async (id: string, data: any) => {
+            // Implement save logic - PATCH/PUT request
+            console.log('Save item:', id, data)
+            try {
+              // Example API call:
+              // await fetch(`/api/${config.title.toLowerCase()}/${id}`, {
+              //   method: 'PATCH',
+              //   headers: { 'Content-Type': 'application/json' },
+              //   body: JSON.stringify(data)
+              // })
+              console.log('Item saved successfully')
+            } catch (error) {
+              console.error('Error saving item:', error)
+              throw error
+            }
+          }}
+        />
       )}
       {showExportModal && (
         <ExportModal
@@ -986,7 +921,7 @@ export default function PageTemplate<T extends BaseEntity>({
           onClose={() => setShowSettingsModal(false)}
           onSave={() => {
             setColumnVisibility(settingsDraft.columnVisibility)
-            setItemsPerPage(settingsDraft.pageSize)
+            handleItemsPerPageChange(settingsDraft.pageSize)
             try {
               if (typeof window !== 'undefined') {
                 localStorage.setItem(storageKey, JSON.stringify({ columnVisibility: settingsDraft.columnVisibility, pageSize: settingsDraft.pageSize }))

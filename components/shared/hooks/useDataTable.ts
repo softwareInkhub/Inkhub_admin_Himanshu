@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { BaseEntity, SearchCondition, CustomFilter, ViewMode, PaginationConfig } from '../types'
 
 interface UseDataTableProps<T extends BaseEntity> {
@@ -21,6 +21,12 @@ export function useDataTable<T extends BaseEntity>({
 }: UseDataTableProps<T>) {
   // State
   const [data, setData] = useState<T[]>(initialData)
+  
+  // Update data when initialData changes
+  useEffect(() => {
+    setData(initialData)
+  }, [initialData])
+  
   const [searchQuery, setSearchQuery] = useState('')
   const [searchConditions, setSearchConditions] = useState<SearchCondition[]>([])
   const [selectedItems, setSelectedItems] = useState<string[]>([])
@@ -295,6 +301,9 @@ export function useDataTable<T extends BaseEntity>({
     
     // Loading and error states
     loading: false,
-    error: null
+    error: null,
+    
+    // Data setter for external updates
+    setData
   }
 }
