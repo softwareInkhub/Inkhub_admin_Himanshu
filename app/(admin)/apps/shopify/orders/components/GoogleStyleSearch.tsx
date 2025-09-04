@@ -103,14 +103,12 @@ export default function GoogleStyleSearch({
 
   // Handle input change
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value
-    onChange(newValue)
+    onChange(e.target.value)
     setSelectedIndex(-1)
   }
 
   // Handle suggestion click
   const handleSuggestionClick = (suggestion: SearchSuggestion) => {
-    onChange(suggestion.text)
     onSuggestionClick?.(suggestion)
     setIsFocused(false)
     setSelectedIndex(-1)
@@ -141,11 +139,12 @@ export default function GoogleStyleSearch({
       {/* Search Input */}
       <div className={cn(
         "relative flex items-center w-full h-10",
-        "border border-gray-300 rounded-md",
+        "border border-gray-300 rounded-lg",
         "bg-white shadow-sm",
         "transition-all duration-200",
         isFocused && "border-blue-500 shadow-md ring-2 ring-blue-100",
-        isLoading && "border-purple-500"
+        isLoading && "border-purple-500",
+        value && "border-blue-300 shadow-md"
       )}>
         {/* Search Icon */}
         <div className="pl-3 pr-2">
@@ -182,6 +181,7 @@ export default function GoogleStyleSearch({
           <button
             onClick={handleClear}
             className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
+            title="Clear search"
           >
             <X className="h-4 w-4" />
           </button>
@@ -193,10 +193,11 @@ export default function GoogleStyleSearch({
           className={cn(
             "px-4 py-2 text-white font-medium text-sm",
             "bg-blue-500 hover:bg-blue-600",
-            "rounded-r-md transition-colors",
+            "rounded-r-lg transition-colors",
             "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
             "h-full"
           )}
+          title="Search"
         >
           Search
         </button>
@@ -250,13 +251,13 @@ export default function GoogleStyleSearch({
               )}
             </div>
           ))}
-
+          
           {/* Clear History Button */}
-          {suggestions.some(s => s.type === 'history') && onClearHistory && (
-            <div className="border-t border-gray-200 px-4 py-2">
+          {suggestions.some(s => s.type === 'history') && (
+            <div className="border-t border-gray-200 p-2">
               <button
                 onClick={onClearHistory}
-                className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                className="w-full text-left px-2 py-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
               >
                 Clear search history
               </button>

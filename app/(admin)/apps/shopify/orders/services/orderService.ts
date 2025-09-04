@@ -1,11 +1,26 @@
 import { log } from 'console'
 import { Order } from '../types'
 
+
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
 
+// Configuration for pagination-based chunk fetching
+const CHUNK_CONFIG = {
+  ordersPerChunk: 500, // Each chunk contains 500 orders
+  chunkTimeout: 30000, // 30 seconds timeout per chunk (avoid AbortError spam)
+  maxRetries: 3
+}
 
+// Lightweight caching to prevent duplicate network calls (no UI changes)
+const CHUNK_TTL_MS = 5 * 60 * 1000 // 5 minutes
+const TOTAL_CHUNKS_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
-// Helper function to parse dates
+// In-memory caches
+const chunkDataCache: Map<number, { data: Order[]; timestamp: number }> = new Map()
+const inflightChunkFetches: Map<number, Promise<Order[]>> = new Map()
+let cachedTotalChunks: { value: number; timestamp: number } | null = null
+
+// Helper function to parse date strings
 const parseDate = (dateStr: any): string => {
   if (!dateStr) return new Date().toISOString()
   try {
@@ -86,95 +101,190 @@ const mapRecordToOrder = (raw: any, idx: number): Order => {
   }
 }
 
-export const getTransformedOrders = async (): Promise<Order[]> => {
-  console.log('🔄 Starting getTransformedOrders...')
-  console.log('📍 BACKEND_URL:', BACKEND_URL)
-  
+// Get total number of chunks available
+export const getTotalChunks = async (): Promise<number> => {
+  // Serve from in-memory cache if fresh
+  if (cachedTotalChunks && Date.now() - cachedTotalChunks.timestamp < TOTAL_CHUNKS_TTL_MS) {
+    return cachedTotalChunks.value
+  }
+
   try {
-    // Step 1: Fetch all chunk keys
     const keysUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-orders`
-    console.log('🔑 Fetching chunk keys from:', keysUrl)
     
-    const keysRes = await fetch(keysUrl)
-    console.log('📡 Keys response status:', keysRes.status)
-    console.log('📡 Keys response ok:', keysRes.ok)
+    // Use a simple fetch without AbortController to avoid timeout issues
+    // This prevents AbortError issues that were causing data loading failures
+    const keysRes = await fetch(keysUrl, {
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    })
     
-    if (!keysRes.ok) {
-      console.error('❌ Keys fetch failed:', keysRes.status, keysRes.statusText)
-      throw new Error(`Cache API error (${keysRes.status}): ${keysRes.statusText}`)
-    }
-    
-    const keysJson = await keysRes.json()
-    console.log('📋 Keys response data:', keysJson)
-
-    if (!keysJson?.keys || !Array.isArray(keysJson.keys)) {
-      console.error('❌ No valid keys found in response:', keysJson)
-      throw new Error('No chunk keys found')
-    }
-
-    console.log('✅ Found chunk keys:', keysJson.keys)
-
-    // Step 2: Fetch each chunk's data
-    const allOrders: Order[] = []
-    let totalItems = 0
-    
-    for (const key of keysJson.keys) {
-      // Extract just the chunk number from the full key
-      const chunkNumber = key.split(':').pop() // Gets 'chunk:0' from 'my-app:shopify-inkhub-get-orders:chunk:0'
-      const chunkUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-orders&key=chunk:${chunkNumber}`
-      console.log(`🔗 Fetching chunk data for key: ${key}`)
-      console.log(`🔗 Extracted chunk number: ${chunkNumber}`)
-      console.log(`🔗 Chunk URL: ${chunkUrl}`)
-      
-      const chunkRes = await fetch(chunkUrl)
-      console.log(`📡 Chunk ${key} response status:`, chunkRes.status)
-      console.log(`📡 Chunk ${key} response ok:`, chunkRes.ok)
-      
-      if (chunkRes.ok) {
-        const chunkJson = await chunkRes.json()
-        console.log(`📋 Chunk ${key} response data:`, chunkJson)
-        
-        if (chunkJson?.data && Array.isArray(chunkJson.data)) {
-          console.log(`✅ Chunk ${key} has ${chunkJson.data.length} items`)
-          const mappedChunk: Order[] = chunkJson.data.map(mapRecordToOrder)
-          allOrders.push(...mappedChunk)
-          totalItems += mappedChunk.length
-          console.log(`✅ Mapped ${mappedChunk.length} orders from chunk ${key}`)
-        } else {
-          console.warn(`⚠️ Chunk ${key} has no valid data array:`, chunkJson)
-        }
-      } else {
-        console.error(`❌ Chunk ${key} fetch failed:`, chunkRes.status, chunkRes.statusText)
+    if (keysRes.ok) {
+      const keysJson = await keysRes.json()
+      if (keysJson?.keys && Array.isArray(keysJson.keys)) {
+        const count = keysJson.keys.length
+        cachedTotalChunks = { value: count, timestamp: Date.now() }
+        return count
       }
     }
+    // Default to 137 (based on data); also cache default briefly to avoid spamming
+    cachedTotalChunks = { value: 137, timestamp: Date.now() }
+    return 137
+  } catch (error) {
+    // Network failed, use cached fallback or default
+    if (cachedTotalChunks) return cachedTotalChunks.value
+    return 137
+  }
+}
 
-    console.log('📊 Total items across all chunks:', totalItems)
-    console.log('✅ Successfully loaded orders:', allOrders.length)
+// Fetch a specific chunk by chunk number
+export const fetchChunk = async (chunkNumber: number, maxRetries: number = 3): Promise<Order[]> => {
+  // Serve fresh from in-memory cache
+  const cached = chunkDataCache.get(chunkNumber)
+  if (cached && Date.now() - cached.timestamp < CHUNK_TTL_MS) {
+    return cached.data
+  }
 
-    if (totalItems === 0) {
-      console.error('❌ No order data found in any chunks')
-      throw new Error('No order data found in chunks')
+  // Deduplicate concurrent fetches for the same chunk
+  const inflightExisting = inflightChunkFetches.get(chunkNumber)
+  if (inflightExisting) return inflightExisting
+
+  let retryCount = 0
+
+  const promise = (async () => {
+    while (retryCount < maxRetries) {
+      try {
+        const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
+        const chunkUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-orders&key=chunk:${chunkNumber}`
+        
+        // Only log in development mode
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`🔄 Fetching chunk ${chunkNumber}...`)
+          console.log(`🔗 Chunk ${chunkNumber} URL: ${chunkUrl}`)
+        }
+        
+        const chunkRes = await fetch(chunkUrl, { 
+          signal: AbortSignal.timeout(CHUNK_CONFIG.chunkTimeout)
+        })
+        
+        if (chunkRes.ok) {
+          const chunkJson = await chunkRes.json()
+          
+          if (chunkJson?.data && Array.isArray(chunkJson.data)) {
+            const mappedChunk = chunkJson.data.map((item: any, idx: number) => 
+              mapRecordToOrder(item, idx)
+            )
+            
+            // Only log in development mode
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`✅ Successfully mapped ${mappedChunk.length} orders from chunk ${chunkNumber}`)
+            }
+            
+            // Cache in memory
+            chunkDataCache.set(chunkNumber, { data: mappedChunk, timestamp: Date.now() })
+            return mappedChunk
+          } else {
+            console.warn(`⚠️ Chunk ${chunkNumber} has no valid data array:`, chunkJson)
+            return []
+          }
+        } else {
+          console.error(`❌ Chunk ${chunkNumber} fetch failed:`, chunkRes.status, chunkRes.statusText)
+          if (retryCount === maxRetries - 1) {
+            throw new Error(`Chunk ${chunkNumber} fetch failed (${chunkRes.status}): ${chunkRes.statusText}`)
+          }
+          retryCount++
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))) // Reduced delay
+        }
+      } catch (error: any) {
+        console.error(`❌ Chunk ${chunkNumber} fetch error (attempt ${retryCount + 1}):`, error.message)
+        
+        if (retryCount === maxRetries - 1) {
+          throw error
+        }
+        
+        retryCount++
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))) // Reduced delay
+      }
     }
+    
+    console.error(`💥 Final error: Failed to fetch chunk ${chunkNumber} after ${maxRetries} attempts`)
+    throw new Error(`Failed to fetch chunk ${chunkNumber} after ${maxRetries} attempts`)
+  })()
 
-    return allOrders
+  inflightChunkFetches.set(chunkNumber, promise)
+  try {
+    const result = await promise
+    return result
+  } finally {
+    inflightChunkFetches.delete(chunkNumber)
+  }
+}
+
+// Get orders for a specific page (chunk-based pagination)
+export const getOrdersForPage = async (pageNumber: number, itemsPerPage: number = 500): Promise<{
+  orders: Order[]
+  totalChunks: number
+  currentChunk: number
+  hasMore: boolean
+}> => {
+  console.log(`🔄 Getting orders for page ${pageNumber} (${itemsPerPage} items per page)...`)
+  
+  try {
+    // Calculate which chunk this page corresponds to
+    const chunkNumber = pageNumber - 1 // Page 1 = chunk 0, Page 2 = chunk 1, etc.
+    console.log(`📊 Page ${pageNumber} corresponds to chunk ${chunkNumber}`)
+    
+    // Get total chunks for pagination info
+    const totalChunks = await getTotalChunks()
+    console.log(`📊 Total chunks available: ${totalChunks}`)
+    
+    // Check if chunk exists
+    if (chunkNumber >= totalChunks) {
+      console.log(`⚠️ Chunk ${chunkNumber} does not exist (max: ${totalChunks - 1})`)
+      return {
+        orders: [],
+        totalChunks,
+        currentChunk: chunkNumber,
+        hasMore: false
+      }
+    }
+    
+    // Fetch the specific chunk
+    const orders = await fetchChunk(chunkNumber)
+    
+    // Determine if there are more pages
+    const hasMore = chunkNumber < totalChunks - 1
+    
+    console.log(`✅ Successfully loaded ${orders.length} orders for page ${pageNumber} (chunk ${chunkNumber})`)
+    console.log(`📊 Has more pages: ${hasMore}`)
+    
+    return {
+      orders,
+      totalChunks,
+      currentChunk: chunkNumber,
+      hasMore
+    }
     
   } catch (error: any) {
-    console.error('💥 Error in getTransformedOrders:', error)
-    console.error('💥 Error name:', error?.name)
-    console.error('💥 Error message:', error?.message)
-    console.error('💥 Error stack:', error?.stack)
-    
-    if (error?.name === 'AbortError') {
-      console.log('🛑 Request was aborted')
-      throw error
-    }
-    
-    // Check if it's a connection error
-    if (error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_CONNECTION_REFUSED')) {
-      console.warn('⚠️ Backend connection failed')
-      throw new Error('Backend connection failed')
-    }
-    
+    console.error('💥 Error in getOrdersForPage:', error)
+    // Ensure the error is properly thrown so the fallback can be triggered
+    throw new Error(`Failed to load orders for page ${pageNumber}: ${error.message}`)
+  }
+}
+
+
+
+// Legacy function for backward compatibility (now fetches only chunk 0)
+export const getTransformedOrders = async (): Promise<Order[]> => {
+  console.log('🔄 Legacy getTransformedOrders called - fetching only chunk 0...')
+  
+  try {
+    const result = await getOrdersForPage(1, 500)
+    console.log('✅ Legacy function completed successfully')
+    return result.orders
+  } catch (error: any) {
+    console.error('💥 Error in legacy getTransformedOrders:', error)
     throw error
   }
 }

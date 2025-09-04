@@ -122,9 +122,18 @@ function ProductsClient({ initialData }: ProductsClientProps) {
   const [isFullScreen, setIsFullScreen] = useState(false)
   
   // Pagination states
-  const [currentPage, setCurrentPage] = useState(1)
+  const { productsPage, setProductsPage } = useAppStore()
+  const [currentPage, setCurrentPage] = useState(productsPage || 1)
   const [itemsPerPage, setItemsPerPage] = useState(25)
   
+  // Keep local pagination synced with store across tab switches/refresh
+  useEffect(() => {
+    const pageFromStore = productsPage || 1
+    if (pageFromStore !== currentPage) {
+      setCurrentPage(pageFromStore)
+    }
+  }, [productsPage])
+
   // Cards per row state for grid/card views
   const [cardsPerRow, setCardsPerRow] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -184,6 +193,12 @@ function ProductsClient({ initialData }: ProductsClientProps) {
   }, [settings.defaultViewMode])
 
   // Apply items per page setting
+  useEffect(() => {
+    if ((productsPage || 1) !== currentPage) {
+      setCurrentPage(productsPage || 1)
+    }
+  }, [productsPage])
+
   useEffect(() => {
     if (settings.itemsPerPage && settings.itemsPerPage !== itemsPerPage) {
       setItemsPerPage(settings.itemsPerPage)
@@ -280,335 +295,151 @@ function ProductsClient({ initialData }: ProductsClientProps) {
   const [previewProduct, setPreviewProduct] = useState<Product | null>(null)
   const hasFetchedRef = useRef(false)
 
-  // Generate fallback products when backend is unavailable
-  const generateFallbackProducts = (count: number): Product[] => {
-    const products: Product[] = []
+  // Utility functions for data processing
+  const toSlug = (text: string): string =>
+    (text || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)+/g, '')
+
+  const parseDate = (value: any): string => {
+    const d = value ? new Date(value) : new Date()
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
+  }
+
+  const mapVariant = (v: any, idx: number) => ({
+    id: String(v?.id ?? `variant-${idx}`),
+    title: String(v?.title ?? `Variant ${idx + 1}`),
+    price: Number(v?.price ?? v?.compare_at_price ?? 0) || 0,
+    compareAtPrice: v?.compare_at_price != null ? Number(v.compare_at_price) : undefined,
+    inventoryQuantity: Number(v?.inventory_quantity ?? v?.inventoryQuantity ?? 0) || 0,
+    sku: String(v?.sku ?? ''),
+    barcode: v?.barcode ? String(v.barcode) : undefined,
+    weight: v?.weight != null ? Number(v.weight) : undefined,
+    weightUnit: String(v?.weight_unit ?? v?.weightUnit ?? 'kg')
+  })
+
+  const mapRecordToProduct = (raw: any, idx: number): Product => {
+    // Remove excessive console logging for performance
     
-    for (let i = 0; i < count; i++) {
-      const product: Product = {
-        id: `fallback-${i + 1}`,
-        title: `Sample Product ${i + 1}`,
-        handle: `sample-product-${i + 1}`,
-        vendor: 'Sample Vendor',
-        productType: 'Sample Type',
-        price: Math.floor(Math.random() * 1000) + 100,
-        compareAtPrice: Math.random() > 0.7 ? Math.floor(Math.random() * 1500) + 200 : undefined,
-        cost: Math.floor(Math.random() * 500) + 50,
-        inventoryQuantity: Math.floor(Math.random() * 100) + 10,
-        status: Math.random() > 0.3 ? 'active' : 'draft',
-        publishedAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
-        createdAt: new Date(Date.now() - Math.random() * 90 * 24 * 60 * 60 * 1000).toISOString(),
-        updatedAt: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString(),
-        tags: ['sample', 'fallback', 'demo'],
-        images: [`https://picsum.photos/300/300?random=${i + 1}`],
+    // Handle product image data structure (from cache) - legacy support
+    if (raw?.product_id && raw?.src && !raw?.title) {
+      // This is product image data, create a product from it
+      const productId = String(raw.product_id)
+      const imageUrl = String(raw.src)
+      const altText = String(raw.alt || 'Product Image')
+      
+      return {
+        id: productId,
+        title: altText || '',
+        handle: toSlug(altText || ''),
+        vendor: '',
+        productType: '',
+        price: 0,
+        compareAtPrice: undefined,
+        cost: 0,
+        inventoryQuantity: 0,
+        status: 'active' as Product['status'],
+        publishedAt: raw.created_at ? parseDate(raw.created_at) : undefined,
+        createdAt: parseDate(raw.created_at || new Date()),
+        updatedAt: raw.updated_at ? parseDate(raw.updated_at) : new Date().toISOString(),
+        tags: [],
+        images: [imageUrl],
         variants: [{
-          id: `variant-${i + 1}`,
-          title: 'Default',
-          price: Math.floor(Math.random() * 1000) + 100,
-          compareAtPrice: Math.random() > 0.7 ? Math.floor(Math.random() * 1500) + 200 : undefined,
-          inventoryQuantity: Math.floor(Math.random() * 100) + 10,
-          sku: `SKU-${i + 1}`,
-          barcode: `BAR-${i + 1}`,
-          weight: Math.floor(Math.random() * 1000) + 100,
-          weightUnit: 'g'
+          id: `variant-${productId}`,
+          title: '',
+          price: 0,
+          inventoryQuantity: 0,
+          sku: '',
+          weight: 0,
+          weightUnit: 'kg'
         }],
         collections: [],
         selected: false,
         salesChannels: 1,
-        category: 'Sample Category'
+        category: ''
       }
-      products.push(product)
     }
     
-    return products
+    // Handle actual product data structure (from Shopify cache)
+    const variantsArray: any[] = Array.isArray(raw?.variants) ? raw.variants : []
+    const totalInventory = variantsArray.reduce((sum, v) => sum + (Number(v?.inventory_quantity ?? v?.inventoryQuantity ?? 0) || 0), 0)
+    const primaryVariant = variantsArray[0] || {}
+    const imagesArr = Array.isArray(raw?.images) ? raw.images : (raw?.image ? [raw.image] : [])
+    const imageUrls = imagesArr
+      .map((img: any) => typeof img === 'string' ? img : (img?.src || img?.url))
+      .filter(Boolean)
+
+    const title = String(raw?.title ?? raw?.name ?? '')
+    const productType = String(raw?.product_type ?? raw?.productType ?? raw?.category ?? '')
+    const priceCandidate = primaryVariant?.price || raw?.price
+    const statusRaw = String(raw?.status ?? 'active').toLowerCase()
+    const status = (statusRaw === 'active' || statusRaw === 'draft' || statusRaw === 'archived') ? statusRaw as Product['status'] : 'active'
+
+    return {
+      id: String(raw?.id ?? raw?.product_id ?? raw?.gid ?? ''),
+      title,
+      handle: String(raw?.handle ?? toSlug(title)),
+      vendor: String(raw?.vendor ?? raw?.brand ?? ''),
+      productType,
+      price: Number(priceCandidate ?? 0) || 0,
+      compareAtPrice: primaryVariant?.compare_at_price != null ? Number(primaryVariant.compare_at_price) : undefined,
+      cost: Number(primaryVariant?.cost ?? raw?.cost ?? 0) || 0,
+      inventoryQuantity: Number(raw?.inventory_quantity ?? raw?.inventoryQuantity ?? totalInventory) || 0,
+      status,
+      publishedAt: raw?.published_at ? parseDate(raw?.published_at) : undefined,
+      createdAt: parseDate(raw?.created_at ?? raw?.createdAt),
+      updatedAt: parseDate(raw?.updated_at ?? raw?.updatedAt),
+      tags: Array.isArray(raw?.tags) ? raw.tags : (typeof raw?.tags === 'string' ? raw.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []),
+      images: imageUrls.length > 0 ? imageUrls : [],
+      variants: variantsArray.map(mapVariant),
+      collections: Array.isArray(raw?.collections) ? raw.collections : [],
+      selected: false,
+      salesChannels: Number(raw?.salesChannels ?? 1) || 1,
+      category: productType || ''
+    }
   }
 
-  // Fetch real products from cache API using chunk-based approach
-  useEffect(() => {
-    if (isDataLoaded || hasFetchedRef.current) return
-    hasFetchedRef.current = true
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
-
-    const toSlug = (text: string): string =>
-      (text || '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)+/g, '')
-
-    const parseDate = (value: any): string => {
-      const d = value ? new Date(value) : new Date()
-      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
-    }
-
-    const mapVariant = (v: any, idx: number) => ({
-      id: String(v?.id ?? `variant-${idx}`),
-      title: String(v?.title ?? `Variant ${idx + 1}`),
-      price: Number(v?.price ?? v?.compare_at_price ?? 0) || 0,
-      compareAtPrice: v?.compare_at_price != null ? Number(v.compare_at_price) : undefined,
-      inventoryQuantity: Number(v?.inventory_quantity ?? v?.inventoryQuantity ?? 0) || 0,
-      sku: String(v?.sku ?? ''),
-      barcode: v?.barcode ? String(v.barcode) : undefined,
-      weight: v?.weight != null ? Number(v.weight) : undefined,
-      weightUnit: String(v?.weight_unit ?? v?.weightUnit ?? 'kg')
-    })
-
-    const mapRecordToProduct = (raw: any, idx: number): Product => {
-      console.log('🔍 Mapping product:', raw?.id, raw?.title)
+  // Fetch real products from cache API
+  const fetchProducts = async () => {
+    setLoading(true)
+    setError(null)
+    
+    try {
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
       
-      // Handle product image data structure (from cache) - legacy support
-      if (raw?.product_id && raw?.src && !raw?.title) {
-        // This is product image data, create a product from it
-        const productId = String(raw.product_id)
-        const imageUrl = String(raw.src)
-        const altText = String(raw.alt || 'Product Image')
+      // First try to fetch chunk:0 directly since we know it exists
+      const chunk0Url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=chunk:0`
+      
+      const chunk0Res = await fetch(chunk0Url, { 
+        signal: AbortSignal.timeout(8000)
+      })
+      
+      if (chunk0Res.ok) {
+        const chunk0Json = await chunk0Res.json()
         
-        return {
-          id: productId,
-          title: altText || `Product ${productId}`,
-          handle: toSlug(altText || `product-${productId}`),
-          vendor: 'INKHUB',
-          productType: 'Tattoo Design',
-          price: Math.floor(Math.random() * 1000) + 100, // Generate random price
-          compareAtPrice: Math.random() > 0.7 ? Math.floor(Math.random() * 1500) + 200 : undefined,
-          cost: Math.floor(Math.random() * 500) + 50,
-          inventoryQuantity: Math.floor(Math.random() * 100) + 10,
-          status: 'active' as Product['status'],
-          publishedAt: raw.created_at ? parseDate(raw.created_at) : undefined,
-          createdAt: parseDate(raw.created_at || new Date()),
-          updatedAt: parseDate(raw.updated_at || new Date()),
-          tags: ['tattoo', 'design', 'custom'],
-          images: [imageUrl],
-          variants: [{
-            id: `variant-${productId}`,
-            title: 'Default',
-            price: Math.floor(Math.random() * 1000) + 100,
-            inventoryQuantity: Math.floor(Math.random() * 100) + 10,
-            sku: `SKU-${productId}`,
-            weight: Math.floor(Math.random() * 1000) + 100,
-            weightUnit: 'g'
-          }],
-          collections: ['Tattoo Designs'],
-          selected: false,
-          salesChannels: 1,
-          category: 'Tattoo Design'
-        }
-      }
-      
-      // Handle actual product data structure (from Shopify cache)
-      const variantsArray: any[] = Array.isArray(raw?.variants) ? raw.variants : []
-      const totalInventory = variantsArray.reduce((sum, v) => sum + (Number(v?.inventory_quantity ?? v?.inventoryQuantity ?? 0) || 0), 0)
-      const primaryVariant = variantsArray[0] || {}
-      const imagesArr = Array.isArray(raw?.images) ? raw.images : (raw?.image ? [raw.image] : [])
-      const imageUrls = imagesArr
-        .map((img: any) => typeof img === 'string' ? img : (img?.src || img?.url))
-        .filter(Boolean)
-
-      const title = String(raw?.title ?? raw?.name ?? `Product ${idx + 1}`)
-      const productType = String(raw?.product_type ?? raw?.productType ?? raw?.category ?? 'Tattoo Design')
-      const priceCandidate = primaryVariant?.price || raw?.price
-      const statusRaw = String(raw?.status ?? 'active').toLowerCase()
-      const status = (statusRaw === 'active' || statusRaw === 'draft' || statusRaw === 'archived') ? statusRaw as Product['status'] : 'active'
-
-      return {
-        id: String(raw?.id ?? raw?.product_id ?? raw?.gid ?? `p-${Date.now()}-${idx}`),
-        title,
-        handle: String(raw?.handle ?? toSlug(title)),
-        vendor: String(raw?.vendor ?? raw?.brand ?? 'INKHUB'),
-        productType,
-        price: Number(priceCandidate ?? 0) || 0,
-        compareAtPrice: primaryVariant?.compare_at_price != null ? Number(primaryVariant.compare_at_price) : undefined,
-        cost: Number(primaryVariant?.cost ?? raw?.cost ?? 0) || 0,
-        inventoryQuantity: Number(raw?.inventory_quantity ?? raw?.inventoryQuantity ?? totalInventory) || 0,
-        status,
-        publishedAt: raw?.published_at ? parseDate(raw.published_at) : undefined,
-        createdAt: parseDate(raw?.created_at ?? raw?.createdAt),
-        updatedAt: parseDate(raw?.updated_at ?? raw?.updatedAt),
-        tags: Array.isArray(raw?.tags) ? raw.tags : (typeof raw?.tags === 'string' ? raw.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []),
-        images: imageUrls.length > 0 ? imageUrls : ['https://picsum.photos/300/300?grayscale=1&random=1'],
-        variants: variantsArray.map(mapVariant),
-        collections: Array.isArray(raw?.collections) ? raw.collections : [],
-        selected: false,
-        salesChannels: Number(raw?.salesChannels ?? 1) || 1,
-        category: productType || 'Tattoo Design'
-      }
-    }
-
-    const fetchProducts = async () => {
-      setLoading(true)
-      setError(null)
-      
-      try {
-        // Simplified: Try to fetch all products in one request first
-        const allProductsUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=all`
-        
-        try {
-          const allProductsRes = await fetch(allProductsUrl, { 
-            signal: AbortSignal.timeout(1500) // faster timeout to reduce perceived load time
-          })
-          
-          if (allProductsRes.ok) {
-            const allProductsJson = await allProductsRes.json()
-            console.log('📦 All products response:', allProductsJson)
-            if (allProductsJson?.data && Array.isArray(allProductsJson.data)) {
-              console.log('📊 Sample data item:', allProductsJson.data[0])
-              const mappedProducts = allProductsJson.data.map(mapRecordToProduct)
-              console.log('✅ Mapped products:', mappedProducts.length)
-              setProductData(mappedProducts)
-              setTotalProducts(mappedProducts.length)
-              setChunkData({ 'all': mappedProducts })
-              setChunkKeys(['all'])
-              setIsDataLoaded(true)
-              setLoading(false)
-              return
-            }
-          }
-        } catch (allProductsError) {
-          console.log('⚠️ All products fetch failed, falling back to chunks:', allProductsError)
-          // Fall back to chunk-based approach
-        }
-
-        // Try to fetch chunk:0 directly since we know it exists (with retry)
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        if (chunk0Json?.data && Array.isArray(chunk0Json.data)) {
           try {
-            const chunk0Url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=chunk:0`
-            console.log(`🔗 BACKEND_URL: ${BACKEND_URL}`)
-            console.log(`🔗 Fetching chunk:0 from: ${chunk0Url} (attempt ${attempt}/3)`)
+            const mappedProducts = chunk0Json.data.map(mapRecordToProduct)
             
-            const chunk0Res = await fetch(chunk0Url, { 
-              signal: AbortSignal.timeout(8000) // Increased timeout
-            })
-            
-            console.log(`📡 Chunk 0 response status: ${chunk0Res.status} ${chunk0Res.ok}`)
-            
-            if (chunk0Res.ok) {
-              const chunk0Json = await chunk0Res.json()
-              console.log('📦 Chunk 0 response:', chunk0Json)
-              console.log('📊 Data array length:', chunk0Json?.data?.length || 0)
-              
-              if (chunk0Json?.data && Array.isArray(chunk0Json.data)) {
-                console.log('📊 Sample chunk 0 data item:', chunk0Json.data[0])
-                
-                // Test mapping with first item
-                try {
-                  const testProduct = mapRecordToProduct(chunk0Json.data[0], 0)
-                  console.log('✅ Test mapping successful:', testProduct)
-                  
-                  const mappedProducts = chunk0Json.data.map(mapRecordToProduct)
-                  console.log('✅ Mapped products from chunk 0:', mappedProducts.length)
-                  console.log('✅ Sample mapped product:', mappedProducts[0])
-                  
-                  setProductData(mappedProducts)
-                  setTotalProducts(mappedProducts.length)
-                  setChunkData({ 'chunk:0': mappedProducts })
-                  setChunkKeys(['chunk:0'])
-                  setIsDataLoaded(true)
-                  setLoading(false)
-                  setError(null) // Clear any previous errors
-                  return
-                } catch (mappingError) {
-                  console.error('❌ Mapping error:', mappingError)
-                  console.log('❌ Raw data that failed mapping:', chunk0Json.data[0])
-                }
-              } else {
-                console.log('❌ Chunk 0 data is not an array:', chunk0Json?.data)
-              }
-            } else {
-              console.log(`❌ Chunk 0 response not ok: ${chunk0Res.status} ${chunk0Res.statusText}`)
+            setProductData(mappedProducts)
+            setTotalProducts(mappedProducts.length)
+            setChunkData({ 'chunk:0': mappedProducts })
+            setChunkKeys(['chunk:0'])
+            setIsDataLoaded(true)
+            setLoading(false)
+            setError(null) // Clear any previous errors
+            return
+                      } catch (mappingError: any) {
+              console.error('❌ Mapping error:', mappingError)
+              throw new Error(`Data mapping failed: ${mappingError.message}`)
             }
-          } catch (chunk0Error) {
-            console.log(`⚠️ Chunk 0 fetch failed (attempt ${attempt}/3):`, chunk0Error)
-            if (attempt === 3) {
-              console.log('❌ All chunk:0 attempts failed')
-            } else {
-              // Wait before retry
-              await new Promise(resolve => setTimeout(resolve, 1000))
-            }
+          } else {
+            throw new Error('Invalid data format from cache')
           }
+        } else {
+          throw new Error(`Cache API error: ${chunk0Res.status} ${chunk0Res.statusText}`)
         }
-
-        // Fallback: Chunk-based approach
-        console.log('🔄 Trying chunk-based approach...')
-        const keysUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products`
-        console.log('🔗 Fetching chunk keys from:', keysUrl)
-        
-        const keysRes = await fetch(keysUrl, { 
-          signal: AbortSignal.timeout(5000) // Increased timeout
-        })
-        
-        console.log('📡 Chunk keys response status:', keysRes.status, keysRes.ok)
-        
-        if (!keysRes.ok) {
-          throw new Error(`Cache API error (${keysRes.status}): ${keysRes.statusText}`)
-        }
-        
-        const keysJson = await keysRes.json()
-        console.log('📋 Chunk keys response:', keysJson)
-        console.log('📋 Keys array:', keysJson?.keys)
-        
-        if (!keysJson?.keys || !Array.isArray(keysJson.keys)) {
-          console.log('❌ No valid keys found in response:', keysJson)
-          throw new Error('No chunk keys found')
-        }
-
-        // Fetch chunks in parallel for better performance
-        console.log('🔄 Fetching chunks:', keysJson.keys)
-        const chunkPromises = keysJson.keys.map(async (key: string) => {
-          const chunkNumber = key.split(':').pop()
-          const chunkUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=chunk:${chunkNumber}`
-          
-          try {
-            const chunkRes = await fetch(chunkUrl, { 
-              signal: AbortSignal.timeout(1200) // faster timeout per chunk
-            })
-            
-            if (chunkRes.ok) {
-              const chunkJson = await chunkRes.json()
-              console.log(`📦 Chunk ${chunkNumber} response:`, chunkJson?.data?.length || 0, 'items')
-              if (chunkJson?.data && Array.isArray(chunkJson.data)) {
-                return { key, data: chunkJson.data.map(mapRecordToProduct) }
-              }
-            }
-          } catch (chunkError) {
-            console.log(`❌ Chunk ${chunkNumber} failed:`, chunkError)
-            // Continue with other chunks
-          }
-          return null
-        })
-
-        const chunkResults = await Promise.all(chunkPromises)
-        const validChunks = chunkResults.filter(Boolean)
-        
-        console.log('📊 Chunk results:', validChunks.length, 'valid chunks out of', keysJson.keys.length)
-        console.log('📊 Valid chunks:', validChunks.map(chunk => chunk?.key))
-        
-        if (validChunks.length === 0) {
-          console.log('❌ No valid chunks found. All chunks failed to load.')
-          console.log('❌ Chunk results:', chunkResults)
-          throw new Error('No valid product data found')
-        }
-
-        const chunkDataMap: { [key: string]: Product[] } = {}
-        let totalItems = 0
-        
-        validChunks.forEach(chunk => {
-          if (chunk) {
-            chunkDataMap[chunk.key] = chunk.data
-            totalItems += chunk.data.length
-          }
-        })
-
-        const allProducts = Object.values(chunkDataMap).flat()
-        
-        console.log('✅ Final data processing:', {
-          totalChunks: validChunks.length,
-          totalItems: totalItems,
-          allProductsLength: allProducts.length
-        })
-        
-        setChunkData(chunkDataMap)
-        setChunkKeys(keysJson.keys)
-        setTotalProducts(totalItems)
-        setProductData(allProducts)
         
       } catch (e: any) {
         if (e?.name === 'AbortError') {
@@ -616,27 +447,52 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         }
         
         console.error('❌ Cache fetch error:', e)
-        console.log('🔄 Using fallback data for debugging')
-        
-        // Use fallback data for debugging
-        const fallbackProducts = generateFallbackProducts(50)
-        console.log(`✅ Generated ${fallbackProducts.length} fallback products`)
-        
-        setProductData(fallbackProducts)
-        setTotalProducts(fallbackProducts.length)
-        setChunkData({ 'fallback': fallbackProducts })
-        setChunkKeys(['fallback'])
-        setError(`Backend error: ${e.message} - Using fallback data`)
+        setError(`Failed to load products: ${e.message}`)
       } finally {
         setIsDataLoaded(true)
         setLoading(false)
-        console.log('🏁 Data loading completed')
+      }
+  }
+
+  // Fetch real products from cache API using chunk-based approach
+  useEffect(() => {
+    // Check if we have cached data first
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('products-cache')
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached)
+          const now = Date.now()
+          const cacheAge = now - (parsed.timestamp || 0)
+          const cacheTTL = 10 * 60 * 1000 // 10 minutes
+          
+          if (cacheAge < cacheTTL && parsed.data && Array.isArray(parsed.data)) {
+            // Use cached data if it's fresh
+            setProductData(parsed.data)
+            setTotalProducts(parsed.data.length)
+            setChunkData({ 'chunk:0': parsed.data })
+            setChunkKeys(['chunk:0'])
+            setIsDataLoaded(true)
+            setLoading(false)
+            return
+          }
+        } catch (e) {
+          // Invalid cache, continue with fresh fetch
+        }
       }
     }
 
+    // Reset state to ensure clean data loading
+    setProductData([])
+    setChunkData({})
+    setChunkKeys([])
+    setTotalProducts(0)
+    setIsDataLoaded(false)
+    setError(null)
+    hasFetchedRef.current = false
+
     fetchProducts()
-    return () => {}
-  }, [isDataLoaded])
+  }, [])
 
   // Tab management
   useEffect(() => {
@@ -648,53 +504,64 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     })
   }, [addTab])
 
-  // Debug: Monitor product data changes
+  // Save data to cache when loaded successfully
   useEffect(() => {
-    console.log('📊 Product data updated:', {
-      productDataLength: productData.length,
-      totalProducts: totalProducts,
-      isDataLoaded: isDataLoaded,
-      loading: loading,
-      error: error
-    })
-  }, [productData, totalProducts, isDataLoaded, loading, error])
+    if (isDataLoaded && productData.length > 0 && typeof window !== 'undefined') {
+      // Only cache essential fields to reduce storage size and avoid quota exceeded errors
+      const essentialProducts = productData.map(product => ({
+        id: product.id,
+        title: product.title,
+        status: product.status,
+        price: product.price,
+        inventoryQuantity: product.inventoryQuantity,
+        vendor: product.vendor,
+        productType: product.productType,
+        category: product.category,
+        images: product.images?.slice(0, 1), // Only first image
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+        tags: product.tags?.slice(0, 5), // Only first 5 tags
+        handle: product.handle
+      }))
+      
+      try {
+        const cacheData = {
+          data: essentialProducts,
+          timestamp: Date.now(),
+          count: essentialProducts.length
+        }
+        localStorage.setItem('products-cache', JSON.stringify(cacheData))
+        console.log('📦 Essential product data cached successfully:', essentialProducts.length, 'products')
+      } catch (e) {
+        // Handle quota exceeded or other storage errors silently
+        console.warn('⚠️ Could not cache products data:', e)
+      }
+    }
+  }, [isDataLoaded, productData])
+
+  // Debug: Monitor product data changes (reduced logging for cleaner console)
+  useEffect(() => {
+    if (productData.length > 0) {
+      console.log('📊 Product data loaded:', productData.length, 'products')
+    }
+  }, [productData.length])
 
   // Calculate KPI metrics
   const kpiMetrics = useMemo(() => {
-    console.log('📊 Calculating KPIs from productData:', productData.length, 'products')
-    console.log('📊 Sample product data:', productData.slice(0, 2))
     return calculateKPIMetrics(productData)
   }, [productData])
 
   // Get all products for filtering (combine all chunks)
   const allProducts = useMemo(() => {
-    console.log('📦 All products calculation:', {
-      chunkKeysLength: chunkKeys.length,
-      chunkDataKeys: Object.keys(chunkData),
-      productDataLength: productData.length,
-      chunkDataValues: Object.values(chunkData).map(arr => arr.length)
-    })
-    
     if (chunkKeys.length > 0) {
       const chunkProducts = Object.values(chunkData).flat()
-      console.log('📦 All products from chunks:', chunkProducts.length)
       return chunkProducts
     }
-    console.log('📦 All products from productData:', productData.length)
     return productData
   }, [chunkKeys, chunkData, productData])
 
-    // Filter products based on all criteria - optimized for performance
-    const filteredProducts = useMemo(() => {
-      console.log('🔍 Filtering products:', {
-        allProductsLength: allProducts.length,
-        useAlgoliaSearch,
-        algoliaSearchResultsLength: algoliaSearchResults.length,
-        activeFilter,
-        debouncedSearchQuery,
-        columnFilters,
-        advancedFilters
-      })
+      // Filter products based on all criteria - optimized for performance
+  const filteredProducts = useMemo(() => {
       
       // Use Algolia search results if available, otherwise use local filtering
       let filtered = useAlgoliaSearch && algoliaSearchResults.length > 0 
@@ -800,8 +667,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         })
       }
         
-      console.log('✅ Final filtered products:', filtered.length)
-      console.log('✅ Sample filtered product:', filtered[0])
+
       return filtered
     }, [
       allProducts, 
@@ -815,26 +681,19 @@ function ProductsClient({ initialData }: ProductsClientProps) {
       algoliaSearchResults
     ])
 
-    // Paginate filtered products
-    const totalPages = Math.ceil(filteredProducts.length / itemsPerPage)
-  
-  const currentProducts = useMemo(() => {
-    console.log('📋 Current products calculation:', {
-      filteredProductsLength: filteredProducts.length,
-      currentPage: currentPage,
-      itemsPerPage: itemsPerPage,
-      startIndex: (currentPage - 1) * itemsPerPage,
-      endIndex: currentPage * itemsPerPage
-    })
-    
-    const result = filteredProducts.slice(
-      (currentPage - 1) * itemsPerPage,
-      currentPage * itemsPerPage
-    )
-    
-    console.log('📋 Current products result:', result.length, 'products')
-    return result
-  }, [filteredProducts, currentPage, itemsPerPage])
+    // Memoize paginated data
+    const paginatedData = useMemo(() => {
+      const startIndex = (currentPage - 1) * itemsPerPage
+      const endIndex = startIndex + itemsPerPage
+      return filteredProducts.slice(startIndex, endIndex)
+    }, [filteredProducts, currentPage, itemsPerPage])
+
+    // Memoize total pages
+    const totalPages = useMemo(() => {
+      return Math.ceil(filteredProducts.length / itemsPerPage)
+    }, [filteredProducts.length, itemsPerPage])
+
+    // KPI calculations will be handled by the existing logic
 
     // Handle product selection
     const handleSelectProduct = (productId: string) => {
@@ -846,10 +705,10 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     }
 
     const handleSelectAll = () => {
-      if (selectedProducts.length === currentProducts.length) {
+      if (selectedProducts.length === paginatedData.length) {
         setSelectedProducts([])
       } else {
-        setSelectedProducts(currentProducts.map(p => p.id))
+        setSelectedProducts(paginatedData.map(p => p.id))
       }
     }
 
@@ -868,12 +727,14 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     // Handle pagination
     const handlePageChange = (page: number) => {
       setCurrentPage(page)
+      setProductsPage(page)
     }
 
     const handleItemsPerPageChange = (items: number) => {
     // Allow changing items per page since we're now using filtered data
       setItemsPerPage(items)
       setCurrentPage(1)
+      setProductsPage(1)
     }
 
     // Handle column filtering
@@ -1311,7 +1172,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
           onExportSelected={handleExportSelected}
           onBulkDelete={handleBulkDelete}
           // Column filter props
-          currentProducts={currentProducts}
+          currentProducts={paginatedData}
           onSelectAll={handleSelectAll}
           activeColumnFilter={activeColumnFilter}
           columnFilters={columnFilters}
@@ -1878,7 +1739,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                   isFullScreen ? "flex-1 overflow-auto" : ""
                 )}>
               <ProductTable
-                currentProducts={currentProducts}
+                currentProducts={paginatedData}
                 selectedProducts={selectedProducts}
                 onSelectProduct={handleSelectProduct}
                 onSelectAll={handleSelectAll}
@@ -1920,7 +1781,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 )}>
                   <GridCardFilterHeader
                     selectedProducts={selectedProducts}
-                    currentProducts={currentProducts}
+                    currentProducts={paginatedData}
                     onSelectAll={handleSelectAll}
                     activeColumnFilter={activeColumnFilter}
                     columnFilters={columnFilters}
@@ -1940,7 +1801,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                   )}
                   style={getGridClasses(cardsPerRow).style}
                 >
-                {currentProducts.map((product) => (
+                {paginatedData.map((product) => (
                   <div
                     key={product.id}
                     className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
@@ -2017,7 +1878,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 )}>
                   <GridCardFilterHeader
                     selectedProducts={selectedProducts}
-                    currentProducts={currentProducts}
+                    currentProducts={paginatedData}
                     onSelectAll={handleSelectAll}
                     activeColumnFilter={activeColumnFilter}
                     columnFilters={columnFilters}
@@ -2034,7 +1895,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                   isFullScreen ? "flex-1 overflow-auto" : ""
                 )}>
                 <ProductCardView
-                  currentProducts={currentProducts}
+                  currentProducts={paginatedData}
                   selectedProducts={selectedProducts}
                   onSelectProduct={handleSelectProduct}
                   onProductClick={handleProductClick}

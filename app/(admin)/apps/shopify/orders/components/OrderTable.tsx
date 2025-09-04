@@ -4,6 +4,8 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
 import { Order } from '../types'
 import OrderFilterDropdown from './OrderFilterDropdown'
+import { cn } from '@/lib/utils'
+import SortIndicator from './SortIndicator'
 
 
 interface OrderTableProps {
@@ -28,6 +30,8 @@ interface OrderTableProps {
   onColumnFilterChange?: (column: string, value: any) => void
   getUniqueValues?: (field: string) => string[]
   showImages?: boolean
+  onClearSearch?: () => void
+  isSearching?: boolean
 }
 
 export default function OrderTable({
@@ -46,7 +50,9 @@ export default function OrderTable({
   onFilterClick,
   onColumnFilterChange,
   getUniqueValues,
-  showImages = false
+  showImages = false,
+  onClearSearch,
+  isSearching = false
 }: OrderTableProps) {
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
@@ -200,19 +206,215 @@ export default function OrderTable({
 
   if (currentOrders.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">No orders found</div>
+      <div className={`bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col`}>
+        {/* Search Status Indicator */}
+        {searchQuery && (
+          <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              {isSearching ? (
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+              )}
+              <span className="text-sm text-blue-700 font-medium">
+                {isSearching ? 'Searching...' : 'Search results for "'}
+                {!isSearching && searchQuery}
+                {!isSearching && '"'}
+              </span>
+              {!isSearching && (
+                <span className="text-sm text-blue-600">
+                  (0 orders found)
+                </span>
+              )}
+            </div>
+            <button
+              onClick={onClearSearch}
+              className="text-xs text-blue-600 hover:text-blue-800 underline font-medium"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
+        
+        {/* Table Header - Always Visible with Sticky */}
+        <div className="flex-1 overflow-hidden">
+          <div className="overflow-x-auto h-full">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
+                <tr>
+                  <th className="px-4 py-2 text-left bg-gray-50">
+                    <input
+                      type="checkbox"
+                      checked={false}
+                      disabled
+                      className="rounded border-gray-300 text-gray-400 cursor-not-allowed"
+                    />
+                  </th>
+                  {columns.map((column) => (
+                    <th
+                      key={column.key}
+                      className={cn(
+                        "px-3 py-2 text-left text-xs font-medium tracking-wider border-r border-gray-200 relative transition-all duration-200 bg-gray-50",
+                        // Enhanced styling for sorted columns
+                        sortColumn === column.key
+                          ? "bg-blue-50 border-blue-200 text-blue-700 font-semibold"
+                          : "bg-gray-50 text-gray-500"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <span className={cn(
+                            "transition-colors duration-200",
+                            sortColumn === column.key ? "text-blue-700" : "text-gray-500"
+                          )}>
+                            {column.label}
+                          </span>
+                          {/* Enhanced Sort Indicator */}
+                          {column.sortable && (
+                            <button
+                              onClick={() => handleSort(column.key)}
+                              className={cn(
+                                "ml-1 p-1 rounded-md transition-all duration-200 hover:scale-105",
+                                sortColumn === column.key
+                                  ? "text-blue-600 hover:text-blue-700 hover:bg-blue-100"
+                                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                              )}
+                              title={sortColumn === column.key 
+                                ? `Currently sorted ${sortDirection === 'asc' ? 'ascending' : 'descending'}. Click to ${sortDirection === 'asc' ? 'sort descending' : 'remove sorting'}.`
+                                : `Sort by ${column.label}`
+                              }
+                            >
+                              <SortIndicator 
+                                columnKey={column.key} 
+                                sortColumn={sortColumn} 
+                                sortDirection={sortDirection} 
+                              />
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <button
+                            onClick={(e) => handleFilterClick(column.key, e)}
+                            className={cn(
+                              "p-1 rounded-md transition-all duration-200 hover:scale-105",
+                              (activeColumnFilter === column.key || filterDropdown?.column === column.key)
+                                ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" 
+                                : sortColumn === column.key
+                                  ? "text-blue-500 hover:text-blue-600 hover:bg-blue-100"
+                                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                            )}
+                            title={`Filter ${column.label}`}
+                          >
+                            <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colSpan={columns.length + 1} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center space-y-4">
+                      <div className="text-gray-400 text-6xl">📦</div>
+                      <h3 className="text-lg font-medium text-gray-900">No Orders Found</h3>
+                      <p className="text-gray-600 max-w-md">
+                        {searchQuery 
+                          ? `No orders match your search for "${searchQuery}"`
+                          : 'No orders available at the moment.'
+                        }
+                      </p>
+                      <div className="flex items-center space-x-3">
+                        {searchQuery && (
+                          <button
+                            onClick={onClearSearch}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                          >
+                            Clear Search
+                          </button>
+                        )}
+                        {/* Check if there are active filters */}
+                        {Object.keys(columnFilters).some(key => {
+                          const value = columnFilters[key]
+                          return value && (Array.isArray(value) ? value.length > 0 : value !== '')
+                        }) && (
+                          <button
+                            onClick={() => {
+                              // Clear all column filters
+                              Object.keys(columnFilters).forEach(key => {
+                                onColumnFilterChange?.(key, Array.isArray(columnFilters[key]) ? [] : '')
+                              })
+                            }}
+                            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
+                          >
+                            Clear All Filters
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        {/* Filter Dropdown - Always Available */}
+        {filterDropdown && (
+          <OrderFilterDropdown
+            column={filterDropdown.column}
+            title={columns.find(col => col.key === filterDropdown.column)?.label || filterDropdown.column}
+            filterType={getFilterConfig(filterDropdown.column).filterType}
+            options={getFilterConfig(filterDropdown.column).options}
+            value={columnFilters[filterDropdown.column]}
+            onChange={(value) => handleFilterChange(filterDropdown.column, value)}
+            onClose={handleFilterClose}
+            position={filterDropdown.position}
+            getUniqueValues={getUniqueValues}
+          />
+        )}
       </div>
     )
   }
 
   return (
-    <div className={`bg-white rounded-lg border`}>
+    <div className={`bg-white rounded-lg border border-gray-200 shadow-sm`}>
+      {/* Search Status Indicator */}
+      {searchQuery && (
+        <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            {isSearching ? (
+              <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+            )}
+            <span className="text-sm text-blue-700 font-medium">
+              {isSearching ? 'Searching...' : 'Search results for "'}
+              {!isSearching && searchQuery}
+              {!isSearching && '"'}
+            </span>
+            {!isSearching && (
+              <span className="text-sm text-blue-600">
+                ({currentOrders.length} orders found)
+              </span>
+            )}
+          </div>
+          <button
+            onClick={onClearSearch}
+            className="text-xs text-blue-600 hover:text-blue-800 underline font-medium"
+          >
+            Clear search
+          </button>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50 border-b">
+          <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="px-4 py-3 text-left">
+              <th className="px-4 py-2 text-left">
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -226,7 +428,7 @@ export default function OrderTable({
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  className="px-2 py-1.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 relative"
+                  className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 relative"
                 >
                   <div className="flex items-center justify-between">
                     <span>{column.label}</span>
@@ -235,6 +437,7 @@ export default function OrderTable({
                         <button
                           onClick={() => handleSort(column.key)}
                           className="p-1 rounded-md transition-all duration-200 hover:scale-105 text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                          title={`Sort by ${column.label}`}
                         >
                           <div className="flex flex-col">
                             <div className={`w-0 h-0 border-l-3 border-r-3 border-b-3 border-transparent ${
@@ -253,6 +456,7 @@ export default function OrderTable({
                             ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" 
                             : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
                         }`}
+                        title={`Filter ${column.label}`}
                       >
                         <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
@@ -268,7 +472,7 @@ export default function OrderTable({
             {sortedOrders.map((order, index) => (
               <tr
                 key={order.id}
-                className="hover:bg-gray-50 cursor-pointer"
+                className="hover:bg-gray-50 cursor-pointer transition-colors duration-150"
                 onClick={(e) => {
                   // If clicking checkbox or button, do not open preview
                   if ((e.target as HTMLElement).closest('input,button')) return
@@ -279,7 +483,7 @@ export default function OrderTable({
                   }
                 }}
               >
-                <td className="px-2 py-1.5">
+                <td className="px-4 py-2">
                   <input
                     type="checkbox"
                     checked={selectedItems.includes(order.id)}
@@ -289,7 +493,7 @@ export default function OrderTable({
                   />
                 </td>
                 {columns.map((column) => (
-                  <td key={column.key} className="px-2 py-1.5 text-sm text-gray-900 border-r border-gray-200">
+                  <td key={column.key} className="px-3 py-2 text-sm text-gray-900 border-r border-gray-200">
                     {column.render ? column.render(order, index) : String(order[column.key as keyof Order] || '')}
                   </td>
                 ))}

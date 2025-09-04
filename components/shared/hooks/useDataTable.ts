@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { BaseEntity, SearchCondition, CustomFilter, ViewMode, PaginationConfig } from '../types'
 
 interface UseDataTableProps<T extends BaseEntity> {
@@ -21,9 +21,14 @@ export function useDataTable<T extends BaseEntity>({
 }: UseDataTableProps<T>) {
   // State
   const [data, setData] = useState<T[]>(initialData)
+  const isInitialMount = useRef(true)
   
-  // Update data when initialData changes
+  // Update data when initialData changes (only on subsequent updates, not initial mount)
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      return
+    }
     setData(initialData)
   }, [initialData])
   

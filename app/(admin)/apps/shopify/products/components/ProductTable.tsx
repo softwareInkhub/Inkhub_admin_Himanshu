@@ -95,8 +95,8 @@ export default function ProductTable({
   searchQuery = '',
   showImages = true
 }: ProductTableProps) {
-  // Preload first 10 images for better perceived performance
-  const firstImages = (currentProducts || []).slice(0, 10).map(p => p.images?.[0]).filter(Boolean) as string[]
+  // Preload first 5 images for better perceived performance (reduced from 10 to avoid overwhelming)
+  const firstImages = (currentProducts || []).slice(0, 5).map(p => p.images?.[0]).filter(Boolean) as string[]
   useImagePreloader(firstImages)
 
   return (

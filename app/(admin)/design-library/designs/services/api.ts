@@ -129,8 +129,6 @@ class DesignAPI {
       // Based on your server response, we have 6 chunks (0-5)
       const totalChunks = 6;
       
-      console.log(`Fetching ${totalChunks} chunks for ${this.project}:${this.table}`);
-
       // Fetch all chunks in parallel
       const chunkPromises = Array.from({ length: totalChunks }, (_, index) => 
         this.getDesignChunk(index)
@@ -140,8 +138,6 @@ class DesignAPI {
       
       // Combine all chunks
       const allDesigns = chunkResults.flatMap(result => result.data);
-      
-      console.log(`Fetched ${allDesigns.length} designs from ${totalChunks} chunks`);
       
       return allDesigns;
     } catch (error) {
@@ -185,7 +181,7 @@ class DesignAPI {
       const chunkResult = await chunkResponse.json();
       const chunkData = chunkResult.data || [];
 
-      console.log(`📄 Page ${page}: Fetched chunk ${chunkIndex} with ${chunkData.length} designs`);
+
 
       return {
         data: chunkData,

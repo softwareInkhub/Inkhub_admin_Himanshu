@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
 import {
   PageTemplate,
@@ -9,6 +9,7 @@ import {
 import DesignsGridCardFilterHeader from './components/DesignsGridCardFilterHeader'
 import { Design } from './types'
 import { designAPI } from './services/api'
+
 
 // Define table columns for designs
 const designColumns = [
@@ -294,47 +295,134 @@ const designFilters = [
 function DesignLibraryPage() {
   const { addTab } = useAppStore()
   const hasAddedTab = useRef(false)
+  
+  // Use sessionStorage to persist data across page navigations
   const [serverData, setServerData] = useState<Design[]>([])
   const [isLoadingServerData, setIsLoadingServerData] = useState(true)
   const [dataLoaded, setDataLoaded] = useState(false)
+  const [isClient, setIsClient] = useState(false)
+  const hasFetchedRef = useRef(false)
 
-  // Fetch real data from server
+  // Set client flag to prevent hydration issues
   useEffect(() => {
+    setIsClient(true)
+  }, [])
+
+  // Load cached data from sessionStorage after client-side hydration
+  useEffect(() => {
+    if (!isClient) return
+    
+    const cached = sessionStorage.getItem('designs-cached-data')
+    const dataLoaded = sessionStorage.getItem('designs-data-loaded') === 'true'
+    
+    if (cached && dataLoaded) {
+      try {
+        const parsedData = JSON.parse(cached)
+        setServerData(parsedData)
+        setDataLoaded(true)
+        setIsLoadingServerData(false)
+        return
+      } catch (e) {
+        console.log('Failed to parse cached designs data')
+      }
+    }
+  }, [isClient])
+
+  // Optimized data fetching with better performance and caching
+  useEffect(() => {
+    // Only fetch if we're on client and don't have data
+    if (!isClient || serverData.length > 0 || dataLoaded || hasFetchedRef.current) {
+      return
+    }
+    
+    // Check if we already have data in sessionStorage
+    if (isClient) {
+      const cached = sessionStorage.getItem('designs-cached-data')
+      const dataLoaded = sessionStorage.getItem('designs-data-loaded') === 'true'
+      
+      if (cached && dataLoaded) {
+        try {
+          const parsedData = JSON.parse(cached)
+          if (parsedData.length > 0) {
+            setServerData(parsedData)
+            setDataLoaded(true)
+            setIsLoadingServerData(false)
+            hasFetchedRef.current = true
+            console.log('✅ Using cached designs data')
+            return
+          }
+        } catch (e) {
+          console.log('Failed to parse cached designs data')
+        }
+      }
+    }
+    
+    hasFetchedRef.current = true
+    
     const fetchServerData = async () => {
       try {
         setIsLoadingServerData(true)
         
         console.log('Fetching design data from server...')
         
-        // Load all designs from all chunks
-        const allDesigns = await designAPI.getAllDesigns()
-        const designs = allDesigns.map(serverDesign => 
-          designAPI.transformServerDesign(serverDesign)
-        )
+        // Try to fetch all designs in one request first (optimized)
+        const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
+        const allDesignsUrl = `${BACKEND_URL}/cache/data?project=my-app&table=admin-design-image&key=all`
+        
+        try {
+          const allDesignsRes = await fetch(allDesignsUrl, { 
+            signal: AbortSignal.timeout(5000) // Increased timeout for better reliability
+          })
+          
+          if (allDesignsRes.ok) {
+            const allDesignsJson = await allDesignsRes.json()
+            if (allDesignsJson?.data && Array.isArray(allDesignsJson.data)) {
+              const designs = allDesignsJson.data.map((serverDesign: any) => 
+                designAPI.transformServerDesign(serverDesign)
+              )
+              
+              setServerData(designs)
+              setDataLoaded(true)
+              
+              // Cache data in sessionStorage
+              if (isClient) {
+                sessionStorage.setItem('designs-cached-data', JSON.stringify(designs))
+                sessionStorage.setItem('designs-data-loaded', 'true')
+              }
+              
+              setIsLoadingServerData(false)
+              console.log(`✅ Loaded ${designs.length} designs from all data`)
+              return
+            }
+          }
+        } catch (allDesignsError) {
+          console.log('⚠️ All designs fetch failed, falling back to chunks:', allDesignsError)
+        }
+
+        // Fallback to chunk-based approach with limited chunks
+        const designs = await designAPI.getDesignsWithFallback()
         
         setServerData(designs)
         setDataLoaded(true)
-        console.log(`✅ Loaded ${designs.length} designs from all chunks`)
+        
+        // Cache data in sessionStorage
+        if (isClient) {
+          sessionStorage.setItem('designs-cached-data', JSON.stringify(designs))
+          sessionStorage.setItem('designs-data-loaded', 'true')
+        }
+        
+        console.log(`✅ Loaded ${designs.length} designs from fallback`)
       } catch (error) {
         console.error('❌ Error fetching server data:', error)
-        console.log('🔄 Attempting to use fallback method...')
-        try {
-          const mockDesigns = await designAPI.getDesignsWithFallback()
-          console.log('📦 Fallback data loaded:', mockDesigns.length, 'items')
-          setServerData(mockDesigns)
-          setDataLoaded(true)
-        } catch (fallbackError) {
-          console.error('❌ Fallback also failed:', fallbackError)
-          setServerData([])
-          setDataLoaded(true)
-        }
+        setServerData([])
+        setDataLoaded(true)
       } finally {
         setIsLoadingServerData(false)
       }
     }
 
     fetchServerData()
-  }, [])
+  }, [isClient, serverData.length, dataLoaded])
 
   // Initialize data table hook with server data
   const {
@@ -383,7 +471,7 @@ function DesignLibraryPage() {
     clearAdvancedFilters,
     setData
   } = useDataTable<Design>({
-    initialData: dataLoaded ? serverData : [],
+    initialData: serverData, // Use server data directly for now
     columns: designColumns,
     searchableFields: [
       { key: 'name', label: 'Name', type: 'text' },
@@ -400,70 +488,70 @@ function DesignLibraryPage() {
 
 
 
-  // Update data table when server data changes
+  // Update data table when server data changes - only if not already set
   useEffect(() => {
-    if (serverData.length > 0) {
+    if (serverData.length > 0 && designData.length === 0) {
       setData(serverData)
-      console.log('🔄 Server data updated, recalculating KPIs...')
     }
-  }, [serverData, setData])
+  }, [serverData, setData, designData.length])
 
+  // Handle pagination changes without re-fetching data
+  useEffect(() => {
+    if (serverData.length > 0 && currentPage === 1 && designData.length === 0) {
+      setData(serverData)
+    }
+  }, [currentPage, serverData, designData.length, setData])
 
+  // Memoize all designs data to prevent unnecessary recalculations
+  const allDesigns = useMemo(() => {
+    return serverData.length > 0 ? serverData : designData
+  }, [serverData, designData])
 
   // Calculate KPI metrics based on server data (not filtered data for accurate totals)
-  const calculatedKPIs = designKPIs.map(kpi => {
-    const dataToUse = serverData.length > 0 ? serverData : filteredData; // Use server data if available
+  const calculatedKPIs = useMemo(() => {
+    const dataToUse = allDesigns.length > 0 ? allDesigns : filteredData;
     
-    // Debug: Log sample data to understand structure
-    if (dataToUse.length > 0 && kpi.key === 'totalDesigns') {
-      console.log('📊 KPI Debug - Sample design data:', dataToUse[0]);
-      console.log('📊 KPI Debug - Total designs:', dataToUse.length);
-      console.log('📊 KPI Debug - Sample statuses:', dataToUse.slice(0, 5).map((d: any) => d.designStatus || d.status));
-      console.log('📊 KPI Debug - Sample prices:', dataToUse.slice(0, 5).map((d: any) => d.designPrice || d.price));
-      console.log('📊 KPI Debug - Sample types:', dataToUse.slice(0, 5).map((d: any) => d.designType || d.type));
-    }
-    
-    switch (kpi.key) {
-      case 'totalDesigns':
-        return { ...kpi, value: dataToUse.length }
-      case 'totalDownloads':
-        // Calculate total downloads from transformed data
-        const downloadCount = dataToUse.reduce((sum: number, design: any) => {
-          return sum + (design.downloads || 0);
-        }, 0);
-        return { ...kpi, value: downloadCount }
-      case 'avgRating':
-        // Calculate average rating based on completed designs percentage
-        const completedCount = dataToUse.filter((design: any) => 
-          design.designStatus === 'completed' || design.status === 'completed'
-        ).length;
-        const avgValue = dataToUse.length > 0 ? 
-          Math.round((completedCount / dataToUse.length) * 100) / 10 : 0;
-        return { ...kpi, value: avgValue }
-      case 'publishedDesigns':
-        return { ...kpi, value: dataToUse.filter((design: any) => 
-          (design.designStatus === 'completed' || design.status === 'completed')
-        ).length }
-      case 'freeDesigns':
-        return { ...kpi, value: dataToUse.filter((design: any) => {
-          const price = parseFloat(design.designPrice) || design.price || 0;
-          return price === 0;
-        }).length }
-      case 'activeCategories':
-        const uniqueCategories = new Set(dataToUse.map((design: any) => 
-          design.designType || design.category || design.type || 'Uncategorized'
-        ));
-        return { ...kpi, value: uniqueCategories.size }
-      default:
-        return kpi
-    }
-  })
+    return designKPIs.map(kpi => {
+      switch (kpi.key) {
+        case 'totalDesigns':
+          return { ...kpi, value: dataToUse.length }
+        case 'totalDownloads':
+          const downloadCount = dataToUse.reduce((sum: number, design: any) => {
+            return sum + (design.downloads || 0);
+          }, 0);
+          return { ...kpi, value: downloadCount }
+        case 'avgRating':
+          const completedCount = dataToUse.filter((design: any) => 
+            design.designStatus === 'completed' || design.status === 'completed'
+          ).length;
+          const avgValue = dataToUse.length > 0 ? 
+            Math.round((completedCount / dataToUse.length) * 100) / 10 : 0;
+          return { ...kpi, value: avgValue }
+        case 'publishedDesigns':
+          return { ...kpi, value: dataToUse.filter((design: any) => 
+            (design.designStatus === 'completed' || design.status === 'completed')
+          ).length }
+        case 'freeDesigns':
+          return { ...kpi, value: dataToUse.filter((design: any) => {
+            const price = parseFloat(design.designPrice) || design.price || 0;
+            return price === 0;
+          }).length }
+        case 'activeCategories':
+          const uniqueCategories = new Set(dataToUse.map((design: any) => 
+            design.designType || design.category || design.type || 'Uncategorized'
+          ));
+          return { ...kpi, value: uniqueCategories.size }
+        default:
+          return kpi
+      }
+    })
+  }, [allDesigns, filteredData, designKPIs])
 
   // Tab management
   useEffect(() => {
     if (!hasAddedTab.current) {
       addTab({
-        title: 'Design Library',
+        title: 'Designs',
         path: '/design-library/designs',
         pinned: false,
         closable: true,
@@ -472,8 +560,8 @@ function DesignLibraryPage() {
     }
   }, [addTab])
 
-  // Page configuration
-  const pageConfig = {
+  // Page configuration - memoized to prevent unnecessary re-renders
+  const pageConfig = useMemo(() => ({
     title: 'Design Library',
     description: 'Manage and organize your design assets from real server data',
     icon: '🎨',
@@ -496,17 +584,23 @@ function DesignLibraryPage() {
       print: () => console.log('Print designs'),
       settings: () => console.log('Design settings')
     }
-  }
+  }), [calculatedKPIs, designFilters])
 
   // Show loading state while fetching server data
-  if (isLoadingServerData) {
+  if ((isLoadingServerData && serverData.length === 0) || !isClient) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <div className="text-gray-600">Loading design data from server...</div>
-          <div className="text-sm text-gray-500 mt-2">Fetching from https://brmh.in/cache/table</div>
-          <div className="text-xs text-gray-400 mt-1">This may take a few seconds for large datasets</div>
+          <div className="text-gray-600">
+            {!isClient ? 'Initializing...' : 'Loading design data from server...'}
+          </div>
+          <div className="text-sm text-gray-500 mt-2">
+            {!isClient ? 'Setting up the application' : 'Fetching from https://brmh.in/cache/table'}
+          </div>
+          <div className="text-xs text-gray-400 mt-1">
+            {!isClient ? 'Please wait' : 'This may take a few seconds for large datasets'}
+          </div>
         </div>
       </div>
     )
@@ -514,7 +608,7 @@ function DesignLibraryPage() {
 
 
 
-  if (loading && designData.length === 0) {
+  if (loading && designData.length === 0 && serverData.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-gray-500">Loading designs...</div>
@@ -545,6 +639,8 @@ function DesignLibraryPage() {
 
   return (
     <div>
+
+      
       <PageTemplate
       config={pageConfig}
       data={currentData}

@@ -75,8 +75,7 @@ export default function SearchControls({
   isAlgoliaSearching,
   useAlgoliaSearch
 }: SearchControlsProps) {
-  // Search toggle state
-  const [showSearch, setShowSearch] = useState(false)
+  // Search state - always visible
   const searchInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [searchHistory, setSearchHistory] = useState<SharedSearchSuggestion[]>([])
@@ -94,7 +93,6 @@ export default function SearchControls({
     setShowCustomFilterDropdown(false)
     setShowHeaderDropdown(false)
     setShowAdvancedFilter(false)
-    setShowSearch(false)
     if (searchQuery) handleClearSearch()
     onClearSearchConditions()
     // Reset all column filters generically
@@ -177,84 +175,93 @@ export default function SearchControls({
 
   // Build generic custom filter options (mirrors Products)
   const getCustomFilterOptions = () => {
-    const options: Array<{ key: string; label: string; field: string; operator: string; value: string }> = []
+    const items = Array.isArray(currentItems) ? currentItems : []
+    const options: Array<{
+      key: string
+      label: string
+      field: string
+      operator: string
+      value: string
+    }> = []
 
-    const columnMappings = [
-      { field: 'title', label: 'Item Name', operators: ['contains', 'equals', 'starts_with', 'ends_with'], sampleValues: getUniqueValues('title').slice(0, 5) },
-      { field: 'status', label: 'Status', operators: ['equals'], sampleValues: ['active', 'draft', 'archived', 'approved', 'completed', 'partial'] },
-      { field: 'inventoryQuantity', label: 'Inventory', operators: ['greater_than', 'less_than', 'equals'], sampleValues: ['0', '10', '50', '100'] },
-      { field: 'price', label: 'Price', operators: ['greater_than', 'less_than', 'equals'], sampleValues: ['100', '500', '1000', '2000'] },
-      { field: 'type', label: 'Type', operators: ['contains', 'equals'], sampleValues: getUniqueValues('type').slice(0, 5) },
-      { field: 'productType', label: 'Product Type', operators: ['contains', 'equals'], sampleValues: getUniqueValues('productType').slice(0, 5) },
-      { field: 'vendor', label: 'Vendor', operators: ['contains', 'equals'], sampleValues: getUniqueValues('vendor').slice(0, 5) },
-      { field: 'owner', label: 'Owner', operators: ['contains', 'equals'], sampleValues: getUniqueValues('owner').slice(0, 5) },
-      { field: 'category', label: 'Category', operators: ['contains', 'equals'], sampleValues: getUniqueValues('category').slice(0, 5) },
-      { field: 'board', label: 'Board', operators: ['contains', 'equals'], sampleValues: getUniqueValues('board').slice(0, 5) },
-      { field: 'tags', label: 'Tags', operators: ['contains'], sampleValues: getUniqueValues('tags').slice(0, 5) },
-      { field: 'createdAt', label: 'Created Date', operators: ['last_7_days', 'last_30_days', 'last_90_days'], sampleValues: ['last_7_days', 'last_30_days', 'last_90_days'] },
-      { field: 'updatedAt', label: 'Updated Date', operators: ['last_7_days', 'last_30_days', 'last_90_days'], sampleValues: ['last_7_days', 'last_30_days', 'last_90_days'] }
-    ]
-
-    columnMappings.forEach((column) => {
-      column.operators.forEach((operator) => {
-        column.sampleValues.forEach((value, idx) => {
-          const key = `${column.field}-${operator}-${idx}`
-          const label = `${column.label} ${operator.replace('_', ' ')} ${value}`
-          options.push({ key, label, field: column.field, operator, value: String(value) })
-        })
+    // Status filters
+    const statuses = Array.from(new Set(items.map((it: any) => it.status).filter(Boolean)))
+    statuses.forEach(status => {
+      options.push({
+        key: `status-${status}`,
+        label: `${status} items`,
+        field: 'status',
+        operator: 'equals',
+        value: status
       })
     })
 
-    const predefined = [
-      { key: 'high-value', label: 'High-value items', field: 'price', operator: 'greater_than', value: '1000' },
-      { key: 'low-stock', label: 'Low stock items', field: 'inventoryQuantity', operator: 'less_than', value: '10' },
-      { key: 'recent', label: 'Recently added', field: 'createdAt', operator: 'last_7_days', value: '' },
-      { key: 'featured', label: 'Featured items', field: 'tags', operator: 'contains', value: 'featured' },
-      { key: 'on-sale', label: 'On sale items', field: 'compareAtPrice', operator: 'not_null', value: '' },
-      { key: 'active-items', label: 'Active items', field: 'status', operator: 'equals', value: 'active' },
-      { key: 'draft-items', label: 'Draft items', field: 'status', operator: 'equals', value: 'draft' },
-      { key: 'archived-items', label: 'Archived items', field: 'status', operator: 'equals', value: 'archived' }
-    ]
+    // Type filters
+    const types = Array.from(new Set(items.map((it: any) => it.type || it.productType).filter(Boolean)))
+    types.forEach(type => {
+      options.push({
+        key: `type-${type}`,
+        label: `${type} items`,
+        field: 'type',
+        operator: 'equals',
+        value: type
+      })
+    })
 
-    return [...predefined, ...options.slice(0, 20)]
+    // Vendor filters
+    const vendors = Array.from(new Set(items.map((it: any) => it.vendor || it.owner).filter(Boolean)))
+    vendors.forEach(vendor => {
+      options.push({
+        key: `vendor-${vendor}`,
+        label: `By ${vendor}`,
+        field: 'vendor',
+        operator: 'equals',
+        value: vendor
+      })
+    })
+
+    // Category filters
+    const categories = Array.from(new Set(items.map((it: any) => it.category || it.board).filter(Boolean)))
+    categories.forEach(category => {
+      options.push({
+        key: `category-${category}`,
+        label: `In ${category}`,
+        field: 'category',
+        operator: 'equals',
+        value: category
+      })
+    })
+
+    // Tag filters
+    const allTags = items.flatMap((it: any) => Array.isArray(it.tags) ? it.tags : []).filter(Boolean)
+    const uniqueTags = Array.from(new Set(allTags))
+    uniqueTags.forEach(tag => {
+      options.push({
+        key: `tag-${tag}`,
+        label: `Tagged ${tag}`,
+        field: 'tags',
+        operator: 'contains',
+        value: tag
+      })
+    })
+
+    return options.slice(0, 20) // Limit to first 20 options
   }
 
-  // Close dropdowns on outside click or Escape
-  useEffect(() => {
-    const handleDocumentClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      if (!containerRef.current?.contains(target)) {
-        if (showHeaderDropdown) setShowHeaderDropdown(false)
-        if (showCustomFilterDropdown) setShowCustomFilterDropdown(false)
-      }
-    }
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (showHeaderDropdown) setShowHeaderDropdown(false)
-        if (showCustomFilterDropdown) setShowCustomFilterDropdown(false)
-      }
-    }
-    document.addEventListener('mousedown', handleDocumentClick)
-    document.addEventListener('keydown', handleEsc)
-    return () => {
-      document.removeEventListener('mousedown', handleDocumentClick)
-      document.removeEventListener('keydown', handleEsc)
-    }
-  }, [showHeaderDropdown, showCustomFilterDropdown, setShowHeaderDropdown, setShowCustomFilterDropdown])
-
   return (
-    <div ref={containerRef} className="px-3 py-0.5 border-b-0 bg-white shadow-sm relative z-30">
+    <div className="px-3 py-0.5 border-b-0 bg-white shadow-sm">
       {/* Main Search Bar Layout - Single Horizontal Row */}
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center justify-between space-x-2">
         
-        {/* LEFT SECTION: Add Filter and Search Bar - Extended to take more space */}
-        <div className="flex items-center space-x-2 flex-1">
+        {/* LEFT SECTION: Add Filter and Search Bar */}
+        <div className="flex items-center space-x-2">
           
           {/* Custom Filters */}
           {customFilters.map((customFilter) => (
             <button
               key={customFilter.id}
               onClick={() => {
+                // Prevent double tabs - only set if not already active
                 if (activeFilter !== customFilter.id) {
                   setActiveFilter(customFilter.id)
                 }
@@ -283,110 +290,82 @@ export default function SearchControls({
             </button>
           ))}
 
-          {/* Search Bar - Toggle Functionality */}
+          {/* Search Bar - Always Visible */}
           <div className="relative">
-            {!showSearch ? (
-              /* Search Button - When Search is Hidden */
-        <button
-                onClick={() => {
-                  setShowSearch(true)
-                  setTimeout(() => searchInputRef.current?.focus(), 0)
-                }}
-                className="px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10 text-gray-700 hover:text-blue-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 hover:border-blue-400"
-                title="Search items"
-              >
-                <Search className="h-4 w-4" />
-        </button>
-            ) : (
-              /* Search Input - When Search is Visible */
-              <div className="flex items-center animate-fade-in">
-                <div className="relative flex items-center">
-                  <GoogleStyleSearch
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    onSearch={handleSearch}
-                    placeholder={searchConditions.length > 0 ? "Advanced search active..." : "Search items... (e.g., Love)"}
-                              className={cn(
-                      "transition-all duration-200",
-                      searchQuery.length > 60 ? "w-[600px]" :
-                      searchQuery.length > 50 ? "w-[580px]" :
-                      searchQuery.length > 40 ? "w-[560px]" : 
-                      searchQuery.length > 30 ? "w-[540px]" : 
-                      searchQuery.length > 20 ? "w-[520px]" : 
-                      searchQuery.length > 10 ? "w-[500px]" : "w-[480px]"
-                    )}
-                    suggestions={suggestions}
-                    isLoading={isAlgoliaSearching}
-                    showSuggestions={showSuggestions && !searchConditions.length}
-                    onSuggestionClick={(s) => { setSearchQuery(s.text); handleSearch(s.text) }}
-                    onClearHistory={clearHistory}
-                  />
-                  
-                  {/* Advanced Search Indicator */}
-          {searchConditions.length > 0 && (
-                    <div className="absolute -top-1 -right-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center shadow-md animate-pulse z-10">
-              {searchConditions.length}
-                    </div>
-          )}
+            <div className="flex items-center animate-fade-in">
+              <div className="relative flex items-center">
+                <GoogleStyleSearch
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  onSearch={handleSearch}
+                  placeholder={searchConditions.length > 0 ? "Advanced search active..." : "Search items... (e.g., Love)"}
+                  className={cn(
+                    "transition-all duration-200",
+                    searchQuery.length > 60 ? "w-[600px]" :
+                    searchQuery.length > 50 ? "w-[580px]" :
+                    searchQuery.length > 40 ? "w-[560px]" : 
+                    searchQuery.length > 30 ? "w-[540px]" : 
+                    searchQuery.length > 20 ? "w-[520px]" : 
+                    searchQuery.length > 10 ? "w-[500px]" : "w-[480px]"
+                  )}
+                  suggestions={suggestions}
+                  isLoading={isAlgoliaSearching}
+                  showSuggestions={showSuggestions && !searchConditions.length}
+                  onSuggestionClick={(s) => { setSearchQuery(s.text); handleSearch(s.text) }}
+                  onClearHistory={clearHistory}
+                />
+                
+                {/* Advanced Search Indicator */}
+                {searchConditions.length > 0 && (
+                  <div className="absolute -top-1 -right-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center shadow-md animate-pulse z-10">
+                    {searchConditions.length}
+                  </div>
+                )}
 
-                  {/* Add Custom Filter Button - Auto-adjustable positioning */}
-          <button
-                    onClick={() => setShowCustomFilterDropdown(!showCustomFilterDropdown)}
-                    className={cn(
-                      "px-3 py-2 text-sm text-blue-600 hover:text-blue-700 border border-blue-300 rounded-md hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 transition-all duration-200 flex items-center space-x-1 bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10 flex-shrink-0",
-                      searchQuery.length > 40 ? "ml-3" : "ml-2"
-                    )}
-                    title="Add Custom Filter"
-                  >
-                    <Plus className="h-4 w-4" />
-          </button>
-
-                  {/* Custom Filter Dropdown - When search is open */}
-                  {showCustomFilterDropdown && showSearch && (
-                    <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-30 custom-filter-dropdown">
-                      <div className="p-3">
-                        <div className="text-sm font-medium text-gray-700 mb-3">Add Custom Filter</div>
-                        <div className="max-h-64 overflow-y-auto space-y-1">
-                          {getCustomFilterOptions().map((option) => (
+                {/* Add Custom Filter Button - Auto-adjustable positioning */}
                 <button
-                              key={option.key}
-                  onClick={() => {
-                                onAddCustomFilter({
-                                  id: option.key,
-                                  name: option.label,
-                                  field: option.field,
-                                  operator: option.operator,
-                                  value: option.value
-                                })
-                                setShowCustomFilterDropdown(false)
-                              }}
-                              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                            >
-                              {option.label}
+                  onClick={() => setShowCustomFilterDropdown(!showCustomFilterDropdown)}
+                  className={cn(
+                    "px-3 py-2 text-sm text-blue-600 hover:text-blue-700 border border-blue-300 rounded-md hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 transition-all duration-200 flex items-center space-x-1 bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10 flex-shrink-0",
+                    searchQuery.length > 40 ? "ml-3" : "ml-2"
+                  )}
+                  title="Add Custom Filter"
+                >
+                  <Plus className="h-4 w-4" />
                 </button>
-                          ))}
-                        </div>
+
+                {/* Custom Filter Dropdown */}
+                {showCustomFilterDropdown && (
+                  <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-30 custom-filter-dropdown">
+                    <div className="p-3">
+                      <div className="text-sm font-medium text-gray-700 mb-3">Add Custom Filter</div>
+                      <div className="max-h-64 overflow-y-auto space-y-1">
+                        {getCustomFilterOptions().map((option) => (
+                          <button
+                            key={option.key}
+                            onClick={() => {
+                              onAddCustomFilter({
+                                id: option.key,
+                                name: option.label,
+                                field: option.field,
+                                operator: option.operator,
+                                value: option.value
+                              })
+                              setShowCustomFilterDropdown(false)
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                          >
+                            {option.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                  )}
-                  
-                  {/* Close Button - Auto-adjustable positioning */}
-                <button
-                  onClick={() => {
-                      setShowSearch(false)
-                      setSearchQuery('')
-                  }}
-                  className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-all duration-200 hover:shadow-md relative z-20 flex-shrink-0",
-                      searchQuery.length > 40 ? "ml-3" : "ml-2"
-                  )}
-                    title="Close search"
-                >
-                    <X className="h-5 w-5" />
-                </button>
+                  </div>
+                )}
+                
+
               </div>
             </div>
-          )}
           </div>
         </div>
 
@@ -407,7 +386,7 @@ export default function SearchControls({
 
           {/* More Actions Button */}
           <div className="relative">
-                <button
+            <button
               onClick={() => setShowHeaderDropdown(!showHeaderDropdown)}
               className="px-3 py-2 text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 hover:shadow-md flex items-center space-x-1 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-purple-400 h-10"
             >
@@ -421,14 +400,14 @@ export default function SearchControls({
                 "h-3 w-3 group-hover:rotate-180 transition-transform duration-200",
                 showHeaderDropdown ? "rotate-180" : ""
               )} />
-                </button>
+            </button>
             
             {/* Header Dropdown */}
             {showHeaderDropdown && (
               <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-xl z-50 header-dropdown backdrop-blur-sm bg-white/95">
                 <div className="p-2">
                   <div className="space-y-1">
-                <button
+                    <button
                       onClick={onImport}
                       className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 hover:text-blue-700 flex items-center space-x-2"
                     >
@@ -436,8 +415,8 @@ export default function SearchControls({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                       </svg>
                       <span>Import Items</span>
-                </button>
-                <button
+                    </button>
+                    <button
                       onClick={onPrint}
                       className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 hover:text-green-700 flex items-center space-x-2"
                     >
@@ -445,8 +424,8 @@ export default function SearchControls({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                       </svg>
                       <span>Print Items</span>
-                </button>
-                <button
+                    </button>
+                    <button
                       onClick={onSettings}
                       className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 hover:text-purple-700 flex items-center space-x-2"
                     >
@@ -454,10 +433,10 @@ export default function SearchControls({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
-                  <span>Settings</span>
-                </button>
-              </div>
-            </div>
+                      <span>Settings</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -491,19 +470,19 @@ export default function SearchControls({
               }
             }}
             className={cn(
-              "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
-              "text-gray-700 hover:text-indigo-700 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-indigo-100 hover:border-indigo-400"
+              "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
+              viewMode === 'grid'
+                ? "bg-gradient-to-r from-indigo-50 to-indigo-100 border-indigo-300 text-indigo-600 shadow-md hover:shadow-lg"
+                : viewMode === 'card'
+                ? "bg-gradient-to-r from-pink-50 to-pink-100 border-pink-300 text-pink-600 shadow-md hover:shadow-lg"
+                : "text-gray-700 hover:text-indigo-700 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-indigo-100 hover:border-indigo-400"
             )}
-            title={`Switch to ${viewMode === 'table' ? 'Grid' : viewMode === 'grid' ? 'Card' : 'Table'} View`}
+            title={`Switch to ${viewMode === 'table' ? 'grid' : viewMode === 'grid' ? 'card' : 'table'} view`}
           >
             {viewMode === 'table' ? (
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M3 18h18M3 6h18" />
-              </svg>
+              <Grid className="h-4 w-4" />
             ) : viewMode === 'grid' ? (
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z" />
-              </svg>
+              <List className="h-4 w-4" />
             ) : (
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z" />

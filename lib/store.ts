@@ -9,6 +9,18 @@ export interface Tab {
   closable: boolean
 }
 
+// Product data caching interface
+export interface ProductDataCache {
+  products: any[]
+  chunkData: { [key: string]: any[] }
+  chunkKeys: string[]
+  totalProducts: number
+  lastFetched: number
+  isDataLoaded: boolean
+  error: string | null
+  cacheKey: string // Unique identifier for cache invalidation
+}
+
 export interface User {
   id: string
   name: string
@@ -49,6 +61,14 @@ interface AppState {
   duplicateTab: (id: string) => void
   ensureDashboardTab: () => void
   clearStorage: () => void
+
+  // Persisted page index for Orders (pagination)
+  ordersPage: number
+  setOrdersPage: (page: number) => void
+
+  // Persisted page index for Products (pagination)
+  productsPage: number
+  setProductsPage: (page: number) => void
 
   
   // User management
@@ -169,9 +189,12 @@ export const useAppStore = create<AppState>()(
         }))
       },
       renameTab: (id, newTitle) => {
+        // Ensure title is always valid
+        const validatedTitle = newTitle && newTitle.trim() ? newTitle.trim() : 'Untitled Tab'
+        
         set((state) => ({
           tabs: state.tabs.map((tab) =>
-            tab.id === id ? { ...tab, title: newTitle } : tab
+            tab.id === id ? { ...tab, title: validatedTitle } : tab
           ),
         }))
       },
@@ -192,6 +215,14 @@ export const useAppStore = create<AppState>()(
         }
       },
       
+      // Orders pagination persistence
+      ordersPage: 1,
+      setOrdersPage: (page) => set({ ordersPage: page }),
+
+      // Products pagination persistence
+      productsPage: 1,
+      setProductsPage: (page) => set({ productsPage: page }),
+
   
       
       // User management
@@ -274,6 +305,8 @@ export const useAppStore = create<AppState>()(
         sidebarCollapsed: state.sidebarCollapsed,
         tabs: state.tabs, // Save all tabs, not just pinned ones
         users: state.users,
+        ordersPage: state.ordersPage,
+        productsPage: state.productsPage,
       }),
     }
   )

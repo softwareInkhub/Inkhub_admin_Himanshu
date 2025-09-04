@@ -16,7 +16,7 @@ import OrderCardView from './components/OrderCardView'
 import GridCardFilterHeader from './components/GridCardFilterHeader'
 import OrdersGrid from './components/OrdersGrid'
 import Pagination from '../products/components/Pagination'
-import SearchControls from '../products/components/SearchControls'
+import SearchControls from './components/SearchControls'
 import ProductImage from '../products/components/ProductImage'
 import BulkActionsBar from '../products/components/BulkActionsBar'
 import ExportModal from '../products/components/ExportModal'
@@ -27,7 +27,7 @@ import {
   getUniqueTagsFromOrders,
   getUniqueChannelsFromOrders
 } from './utils'
-import { getTransformedOrders } from './services/orderService'
+import { getOrdersForPage, getTotalChunks } from './services/orderService'
 
 interface OrdersClientProps {
   initialData?: {
@@ -141,9 +141,18 @@ function OrdersClient({ initialData }: OrdersClientProps) {
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
   
-  // Pagination states
-  const [currentPage, setCurrentPage] = useState(1)
+  // Pagination states (persisted in store)
+  const { ordersPage, setOrdersPage } = useAppStore()
+  const [currentPage, setCurrentPage] = useState(ordersPage || 1)
   const [itemsPerPage, setItemsPerPage] = useState(25)
+  
+  // Cache state and StrictMode guard (logic-only, no UI changes)
+  const [cacheKey, setCacheKey] = useState<string>('')
+  const [isCacheValid, setIsCacheValid] = useState<boolean>(false)
+  const [cacheTimestamp, setCacheTimestamp] = useState<number>(0)
+  const loadGuardRef = useRef<string>('')
+  
+
   
   // Cards per row state for grid/card views
   const [cardsPerRow, setCardsPerRow] = useState(() => {
@@ -162,6 +171,8 @@ function OrdersClient({ initialData }: OrdersClientProps) {
       }
     } catch {}
   }, [cardsPerRow])
+
+
   
   // Settings state management with localStorage persistence
   interface OrderSettings {
@@ -180,7 +191,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
       return savedSettings ? JSON.parse(savedSettings) : {
         defaultViewMode: 'table',
         itemsPerPage: 25,
-        showAdvancedFilters: false,
+    showAdvancedFilters: false,
         autoSaveFilters: false,
         defaultExportFormat: 'csv',
         includeImagesInExport: false,
@@ -252,7 +263,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
             setCustomFilters(filterState.customFilters || [])
             setSearchConditions(filterState.searchConditions || [])
           }
-        } catch (error) {
+      } catch (error) {
           console.error('Error loading saved filters:', error)
         }
       }
@@ -271,31 +282,150 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     }
   }, [])
 
-  // Load dummy orders data for UI development
+    // Load orders data for current page
   useEffect(() => {
     const loadOrders = async () => {
+      // Prevent duplicate runs in StrictMode for same page/perPage if we already have data or valid cache
+      const guardKey = `${currentPage}-${itemsPerPage}`
+      if (loadGuardRef.current === guardKey && (orderData.length > 0 || isCacheValid)) {
+        return
+      }
+      loadGuardRef.current = guardKey
+
+      // Check cache first for instant loading
+      const currentCacheKey = `orders-cache-${currentPage}-${itemsPerPage}`
+      const cached = localStorage.getItem(currentCacheKey)
+      
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached)
+          const now = Date.now()
+          const cacheAge = now - (parsed.timestamp || 0)
+          const cacheTTL = 5 * 60 * 1000 // 5 minutes TTL for faster updates
+          
+          if (cacheAge < cacheTTL && parsed.data && Array.isArray(parsed.data)) {
+            // Use cached data for instant loading
+            setOrderData(parsed.data)
+            setTotalOrders(parsed.totalOrders || parsed.data.length)
+            setIsDataLoaded(true)
+            setCacheKey(currentCacheKey)
+            setIsCacheValid(true)
+            setCacheTimestamp(parsed.timestamp)
+            setLoading(false)
+            
+            // Preload next page in background for seamless navigation
+            if (currentPage < Math.ceil(parsed.totalOrders / itemsPerPage)) {
+              setTimeout(() => preloadNextPage(currentPage + 1, itemsPerPage), 1000)
+            }
+            
+            return
+          }
+        } catch (e) {
+          // Invalid cache, continue with fresh fetch
+        }
+      }
+      
       setLoading(true)
       setError(null)
       try {
-        console.log('Loading dummy orders data for UI development...')
-        // Generate comprehensive dummy data
-        const orders = generateOrdersData(150) // Generate 150 orders for better testing
-        console.log('Dummy orders loaded:', orders.slice(0, 5)) // Log first 5 orders for debugging
-        console.log('Total orders loaded:', orders.length)
-        console.log('Sample order structure:', orders[0])
-        setOrderData(orders)
-        setTotalOrders(orders.length)
+        // Fetch orders for the current page (chunk-based)
+        const result = await getOrdersForPage(currentPage, itemsPerPage)
+        
+        setOrderData(result.orders)
+        setTotalOrders(result.totalChunks * 500) // Approximate total based on chunks
         setIsDataLoaded(true)
-      } catch (error) {
-        console.error('Error loading dummy orders:', error)
-        setError('Failed to load dummy orders. Please refresh the page.')
+        
+        // Cache the data for future instant loading
+        if (result.orders.length > 0) {
+          try {
+            const cacheData = {
+              data: result.orders,
+              totalOrders: result.totalChunks * 500,
+              timestamp: Date.now(),
+              chunk: result.currentChunk,
+              page: currentPage,
+              itemsPerPage
+            }
+            localStorage.setItem(currentCacheKey, JSON.stringify(cacheData))
+            setCacheKey(currentCacheKey)
+            setIsCacheValid(true)
+            setCacheTimestamp(Date.now())
+            
+            // Preload next page in background
+            if (result.hasMore) {
+              setTimeout(() => preloadNextPage(currentPage + 1, itemsPerPage), 1000)
+            }
+          } catch (e) {
+            // Handle storage quota exceeded silently
+          }
+        }
+        
+      } catch (error: any) {
+        console.error('❌ Error loading orders for current page:', error)
+        
+        // Provide more specific error messages
+        let errorMessage = 'Failed to load orders for current page'
+        if (error.message.includes('500')) {
+          errorMessage = 'Server error (500) - the backend service is experiencing issues. Please try again later.'
+        } else if (error.message.includes('timeout')) {
+          errorMessage = 'Request timeout - server took too long to respond'
+        } else if (error.message.includes('Failed to fetch')) {
+          errorMessage = 'Connection failed - please check your internet connection'
+        } else {
+          errorMessage = `Server error: ${error.message}`
+        }
+        
+        // Fallback to dummy data if server is unavailable
+        try {
+          const fallbackOrders = generateOrdersData(50) // Generate 50 orders for fallback
+          
+        setOrderData(fallbackOrders)
+        setTotalOrders(fallbackOrders.length)
+        setIsDataLoaded(true)
+          setError(`${errorMessage} - Using fallback data`)
+        } catch (fallbackError) {
+          console.error('❌ Error loading fallback data:', fallbackError)
+          setError('Failed to load orders data. Please check your connection and refresh the page.')
+        }
       } finally {
         setLoading(false)
       }
     }
 
     loadOrders()
-  }, [])
+  }, [currentPage, itemsPerPage]) // Reload when page or items per page changes
+
+  // Preload next page for seamless navigation
+  const preloadNextPage = async (page: number, perPage: number) => {
+    const nextCacheKey = `orders-cache-${page}-${perPage}`
+    
+    // Don't preload if already cached
+    if (localStorage.getItem(nextCacheKey)) return
+    
+    try {
+      const result = await getOrdersForPage(page, perPage)
+      if (result.orders.length > 0) {
+        const cacheData = {
+          data: result.orders,
+          totalOrders: result.totalChunks * 500,
+          timestamp: Date.now(),
+          chunk: result.currentChunk,
+          page,
+          itemsPerPage: perPage
+        }
+        localStorage.setItem(nextCacheKey, JSON.stringify(cacheData))
+      }
+        } catch (error) {
+      // Silently fail preloading - it's not critical
+    }
+  }
+
+  // Keep local currentPage in sync with store on tab switches
+  useEffect(() => {
+    if ((ordersPage || 1) !== currentPage) {
+      setCurrentPage(ordersPage || 1)
+    }
+  }, [ordersPage])
 
   // Debounced search query
   useEffect(() => {
@@ -308,14 +438,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     }
   }, [searchQuery])
 
-  // Algolia search effect
-  useEffect(() => {
-    if (debouncedSearchQuery && useAlgoliaSearch) {
-      debouncedAlgoliaSearch(debouncedSearchQuery, orderData, setAlgoliaSearchResults, setIsAlgoliaSearching)
-    } else {
-      setAlgoliaSearchResults([])
-    }
-  }, [debouncedSearchQuery, useAlgoliaSearch, orderData])
+  // Removed duplicate Algolia search effect - using the one below instead
 
   // Tab management
   const hasAddedTab = useRef(false)
@@ -333,25 +456,102 @@ function OrdersClient({ initialData }: OrdersClientProps) {
 
   // Filter and search logic
   const filteredData = useMemo(() => {
-    let filtered = orderData
-    console.log('Filtering data, total orders:', orderData.length)
-
-    // Apply search query
+    console.log('🔍 Filtering data with:', {
+      orderDataLength: orderData.length,
+      useAlgoliaSearch,
+      algoliaSearchResultsLength: algoliaSearchResults.length,
+      activeFilter,
+      debouncedSearchQuery,
+      columnFilters,
+      advancedFilters
+    })
+    
+    // Debug: Log the actual Algolia search results
+    if (useAlgoliaSearch && algoliaSearchResults.length > 0) {
+      console.log('🔍 Algolia search results in useMemo:', {
+        length: algoliaSearchResults.length,
+        sampleResults: algoliaSearchResults.slice(0, 3).map(o => ({ 
+          id: o.id, 
+          orderNumber: o.orderNumber, 
+          customerName: o.customerName 
+        }))
+      })
+    }
+    
+    // Debug: Log search state
     if (debouncedSearchQuery) {
+      console.log('🔍 Search query:', debouncedSearchQuery)
+      console.log('🔍 Algolia search state:', { useAlgoliaSearch, isAlgoliaSearching, algoliaResultsCount: algoliaSearchResults.length })
+    }
+    
+    // Start with all order data
+    let filtered = orderData
+    
+    // Only apply search filters if there's an active search query
+    if (debouncedSearchQuery && debouncedSearchQuery.trim()) {
+      // If Algolia search is active and we have results, use them
+      if (useAlgoliaSearch && algoliaSearchResults.length > 0) {
+        filtered = algoliaSearchResults
+        console.log('🔍 Using Algolia search results:', filtered.length, 'orders')
+        console.log('🔍 Algolia results details:', {
+          useAlgoliaSearch,
+          algoliaResultsLength: algoliaSearchResults.length,
+          filteredLength: filtered.length,
+          sampleFiltered: filtered.slice(0, 3).map(o => ({ 
+            id: o.id, 
+            orderNumber: o.orderNumber, 
+            customerName: o.customerName 
+          }))
+        })
+      } else {
+        // Apply local search if no Algolia results
       const query = debouncedSearchQuery.toLowerCase()
+        console.log('🔍 Applying local search for query:', query)
       filtered = filtered.filter(order => {
         // Find the order's position in the original data for serial number
         const orderIndex = orderData.findIndex(o => o.id === order.id)
         const serialNumber = orderIndex + 1
         
-        return order.orderNumber.toLowerCase().includes(query) ||
+          const matches = order.orderNumber.toLowerCase().includes(query) ||
           order.customerName.toLowerCase().includes(query) ||
           order.customerEmail.toLowerCase().includes(query) ||
           order.status.toLowerCase().includes(query) ||
           (order.channel || '').toLowerCase().includes(query) ||
           serialNumber.toString().includes(query) // Include serial number in search
+          
+          if (matches) {
+            console.log('🔍 Order matches search:', order.customerName, order.orderNumber)
+          }
+          
+          return matches
+        })
+        console.log('🔍 After local search query filter:', filtered.length, 'orders')
+      }
+    } else {
+      // No search query - show all data
+      console.log('🔍 No search query - showing all orders:', filtered.length, 'orders')
+      console.log('🔍 Search state check:', {
+        debouncedSearchQuery,
+        useAlgoliaSearch,
+        algoliaSearchResultsLength: algoliaSearchResults.length,
+        isAlgoliaSearching
       })
     }
+    
+    console.log('🔍 Initial filtered data:', filtered.length, 'orders')
+    
+    // Final debug: Log the complete filtered data state
+    console.log('🔍 Final filtered data state:', {
+      totalLength: filtered.length,
+      useAlgoliaSearch,
+      algoliaResultsLength: algoliaSearchResults.length,
+      debouncedSearchQuery,
+      sampleData: filtered.slice(0, 3).map(o => ({ 
+        id: o.id, 
+        orderNumber: o.orderNumber, 
+        customerName: o.customerName 
+      }))
+    })
 
     // Apply column filters with enhanced logic
     Object.entries(columnFilters).forEach(([key, value]) => {
@@ -457,15 +657,43 @@ function OrdersClient({ initialData }: OrdersClientProps) {
       )
     }
 
-    console.log('Filtered data result:', filtered.length, 'orders')
+    // Final return with comprehensive logging
+    console.log('🔍 Returning filtered data:', {
+      finalLength: filtered.length,
+      useAlgoliaSearch,
+      algoliaResultsLength: algoliaSearchResults.length,
+      searchQuery: debouncedSearchQuery,
+      finalSample: filtered.slice(0, 3).map(o => ({ 
+        id: o.id, 
+        orderNumber: o.orderNumber, 
+        customerName: o.customerName 
+      }))
+    })
+    
     return filtered
-  }, [orderData, debouncedSearchQuery, columnFilters, advancedFilters])
+  }, [orderData, useAlgoliaSearch, algoliaSearchResults, debouncedSearchQuery, columnFilters, advancedFilters])
 
-  // Pagination
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const currentData = filteredData.slice(startIndex, endIndex)
+  // Pagination - using chunk-based system
+  const startIndex = 0 // Since we're loading the entire chunk, start from 0
+  const endIndex = orderData.length // Use all orders from the current chunk
+  const currentData = filteredData // Use filtered orders for display
+  
+  // Debug: Log current data for display
+  console.log('🔍 Current data assignment:', {
+    filteredDataLength: filteredData.length,
+    currentDataLength: currentData.length,
+    useAlgoliaSearch,
+    algoliaResultsLength: algoliaSearchResults.length,
+    searchQuery: debouncedSearchQuery,
+    sampleData: currentData.slice(0, 3).map(o => ({ 
+      id: o.id, 
+      orderNumber: o.orderNumber, 
+      customerName: o.customerName 
+    }))
+  })
+  
+  // Calculate total pages based on total chunks
+  const totalPages = Math.ceil(totalOrders / 500) // Each chunk has 500 orders
 
   // KPI calculations
   const kpiMetrics = useMemo(() => {
@@ -583,23 +811,79 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     }
   }, [selectedOrders.length, currentData])
 
-  const handlePageChange = useCallback((page: number) => {
+  // Pagination handlers
+  const handlePageChange = (page: number) => {
+    console.log(`🔄 Changing to page ${page}...`)
     setCurrentPage(page)
-  }, [])
+    setOrdersPage(page)
+    setSelectedOrders([]) // Clear selection when changing pages
+    
+    // Reset to top of page
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
-  const handleItemsPerPageChange = useCallback((items: number) => {
-    setItemsPerPage(items)
-    setCurrentPage(1)
-  }, [])
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    console.log(`🔄 Changing items per page to ${newItemsPerPage}...`)
+    setItemsPerPage(newItemsPerPage)
+    setCurrentPage(1) // Reset to first page when changing items per page
+    setOrdersPage(1)
+  }
 
+  // Search handlers
   const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query)
-    if (query.trim()) {
-      const updatedHistory = saveSearchToHistory(query, filteredData.length, searchHistory)
-      setSearchHistory(updatedHistory)
-      localStorage.setItem('orders-search-history', JSON.stringify(updatedHistory))
+    console.log('🔍 Search triggered:', query)
+    
+    if (query && query.trim()) {
+      // Enable Algolia search for cross-chunk searching
+      setUseAlgoliaSearch(true)
+      setIsAlgoliaSearching(true)
+      
+      debouncedAlgoliaSearch(
+        query, 
+        orderData, 
+        (orders) => {
+          console.log('✅ Algolia search results received:', orders.length)
+          console.log('🔍 Setting Algolia search results:', {
+            ordersLength: orders.length,
+            sampleOrders: orders.slice(0, 3).map(o => ({ id: o.id, orderNumber: o.orderNumber, customerName: o.customerName }))
+          })
+          setAlgoliaSearchResults(orders)
+          setIsAlgoliaSearching(false)
+          
+          // Save search to history only if we have results
+          if (orders.length > 0) {
+            const newHistory = saveSearchToHistory(query, orders.length, searchHistory)
+            setSearchHistory(newHistory)
+          }
+          
+          // Force a re-render by updating a timestamp
+          console.log('🔄 Forcing re-render after setting Algolia results')
+        }, 
+        (loading) => {
+          setIsAlgoliaSearching(loading)
+        },
+        137 // Total chunks for search across all data
+      )
+    } else {
+      // Clear search
+      console.log('🧹 Clearing search in handleSearch')
+      setAlgoliaSearchResults([])
+      setUseAlgoliaSearch(false)
+      setIsAlgoliaSearching(false)
     }
-  }, [filteredData.length, searchHistory])
+  }, [orderData, searchHistory])
+
+  const clearSearch = useCallback(() => {
+    console.log('🧹 Clearing search - starting clear process')
+    setSearchQuery('')
+    setDebouncedSearchQuery('')
+    setAlgoliaSearchResults([])
+    setUseAlgoliaSearch(false)
+    setIsAlgoliaSearching(false)
+    // Force re-render of filtered data by clearing search conditions
+    setSearchConditions([])
+    console.log('🧹 Clearing search - all states cleared')
+  }, [])
 
   // Generate search suggestions
   useEffect(() => {
@@ -612,6 +896,22 @@ function OrdersClient({ initialData }: OrdersClientProps) {
       setShowSuggestions(false)
     }
   }, [searchQuery, orderData, searchHistory])
+
+  // Algolia search effect - trigger search when debounced query changes
+  useEffect(() => {
+    console.log('🔍 Debounced search query changed:', debouncedSearchQuery)
+    
+    if (debouncedSearchQuery && debouncedSearchQuery.trim()) {
+      // Only trigger search, don't set searchQuery here to avoid loops
+      handleSearch(debouncedSearchQuery)
+    } else {
+      // Clear Algolia search when query is empty
+      console.log('🧹 Clearing Algolia search due to empty query')
+      setAlgoliaSearchResults([])
+      setUseAlgoliaSearch(false)
+      setIsAlgoliaSearching(false)
+    }
+  }, [debouncedSearchQuery]) // Remove handleSearch dependency to prevent infinite loops
 
   // Search suggestion handlers
   const handleSuggestionClick = useCallback((suggestion: SearchSuggestion) => {
@@ -677,43 +977,6 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     })
     setCustomFilters([])
     setActiveFilter('')
-  }, [])
-
-  const clearSearch = useCallback(() => {
-    setSearchQuery('')
-    setSearchConditions([])
-  }, [])
-
-  const clearColumnFilters = useCallback(() => {
-    setColumnFilters({
-      serialNumber: '',
-      orderNumber: '',
-      customerName: '',
-      status: [],
-      fulfillmentStatus: [],
-      financialStatus: [],
-      channel: [],
-      deliveryMethod: [],
-      tags: [],
-      total: '',
-      createdAt: '',
-      updatedAt: ''
-    })
-  }, [])
-
-  const clearCustomFilters = useCallback(() => {
-    setCustomFilters([])
-  }, [])
-
-  const clearAdvancedFilters = useCallback(() => {
-    setAdvancedFilters({
-      orderStatus: [],
-      priceRange: { min: '', max: '' },
-      serialNumberRange: { min: '', max: '' },
-      dateRange: { start: '', end: '' },
-      tags: [],
-      channels: []
-    })
   }, [])
 
   // Define table columns for orders
@@ -886,12 +1149,48 @@ function OrdersClient({ initialData }: OrdersClientProps) {
         <div className="text-center">
           <div className="text-red-600 text-lg font-semibold mb-2">Error Loading Orders</div>
           <div className="text-gray-600 mb-4">{error}</div>
-                <button
+          <div className="space-x-2">
+          <button 
             onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
           >
             Retry
-                </button>
+          </button>
+            <button
+              onClick={async () => {
+                console.log('🔍 Manual server test...')
+                try {
+                  const testResult = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'}/cache/data?project=my-app&table=shopify-inkhub-get-orders`, {
+                    method: 'GET',
+                    signal: AbortSignal.timeout(10000),
+                    headers: {
+                      'Accept': 'application/json',
+                      'Content-Type': 'application/json'
+                    }
+                  })
+                  
+                  console.log('🔍 Manual test response status:', testResult.status)
+                  console.log('🔍 Manual test response ok:', testResult.ok)
+                  
+                  if (testResult.ok) {
+                    const data = await testResult.json()
+                    console.log('🔍 Manual test success:', data)
+                    alert('Server test successful! Check console for details.')
+                  } else {
+                    const errorText = await testResult.text()
+                    console.error('🔍 Manual test failed:', testResult.status, errorText)
+                    alert(`Server test failed (${testResult.status}): ${errorText}`)
+                  }
+                } catch (error: any) {
+                  console.error('🔍 Manual test error:', error)
+                  alert(`Test error: ${error.message}`)
+                }
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Test Server
+          </button>
+          </div>
         </div>
       </div>
     )
@@ -934,35 +1233,35 @@ function OrdersClient({ initialData }: OrdersClientProps) {
       <div ref={headerAreaRef} className={cn(
         isFullScreen ? "sticky top-0 z-20 bg-white border-b border-gray-200" : ""
       )}>
-        <SearchControls
-          searchQuery={searchQuery}
+       <SearchControls
+         searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
-          searchConditions={searchConditions}
+         searchConditions={searchConditions}
           showSearchBuilder={showSearchBuilder}
           setShowSearchBuilder={setShowSearchBuilder}
           showAdditionalControls={showAdditionalControls}
           setShowAdditionalControls={setShowAdditionalControls}
-          activeFilter={activeFilter}
-          setActiveFilter={setActiveFilter}
-          customFilters={customFilters}
+         activeFilter={activeFilter}
+         setActiveFilter={setActiveFilter}
+         customFilters={customFilters}
           onAddCustomFilter={handleCustomFilter}
           onRemoveCustomFilter={(filterId) => setCustomFilters(prev => prev.filter(f => f.id !== filterId))}
-          showCustomFilterDropdown={showCustomFilterDropdown}
-          setShowCustomFilterDropdown={setShowCustomFilterDropdown}
-          hiddenDefaultFilters={hiddenDefaultFilters}
+         showCustomFilterDropdown={showCustomFilterDropdown}
+         setShowCustomFilterDropdown={setShowCustomFilterDropdown}
+         hiddenDefaultFilters={hiddenDefaultFilters}
           onShowAllFilters={() => setHiddenDefaultFilters(new Set())}
           onClearSearch={clearSearch}
           onClearSearchConditions={() => setSearchConditions([])}
-          selectedProducts={selectedOrders}
+         selectedOrders={selectedOrders}
           onBulkEdit={() => setShowBulkEditModal(true)}
           onExportSelected={() => setShowExportModal(true)}
           onBulkDelete={() => setShowBulkDeleteModal(true)}
-          currentProducts={currentData}
-          onSelectAll={handleSelectAll}
-          activeColumnFilter={activeColumnFilter}
-          columnFilters={columnFilters}
+          currentOrders={currentData}
+         onSelectAll={handleSelectAll}
+         activeColumnFilter={activeColumnFilter}
+         columnFilters={columnFilters}
           onFilterClick={setActiveColumnFilter}
-          onColumnFilterChange={handleColumnFilter}
+         onColumnFilterChange={handleColumnFilter}
           getUniqueValues={getUniqueValues}
           onExport={() => setShowExportModal(true)}
           onImport={() => setShowImportModal(true)}
@@ -1033,7 +1332,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                         advancedFilters.dateRange.end ? 1 : 0
                       ].reduce((a, b) => a + b, 0)} active
                     </span>
-                  </div>
+        </div>
                   {/* Active Filters Inline Display */}
                   {(advancedFilters.orderStatus.length > 0 || 
                     advancedFilters.tags.length > 0 || 
@@ -1411,7 +1710,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                   </div>
                   </div>
                 </div>
-        )}
+      )}
 
       {/* Bulk Actions Bar */}
       {selectedOrders.length > 0 && (
@@ -1438,29 +1737,36 @@ function OrdersClient({ initialData }: OrdersClientProps) {
       )}
 
           {viewMode === 'table' ? (
-          <OrderTable
-            currentOrders={currentData}
-            selectedItems={selectedOrders}
-            onSelectItem={handleSelectItem}
-            onSelectAll={handleSelectAll}
-            onRowClick={(order, e) => {
-              // Guard: ignore checkbox/button clicks
-              if ((e.target as HTMLElement).closest('input,button')) return
-              setPreviewOrder(order)
-              setShowPreviewModal(true)
-            }}
-            columns={orderColumns}
-            loading={loading}
-            error={error}
-            searchQuery={searchQuery}
-            isFullScreen={isFullScreen}
-            activeColumnFilter={activeColumnFilter}
-            columnFilters={columnFilters}
-            onFilterClick={setActiveColumnFilter}
-            onColumnFilterChange={handleColumnFilter}
-            getUniqueValues={getUniqueValues}
-            showImages={false}
-          />
+            <div className="space-y-4">
+              {/* Cache Status Indicator */}
+
+              
+           <OrderTable
+                currentOrders={currentData}
+             selectedItems={selectedOrders}
+             onSelectItem={handleSelectItem}
+             onSelectAll={handleSelectAll}
+                onRowClick={(order: Order, e: React.MouseEvent) => {
+                  // Guard: ignore checkbox/button clicks
+                  if ((e.target as HTMLElement).closest('input,button')) return
+                  setPreviewOrder(order)
+                  setShowPreviewModal(true)
+                }}
+                columns={orderColumns}
+                loading={loading}
+                error={error}
+                searchQuery={searchQuery}
+                isFullScreen={isFullScreen}
+                activeColumnFilter={activeColumnFilter}
+             columnFilters={columnFilters}
+                onFilterClick={setActiveColumnFilter}
+                onColumnFilterChange={handleColumnFilter}
+                getUniqueValues={getUniqueValues}
+                showImages={false}
+                onClearSearch={clearSearch}
+                isSearching={isAlgoliaSearching}
+              />
+            </div>
         ) : viewMode === 'grid' ? (
             <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
               {/* Grid Header */}
@@ -1468,18 +1774,18 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                 selectedOrders={selectedOrders}
                 currentOrders={currentData}
                 onSelectAll={handleSelectAll}
-                activeColumnFilter={activeColumnFilter}
+             activeColumnFilter={activeColumnFilter}
                 columnFilters={columnFilters}
                 onFilterClick={setActiveColumnFilter}
-                onColumnFilterChange={handleColumnFilter}
-                getUniqueValues={getUniqueValues}
+             onColumnFilterChange={handleColumnFilter}
+             getUniqueValues={getUniqueValues}
                 cardsPerRow={cardsPerRow}
                 onCardsPerRowChange={setCardsPerRow}
               />
               <div className="p-4">
-                <OrdersGrid
+          <OrdersGrid
                   orders={currentData}
-                  cardsPerRow={cardsPerRow}
+            cardsPerRow={cardsPerRow}
                   selectedOrders={selectedOrders}
                   onSelectOrder={(id) => handleSelectItem(id)}
                   onOrderClick={(order, e) => {
@@ -1523,11 +1829,11 @@ function OrdersClient({ initialData }: OrdersClientProps) {
               getUniqueValues={getUniqueValues}
             />
             <div className="p-4">
-              <OrderCardView
+          <OrderCardView
                 data={currentData}
                 columns={orderColumns}
-                selectedItems={selectedOrders}
-                onSelectItem={handleSelectItem}
+            selectedItems={selectedOrders}
+            onSelectItem={handleSelectItem}
                 onOrderClick={(order, e) => {
                   if ((e.target as HTMLElement).closest('input,button')) return
                   setPreviewOrder(order)
@@ -1535,31 +1841,31 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                 }}
                 viewMode={viewMode}
                 cardsPerRow={cardsPerRow}
-                loading={loading}
+            loading={loading}
                 error={error}
                 searchQuery={searchQuery}
                 isFullScreen={isFullScreen}
-              />
+          />
             </div>
           </div>
         )}
 
       </div>
 
-        {/* Pagination */}
+      {/* Pagination */}
         <div className={cn(
           isFullScreen ? "sticky bottom-0 z-20 bg-white border-t border-gray-200 px-4 py-2" : "mt-6"
         )}>
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            itemsPerPage={itemsPerPage}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        itemsPerPage={itemsPerPage}
             totalItems={filteredData.length}
-            onPageChange={handlePageChange}
-            onItemsPerPageChange={handleItemsPerPageChange}
-          />
+        onPageChange={handlePageChange}
+        onItemsPerPageChange={handleItemsPerPageChange}
+      />
       </div>
-      
+
       {/* Modals */}
       {showPreviewModal && previewOrder && (
         <EnhancedDetailModal
@@ -1612,7 +1918,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
           }}
         />
       )}
-        {showExportModal && (
+      {showExportModal && (
         <ExportModal
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
@@ -1623,7 +1929,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
 
         {/* Import Orders Modal */}
         {showImportModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center space-x-3">
@@ -1637,7 +1943,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                 </div>
                 <button onClick={() => setShowImportModal(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-                </button>
+              </button>
               </div>
               <div className="space-y-4">
                 <div>
@@ -1673,8 +1979,8 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                 </div>
                 <button onClick={() => setShowPrintModal(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-                </button>
-              </div>
+              </button>
+            </div>
 
               <div className="space-y-6">
                 {/* Print Options */}
@@ -1825,6 +2131,8 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                   </div>
                 </div>
 
+
+
                 {/* Current Stats */}
                 <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
                   <div className="grid grid-cols-2 gap-3">
@@ -1936,36 +2244,36 @@ function OrdersClient({ initialData }: OrdersClientProps) {
               <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
                 <button onClick={() => setShowBulkEditModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
                 <button onClick={() => setShowBulkEditModal(false)} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Apply Changes</button>
-              </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {showBulkDeleteModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+      {showBulkDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">Delete Orders</h3>
             <p className="text-gray-600 mb-4">Are you sure you want to delete {selectedOrders.length} orders? This action cannot be undone.</p>
             <div className="flex justify-end space-x-2">
-                <button
-                  onClick={() => setShowBulkDeleteModal(false)}
+              <button
+                onClick={() => setShowBulkDeleteModal(false)}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
                   setSelectedOrders([])
                   setShowBulkDeleteModal(false)
-                  }}
+                }}
                 className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-                >
+              >
                 Delete
-                </button>
-              </div>
+              </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
       </div>
     </div>
   )

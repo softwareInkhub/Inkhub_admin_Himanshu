@@ -235,7 +235,34 @@ export const getStatusBadge = (status: string, type: 'status' | 'inventory') => 
   }
   }
 
-// Filter products based on various criteria
+// Type definitions for filters
+export interface ColumnFilters {
+  title?: string
+  status?: string | string[]
+  productType?: string | string[]
+  vendor?: string | string[]
+  category?: string | string[]
+  tags?: string[]
+  price?: string
+  inventoryQuantity?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface AdvancedFilters {
+  minPrice?: number
+  maxPrice?: number
+  minInventory?: number
+  maxInventory?: number
+  dateRange?: {
+    start?: string
+    end?: string
+  }
+  vendors?: string[]
+  categories?: string[]
+  tags?: string[]
+}
+
 export const filterProducts = (
   products: Product[],
   activeFilter: string,
@@ -249,20 +276,21 @@ export const filterProducts = (
     vendors: string[]
   }
 ): Product[] => {
-  console.log('🔍 filterProducts called with:', {
-    productsLength: products.length,
-    activeFilter,
-    searchQuery,
-    columnFilters,
-    advancedFilters
-  })
+  // Only log in development mode for performance
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 filterProducts called with:', {
+      productsLength: products.length,
+      activeFilter,
+      searchQuery: searchQuery ? `${searchQuery.substring(0, 20)}...` : '',
+      columnFiltersCount: Object.keys(columnFilters).filter(k => columnFilters[k]).length
+    })
+  }
   
   let filtered = products
 
   // Filter by status
   if (activeFilter !== 'all' && activeFilter !== 'custom') {
     filtered = filtered.filter(product => product.status === activeFilter)
-    console.log('🔍 After status filter:', filtered.length, 'products')
   }
 
   // Filter by search query - simplified for performance
@@ -277,17 +305,13 @@ export const filterProducts = (
         product.tags?.some(tag => tag.toLowerCase().includes(searchLower))
       )
     })
-    console.log('🔍 After search query filter:', filtered.length, 'products')
   }
 
   // Filter by column filters - optimized
-  console.log('🔍 Starting column filters...')
   Object.entries(columnFilters).forEach(([column, value]) => {
     if (!value || (typeof value === 'string' ? value === '' : Array.isArray(value) ? value.length === 0 : false)) {
-      console.log('🔍 Skipping empty column filter:', column, value)
-      return
+      return // Skip empty filters silently
     }
-    console.log('🔍 Applying column filter:', column, value)
     
     filtered = filtered.filter(product => {
       const productValue = product[column as keyof Product]
@@ -355,7 +379,6 @@ export const filterProducts = (
       
       return false
     })
-    console.log('🔍 After column filter', column, ':', filtered.length, 'products')
   })
 
   // Apply advanced filters
@@ -405,6 +428,9 @@ export const filterProducts = (
     }
   }
 
-  console.log('🔍 filterProducts result:', filtered.length, 'products')
+  // Only log result in development mode
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 filterProducts result:', filtered.length, 'products')
+  }
   return filtered
 }

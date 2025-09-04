@@ -18,6 +18,7 @@ import {
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 
+
 interface TabBarProps {
   className?: string
 }
@@ -35,6 +36,8 @@ export function TabBar({ className }: TabBarProps) {
     duplicateTab
   } = useAppStore()
   
+
+  
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const [contextMenu, setContextMenu] = useState<{
@@ -51,7 +54,7 @@ export function TabBar({ className }: TabBarProps) {
 
   // Filter tabs based on search query
   const filteredTabs = tabs.filter(tab => 
-    tab.title.toLowerCase().includes(searchQuery.toLowerCase())
+    tab.title && tab.title.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   // Sort tabs: Dashboard first, then pinned, then others
@@ -64,8 +67,10 @@ export function TabBar({ className }: TabBarProps) {
     if (a.pinned && !b.pinned) return -1
     if (!a.pinned && b.pinned) return 1
     
-    // Finally by title
-    return a.title.localeCompare(b.title)
+    // Finally by title (with null safety)
+    const titleA = a.title || ''
+    const titleB = b.title || ''
+    return titleA.localeCompare(titleB)
   })
 
   // Handle scroll buttons visibility
@@ -236,10 +241,10 @@ export function TabBar({ className }: TabBarProps) {
             <button
               onClick={() => handleTabClick(tab)}
               className="flex-1 text-left truncate max-w-[200px] focus-ring"
-              title={tab.title}
+              title={tab.title || 'Untitled Tab'}
             >
               {tab.pinned && <Pin className="h-3 w-3 mr-1 inline" />}
-              {tab.title}
+              {tab.title || 'Untitled Tab'}
             </button>
             
             <div className="flex items-center space-x-1 opacity-0 transition-opacity group-hover:opacity-100">

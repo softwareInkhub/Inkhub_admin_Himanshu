@@ -117,13 +117,11 @@ export default function SearchControls({
   isFullScreen,
   onToggleFullScreen
 }: SearchControlsProps) {
-  // Search toggle state
-  const [showSearch, setShowSearch] = useState(false)
-  const searchInputRef = useRef<HTMLInputElement>(null)
-  // Search history state
+  // Search state
   const [searchHistory, setSearchHistory] = useState<SearchHistory[]>([])
-  const [showSuggestions, setShowSuggestions] = useState(false)
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Load search history from localStorage
   useEffect(() => {
@@ -376,23 +374,9 @@ export default function SearchControls({
             </button>
           ))}
 
-          {/* Search Bar - Toggle Functionality */}
+          {/* Search Bar - Always Visible */}
           <div className="relative">
-            {!showSearch ? (
-              /* Search Button - When Search is Hidden */
-              <button
-                onClick={() => {
-                  setShowSearch(true)
-                  setTimeout(() => searchInputRef.current?.focus(), 0)
-                }}
-                className="px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10 text-gray-700 hover:text-blue-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 hover:border-blue-400"
-                title="Search products"
-              >
-                <Search className="h-4 w-4" />
-              </button>
-            ) : (
-              /* Search Input - When Search is Visible */
-              <div className="flex items-center animate-fade-in">
+            <div className="flex items-center animate-fade-in">
                 <div className="relative flex items-center">
                   <GoogleStyleSearch
                     value={searchQuery}
@@ -434,8 +418,8 @@ export default function SearchControls({
                     <Plus className="h-4 w-4" />
                   </button>
                   
-                  {/* Custom Filter Dropdown - When search is open */}
-                  {showCustomFilterDropdown && showSearch && (
+                                     {/* Custom Filter Dropdown */}
+                   {showCustomFilterDropdown && (
                     <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-30 custom-filter-dropdown">
                       <div className="p-3">
                         <div className="text-sm font-medium text-gray-700 mb-3">Add Custom Filter</div>
@@ -462,23 +446,23 @@ export default function SearchControls({
                     </div>
                   )}
                   
-                  {/* Close Button - Auto-adjustable positioning */}
+                  {/* Clear Search Button */}
                   <button
                     onClick={() => {
-                      setShowSearch(false)
                       setSearchQuery('')
+                      // Clear search state in parent component
+                      onClearSearch()
                     }}
                     className={cn(
                       "flex h-10 w-10 items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-all duration-200 hover:shadow-md relative z-20 flex-shrink-0",
                       searchQuery.length > 40 ? "ml-3" : "ml-2"
                     )}
-                    title="Close search"
+                    title="Clear search"
                   >
                     <X className="h-5 w-5" />
                   </button>
                 </div>
               </div>
-            )}
           </div>
         </div>
 
