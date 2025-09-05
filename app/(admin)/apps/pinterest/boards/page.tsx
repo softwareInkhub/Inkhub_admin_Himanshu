@@ -8,7 +8,7 @@ import {
 } from '@/components/shared'
 import BoardsGridCardFilterHeader from './components/BoardsGridCardFilterHeader'
 import { Board } from './types'
-import { generateBoards } from './utils'
+import { getBoardsForPage, getTotalChunks } from './services/boardService'
 
 // Define table columns for boards
 const boardColumns = [
@@ -16,6 +16,7 @@ const boardColumns = [
     key: 'board',
     label: 'BOARD',
     sortable: true,
+    width: 'w-[320px]',
     render: (value: any, board: Board) => (
       <div className="flex items-center space-x-3">
         <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
@@ -237,6 +238,9 @@ const boardFilters = [
 function BoardsClient() {
   const { addTab } = useAppStore()
   const hasAddedTab = useRef(false)
+  const [loadingBoards, setLoadingBoards] = useState(false)
+  const [boardsError, setBoardsError] = useState<string | null>(null)
+  const [serverTotalPages, setServerTotalPages] = useState<number | null>(null)
 
   // Initialize data table hook
   const {
@@ -282,9 +286,10 @@ function BoardsClient() {
     clearSearch,
     clearColumnFilters,
     clearCustomFilters,
-    clearAdvancedFilters
+    clearAdvancedFilters,
+    setData
   } = useDataTable<Board>({
-    initialData: generateBoards(100),
+    initialData: [],
     columns: boardColumns,
     searchableFields: [
       { key: 'name', label: 'Name', type: 'text' },
@@ -298,6 +303,40 @@ function BoardsClient() {
     defaultViewMode: 'table',
     defaultItemsPerPage: 25
   })
+
+  // Load boards from server cache (chunked like orders)
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setLoadingBoards(true)
+      setBoardsError(null)
+      try {
+        const { boards } = await getBoardsForPage(currentPage)
+        if (!cancelled) {
+          setData(boards as any)
+        }
+      } catch (e: any) {
+        if (!cancelled) setBoardsError(e?.message || 'Failed to load boards')
+      } finally {
+        if (!cancelled) setLoadingBoards(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [currentPage, setData])
+
+  // Load total chunk count for pagination
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      try {
+        const n = await getTotalChunks()
+        if (!cancelled) setServerTotalPages(n)
+      } catch {}
+    }
+    run()
+    return () => { cancelled = true }
+  }, [])
 
   // Calculate KPI metrics based on filtered data
   const calculatedKPIs = boardKPIs.map(kpi => {
@@ -359,7 +398,7 @@ function BoardsClient() {
     }
   }
 
-  if (loading && boardData.length === 0) {
+  if ((loading || loadingBoards) && boardData.length === 0) {
   return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-gray-500">Loading boards...</div>
@@ -367,12 +406,12 @@ function BoardsClient() {
     )
   }
 
-  if (error) {
+  if (error || boardsError) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="text-red-600 text-lg font-semibold mb-2">Error Loading Boards</div>
-          <div className="text-gray-600 mb-4">{error}</div>
+          <div className="text-gray-600 mb-4">{error || boardsError}</div>
           <button 
             onClick={() => window.location.reload()}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
@@ -388,8 +427,8 @@ function BoardsClient() {
     <PageTemplate
       config={pageConfig}
       data={currentData}
-      loading={loading}
-      error={error}
+      loading={loading || loadingBoards}
+      error={error || boardsError}
       GridHeaderComponent={BoardsGridCardFilterHeader}
       CardHeaderComponent={BoardsGridCardFilterHeader}
         searchQuery={searchQuery}
@@ -414,7 +453,7 @@ function BoardsClient() {
       setCustomFilters={setCustomFilters}
       advancedFilters={advancedFilters}
       setAdvancedFilters={setAdvancedFilters}
-                totalPages={totalPages}
+      totalPages={serverTotalPages || totalPages}
       handleSelectItem={handleSelectItem}
       handleSelectAll={handleSelectAll}
       handlePageChange={handlePageChange}

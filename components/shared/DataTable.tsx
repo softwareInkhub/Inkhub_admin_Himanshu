@@ -202,7 +202,8 @@ export default function DataTable<T extends BaseEntity>({
                     className={cn(
                       "px-2 py-1.5 whitespace-nowrap border-r border-gray-200",
                       column.align === 'center' && "text-center",
-                      column.align === 'right' && "text-right"
+                      column.align === 'right' && "text-right",
+                      (column as any).width
                     )}
                   >
                     {column.render ? (
