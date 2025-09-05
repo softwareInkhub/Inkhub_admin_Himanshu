@@ -81,6 +81,8 @@ export default function SearchControls({
   const [searchHistory, setSearchHistory] = useState<SharedSearchSuggestion[]>([])
   const [suggestions, setSuggestions] = useState<SharedSearchSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const prevSigRef = useRef<string>('')
+  const prevShowRef = useRef<boolean>(false)
 
   const handleClearSearch = () => {
     setSearchQuery('')
@@ -163,8 +165,21 @@ export default function SearchControls({
 
     // Append recent history if no query
     const hist = !query ? searchHistory.slice(0, 4) : []
-    setSuggestions([...next.slice(0, 20), ...hist])
-    setShowSuggestions(Boolean(query) || hist.length > 0)
+    const nextCombined = [...next.slice(0, 20), ...hist]
+
+    // Build a stable signature to avoid redundant state updates
+    const signature = `${query}|${items.length}|${searchHistory.length}|${nextCombined.length}`
+    const shouldShow = Boolean(query) || hist.length > 0
+
+    // Only update if suggestions content length or show flag meaningfully changed
+    if (signature !== prevSigRef.current) {
+      prevSigRef.current = signature
+      setSuggestions(nextCombined)
+    }
+    if (shouldShow !== prevShowRef.current) {
+      prevShowRef.current = shouldShow
+      setShowSuggestions(shouldShow)
+    }
   }, [searchQuery, currentItems, searchHistory])
 
   const handleSearch = (q: string) => {

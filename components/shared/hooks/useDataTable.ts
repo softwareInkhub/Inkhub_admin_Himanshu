@@ -29,6 +29,17 @@ export function useDataTable<T extends BaseEntity>({
       isInitialMount.current = false
       return
     }
+    // Guard against infinite update loops when callers pass a new [] literal each render
+    // Only update when initialData has actual content or a new reference that differs meaningfully
+    if (Array.isArray(initialData)) {
+      if (initialData.length === 0) return
+      // Avoid unnecessary updates if shallowly equal by length and first id
+      if (data.length === initialData.length) {
+        const a = (data as any[])[0]?.id
+        const b = (initialData as any[])[0]?.id
+        if (a === b) return
+      }
+    }
     setData(initialData)
   }, [initialData])
   

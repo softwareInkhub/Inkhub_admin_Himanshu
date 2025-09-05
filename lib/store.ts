@@ -66,6 +66,10 @@ interface AppState {
   ordersPage: number
   setOrdersPage: (page: number) => void
 
+  // Persisted scroll position for Orders page
+  ordersScroll: number
+  setOrdersScroll: (y: number) => void
+
   // Persisted page index for Products (pagination)
   productsPage: number
   setProductsPage: (page: number) => void
@@ -219,6 +223,10 @@ export const useAppStore = create<AppState>()(
       ordersPage: 1,
       setOrdersPage: (page) => set({ ordersPage: page }),
 
+      // Orders scroll persistence
+      ordersScroll: 0,
+      setOrdersScroll: (y) => set({ ordersScroll: y }),
+
       // Products pagination persistence
       productsPage: 1,
       setProductsPage: (page) => set({ productsPage: page }),
@@ -306,6 +314,7 @@ export const useAppStore = create<AppState>()(
         tabs: state.tabs, // Save all tabs, not just pinned ones
         users: state.users,
         ordersPage: state.ordersPage,
+        ordersScroll: state.ordersScroll,
         productsPage: state.productsPage,
       }),
     }

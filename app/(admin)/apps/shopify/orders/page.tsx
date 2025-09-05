@@ -38,7 +38,11 @@ interface OrdersClientProps {
 }
 
 function OrdersClient({ initialData }: OrdersClientProps) {
-  const { addTab, tabs } = useAppStore()
+  const { addTab, tabs, activeTabId } = useAppStore()
+  const isActive = useMemo(() => {
+    const active = tabs.find(t => t.id === activeTabId)
+    return active?.path === '/apps/shopify/orders'
+  }, [activeTabId, tabs])
   const [orderData, setOrderData] = useState<Order[]>([])
   const [chunkData, setChunkData] = useState<{ [key: string]: Order[] }>({})
   const [chunkKeys, setChunkKeys] = useState<string[]>([])
@@ -140,9 +144,13 @@ function OrdersClient({ initialData }: OrdersClientProps) {
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
+  const fullScreenScrollRef = useRef<HTMLDivElement>(null)
   
   // Pagination states (persisted in store)
   const { ordersPage, setOrdersPage } = useAppStore()
+  const setOrdersScroll = useAppStore(s => s.setOrdersScroll)
+  const initialOrdersScrollRef = useRef<number>(typeof window !== 'undefined' ? (useAppStore.getState().ordersScroll || 0) : 0)
+  const hasRestoredScrollRef = useRef<boolean>(false)
   const [currentPage, setCurrentPage] = useState(ordersPage || 1)
   const [itemsPerPage, setItemsPerPage] = useState(25)
   
@@ -281,6 +289,131 @@ function OrdersClient({ initialData }: OrdersClientProps) {
       }
     }
   }, [])
+
+  // Throttled scroll position persistence
+  const throttledSaveRef = useRef<((y: number) => void) | null>(null)
+  useEffect(() => {
+    const throttle = (fn: (y: number) => void, wait: number) => {
+      let last = 0
+      let timeout: any
+      let lastArgs: any[] | null = null
+      return (...args: any[]) => {
+        const now = Date.now()
+        if (now - last >= wait) {
+          last = now
+          fn(args[0] as number)
+        } else {
+          if (timeout) clearTimeout(timeout)
+          lastArgs = args
+          timeout = setTimeout(() => {
+            last = Date.now()
+            if (lastArgs) fn(lastArgs[0] as number)
+          }, wait - (now - last))
+        }
+      }
+    }
+    throttledSaveRef.current = throttle((y: number) => {
+      try { setOrdersScroll(y) } catch {}
+    }, 200)
+  }, [setOrdersScroll])
+
+  // Attach scroll listeners to save position
+  useEffect(() => {
+    const onScroll = () => {
+      const y = isFullScreen && fullScreenScrollRef.current
+        ? fullScreenScrollRef.current.scrollTop
+        : (typeof window !== 'undefined' ? window.scrollY : 0)
+      throttledSaveRef.current && throttledSaveRef.current(y)
+    }
+
+    if (isFullScreen && fullScreenScrollRef.current) {
+      const el = fullScreenScrollRef.current
+      el.addEventListener('scroll', onScroll, { passive: true } as any)
+      return () => {
+        el.removeEventListener('scroll', onScroll as any)
+      }
+    } else {
+      if (typeof window !== 'undefined') {
+        window.addEventListener('scroll', onScroll, { passive: true } as any)
+        return () => {
+          window.removeEventListener('scroll', onScroll as any)
+        }
+      }
+    }
+  }, [isFullScreen])
+
+  // Restore scroll position after data renders
+  useEffect(() => {
+    if (!isDataLoaded || hasRestoredScrollRef.current) return
+    const y = initialOrdersScrollRef.current || 0
+    if (y <= 0) {
+      hasRestoredScrollRef.current = true
+      return
+    }
+    const restore = () => {
+      try {
+        if (isFullScreen && fullScreenScrollRef.current) {
+          fullScreenScrollRef.current.scrollTop = y
+        } else if (typeof window !== 'undefined') {
+          window.scrollTo(0, y)
+        }
+        hasRestoredScrollRef.current = true
+      } catch {}
+    }
+    if (typeof window !== 'undefined') {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          restore()
+        })
+      })
+      setTimeout(() => {
+        if (!hasRestoredScrollRef.current) restore()
+      }, 300)
+    }
+  }, [isDataLoaded, isFullScreen])
+
+  // Save scroll on unmount
+  useEffect(() => {
+    return () => {
+      const y = isFullScreen && fullScreenScrollRef.current
+        ? fullScreenScrollRef.current.scrollTop
+        : (typeof window !== 'undefined' ? window.scrollY : 0)
+      try { setOrdersScroll(y) } catch {}
+    }
+  }, [isFullScreen, setOrdersScroll])
+
+  // Restore scroll each time the Orders tab becomes active (Keep-Alive tabs)
+  useEffect(() => {
+    if (!isActive) return
+    // Ensure data/content is ready
+    if (!isDataLoaded) return
+    const y = (typeof window !== 'undefined') ? (useAppStore.getState().ordersScroll || 0) : 0
+    if (y <= 0) return
+    const restore = () => {
+      try {
+        if (isFullScreen && fullScreenScrollRef.current) {
+          fullScreenScrollRef.current.scrollTop = y
+        } else if (typeof window !== 'undefined') {
+          window.scrollTo(0, y)
+        }
+      } catch {}
+    }
+    if (typeof window !== 'undefined') {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => restore())
+      })
+      setTimeout(() => restore(), 200)
+    }
+  }, [isActive, isDataLoaded, isFullScreen])
+
+  // Save scroll when tab deactivates (Keep-Alive tabs)
+  useEffect(() => {
+    if (isActive) return
+    const y = isFullScreen && fullScreenScrollRef.current
+      ? (fullScreenScrollRef.current.scrollTop || 0)
+      : (typeof window !== 'undefined' ? window.scrollY : 0)
+    try { setOrdersScroll(y) } catch {}
+  }, [isActive, isFullScreen, setOrdersScroll])
 
     // Load orders data for current page
   useEffect(() => {
@@ -1215,7 +1348,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
       )}
       
       {/* Scrollable content area in fullscreen */}
-      <div className={cn(isFullScreen ? "flex-1 min-h-0 overflow-y-auto" : "")}>
+      <div ref={fullScreenScrollRef} className={cn(isFullScreen ? "flex-1 min-h-0 overflow-y-auto" : "")}> 
 
       {/* KPI Metrics */}
       <OrderKPIGrid 

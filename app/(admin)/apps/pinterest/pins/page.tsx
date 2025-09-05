@@ -9,6 +9,7 @@ import {
 import PinsGridCardFilterHeader from './components/PinsGridCardFilterHeader'
 import { Pin } from './types'
 import { generatePins } from './utils'
+import { getPinsForPage, getTotalChunks } from './services/pinService'
 
 // Define table columns for pins
 const pinColumns = [
@@ -247,6 +248,9 @@ const pinFilters = [
 function PinsClient() {
   const { addTab } = useAppStore()
   const hasAddedTab = useRef(false)
+  const [loadingPins, setLoadingPins] = useState(false)
+  const [pinsError, setPinsError] = useState<string | null>(null)
+  const [serverTotalPages, setServerTotalPages] = useState<number | null>(null)
 
   // Initialize data table hook
   const {
@@ -292,9 +296,10 @@ function PinsClient() {
     clearSearch,
     clearColumnFilters,
     clearCustomFilters,
-    clearAdvancedFilters
+    clearAdvancedFilters,
+    setData
   } = useDataTable<Pin>({
-    initialData: generatePins(100),
+    initialData: [],
     columns: pinColumns,
     searchableFields: [
       { key: 'title', label: 'Title', type: 'text' },
@@ -308,6 +313,38 @@ function PinsClient() {
     defaultViewMode: 'table',
     defaultItemsPerPage: 25
   })
+
+  // Load real data from backend cache in page-sized chunks (1 chunk per page)
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      setLoadingPins(true)
+      setPinsError(null)
+      try {
+        const { pins } = await getPinsForPage(currentPage)
+        if (!cancelled) setData(pins as any)
+      } catch (e: any) {
+        if (!cancelled) setPinsError(e?.message || 'Failed to load pins')
+      } finally {
+        if (!cancelled) setLoadingPins(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [currentPage, setData])
+
+  // Load total chunk count once for accurate pagination
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      try {
+        const chunks = await getTotalChunks()
+        if (!cancelled) setServerTotalPages(chunks)
+      } catch {}
+    }
+    run()
+    return () => { cancelled = true }
+  }, [])
 
   // Calculate KPI metrics based on filtered data
   const calculatedKPIs = pinKPIs.map(kpi => {
@@ -451,7 +488,7 @@ function PinsClient() {
     }
   }
 
-  if (loading && pinData.length === 0) {
+  if ((loading || loadingPins) && pinData.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-gray-500">Loading pins...</div>
@@ -459,12 +496,12 @@ function PinsClient() {
     )
   }
 
-  if (error) {
+  if (error || pinsError) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="text-red-600 text-lg font-semibold mb-2">Error Loading Pins</div>
-          <div className="text-gray-600 mb-4">{error}</div>
+          <div className="text-gray-600 mb-4">{error || pinsError}</div>
           <button 
             onClick={() => window.location.reload()}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
@@ -480,8 +517,8 @@ function PinsClient() {
     <PageTemplate
       config={pageConfig}
       data={currentData}
-      loading={loading}
-      error={error}
+      loading={loading || loadingPins}
+      error={error || pinsError}
       GridHeaderComponent={PinsGridCardFilterHeader}
       CardHeaderComponent={PinsGridCardFilterHeader}
         searchQuery={searchQuery}
@@ -506,7 +543,7 @@ function PinsClient() {
       setCustomFilters={setCustomFilters}
       advancedFilters={advancedFilters}
       setAdvancedFilters={setAdvancedFilters}
-        totalPages={totalPages}
+      totalPages={serverTotalPages || totalPages}
       handleSelectItem={handleSelectItem}
       handleSelectAll={handleSelectAll}
       handlePageChange={handlePageChange}

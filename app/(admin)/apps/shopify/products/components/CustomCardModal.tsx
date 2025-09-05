@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, Plus, Calculator, Palette, Type, Hash } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Product } from '../types'
@@ -102,8 +102,16 @@ export default function CustomCardModal({
   const [previewValue, setPreviewValue] = useState<number>(0)
   const [showProductSelector, setShowProductSelector] = useState(false)
 
-  // Handle editing existing card
+  // Handle editing existing card – only initialize on open to avoid update loops
+  const wasOpenRef = useRef(false)
   useEffect(() => {
+    if (!isOpen) {
+      wasOpenRef.current = false
+      return
+    }
+    if (wasOpenRef.current) return
+    wasOpenRef.current = true
+
     if (editingCard) {
       setCard({
         id: editingCard.id,
@@ -118,32 +126,36 @@ export default function CustomCardModal({
       if (editingCard.operation === 'custom') {
         setCustomFormula(editingCard.operation)
       }
-    } else if (editingDefaultCard) {
-      // Handle editing default card - create a new custom card based on default
+      return
+    }
+
+    if (editingDefaultCard) {
+      // Create a new custom card based on default
       const defaultCardData = {
         title: `Custom ${editingDefaultCard}`,
-        field: 'price', // Default field
-        operation: 'sum', // Default operation
-        selectedProducts: products.map(p => p.id), // All products
+        field: 'price',
+        operation: 'sum',
+        selectedProducts: (products || []).map(p => p.id),
         color: 'from-blue-500 to-blue-600',
         icon: '📊',
         isVisible: true
       }
       setCard(defaultCardData)
-    } else {
-      // Reset form for new card
-      setCard({
-        title: '',
-        field: 'price',
-        operation: 'sum',
-        selectedProducts: [],
-        color: 'from-blue-500 to-blue-600',
-        icon: '📊',
-        isVisible: true
-      })
-      setCustomFormula('')
+      return
     }
-  }, [editingCard, editingDefaultCard, products])
+
+    // New card defaults
+    setCard({
+      title: '',
+      field: 'price',
+      operation: 'sum',
+      selectedProducts: [],
+      color: 'from-blue-500 to-blue-600',
+      icon: '📊',
+      isVisible: true
+    })
+    setCustomFormula('')
+  }, [isOpen, editingCard, editingDefaultCard, products])
 
   // Calculate preview value when card configuration changes
   useEffect(() => {
