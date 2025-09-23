@@ -1,0 +1,23 @@
+.scrollArea {
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: #e5e7eb transparent;
+}
+
+.scrollArea::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollArea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollArea::-webkit-scrollbar-thumb {
+  background-color: #e5e7eb; /* Tailwind gray-200 */
+  border-radius: 9999px;
+}
+
+.scrollArea::-webkit-scrollbar-thumb:hover {
+  background-color: #d1d5db; /* Tailwind gray-300 */
+}
+
