@@ -190,9 +190,9 @@ const OrdersList: React.FC<OrdersListProps> = ({
 
       {/* List Body */}
       <div className="divide-y divide-gray-100">
-        {orders.map((order) => (
+        {orders.map((order, index) => (
           <div
-            key={order.id}
+            key={`${order.id}-${index}`}
             className="px-6 py-4 hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
             onClick={(e) => onOrderClick(order, e)}
           >

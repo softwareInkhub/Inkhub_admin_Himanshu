@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 import { Order } from '../types'
 import OrderFilterDropdown from './OrderFilterDropdown'
 import { cn } from '@/lib/utils'
@@ -32,6 +33,10 @@ interface OrderTableProps {
   showImages?: boolean
   onClearSearch?: () => void
   isSearching?: boolean
+  // New sorting props from OrdersClient
+  sortState?: { key: string | null; dir: 'asc' | 'desc' | null }
+  onRequestSort?: (key: any) => void
+  compact?: boolean
 }
 
 export default function OrderTable({
@@ -52,21 +57,44 @@ export default function OrderTable({
   getUniqueValues,
   showImages = false,
   onClearSearch,
-  isSearching = false
+  isSearching = false,
+  sortState,
+  onRequestSort,
+  compact = true
 }: OrderTableProps) {
-  const [sortColumn, setSortColumn] = useState<string | null>(null)
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  // Use parent's sorting state instead of internal state
+  // const [sortColumn, setSortColumn] = useState<string | null>(null)
+  // const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [filterDropdown, setFilterDropdown] = useState<{
     column: string;
     position: { x: number; y: number };
   } | null>(null)
 
   const sortedOrders = useMemo(() => {
-    if (!sortColumn) return currentOrders
+    // Debug logging for OrderTable component
+    console.log('🔍 OrderTable received currentOrders:', {
+      currentOrdersLength: currentOrders.length,
+      sampleOrders: currentOrders.slice(0, 3).map(o => ({ 
+        id: o.id, 
+        orderNumber: o.orderNumber, 
+        customerName: o.customerName 
+      }))
+    })
+    
+    // If no sort column is specified, default to sorting by date (newest first)
+    if (!sortState?.key) {
+      const sorted = [...currentOrders].sort((a, b) => {
+        const dateA = new Date(a.createdAt || a.updatedAt || 0)
+        const dateB = new Date(b.createdAt || b.updatedAt || 0)
+        return dateB.getTime() - dateA.getTime() // Newest first (descending)
+      })
+      console.log('🔍 OrderTable sorted orders (default sort):', sorted.length)
+      return sorted
+    }
 
-    return [...currentOrders].sort((a, b) => {
-      const aValue = a[sortColumn as keyof Order]
-      const bValue = b[sortColumn as keyof Order]
+    const sorted = [...currentOrders].sort((a, b) => {
+      const aValue = a[sortState.key as keyof Order]
+      const bValue = b[sortState.key as keyof Order]
 
       if (aValue === undefined || aValue === null) return 1
       if (bValue === undefined || bValue === null) return -1
@@ -80,18 +108,13 @@ export default function OrderTable({
         comparison = String(aValue).localeCompare(String(bValue))
       }
 
-      return sortDirection === 'asc' ? comparison : -comparison
+      return sortState.dir === 'asc' ? comparison : -comparison
     })
-  }, [currentOrders, sortColumn, sortDirection])
+    console.log('🔍 OrderTable sorted orders (custom sort):', sorted.length)
+    return sorted
+  }, [currentOrders, sortState])
 
-  const handleSort = (column: string) => {
-    if (sortColumn === column) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortColumn(column)
-      setSortDirection('asc')
-    }
-  }
+  // Use parent's onRequestSort instead of internal handleSort
 
   const handleFilterClick = (column: string, event: React.MouseEvent) => {
     event.stopPropagation()
@@ -256,7 +279,7 @@ export default function OrderTable({
                       className={cn(
                         "px-3 py-2 text-left text-xs font-medium tracking-wider border-r border-gray-200 relative transition-all duration-200 bg-gray-50",
                         // Enhanced styling for sorted columns
-                        sortColumn === column.key
+                        sortState?.key === column.key
                           ? "bg-blue-50 border-blue-200 text-blue-700 font-semibold"
                           : "bg-gray-50 text-gray-500"
                       )}
@@ -265,29 +288,29 @@ export default function OrderTable({
                         <div className="flex items-center">
                           <span className={cn(
                             "transition-colors duration-200",
-                            sortColumn === column.key ? "text-blue-700" : "text-gray-500"
+                            sortState?.key === column.key ? "text-blue-700" : "text-gray-500"
                           )}>
                             {column.label}
                           </span>
                           {/* Enhanced Sort Indicator */}
                           {column.sortable && (
                             <button
-                              onClick={() => handleSort(column.key)}
+                              onClick={() => onRequestSort?.(column.key as any)}
                               className={cn(
                                 "ml-1 p-1 rounded-md transition-all duration-200 hover:scale-105",
-                                sortColumn === column.key
+                                sortState?.key === column.key
                                   ? "text-blue-600 hover:text-blue-700 hover:bg-blue-100"
                                   : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
                               )}
-                              title={sortColumn === column.key 
-                                ? `Currently sorted ${sortDirection === 'asc' ? 'ascending' : 'descending'}. Click to ${sortDirection === 'asc' ? 'sort descending' : 'remove sorting'}.`
+                              title={sortState?.key === column.key 
+                                ? `Currently sorted ${sortState?.dir === 'asc' ? 'ascending' : 'descending'}. Click to ${sortState?.dir === 'asc' ? 'sort descending' : 'remove sorting'}.`
                                 : `Sort by ${column.label}`
                               }
                             >
                               <SortIndicator 
                                 columnKey={column.key} 
-                                sortColumn={sortColumn} 
-                                sortDirection={sortDirection} 
+                                sortColumn={sortState?.key || null} 
+                                sortDirection={sortState?.dir || 'asc'} 
                               />
                             </button>
                           )}
@@ -297,11 +320,11 @@ export default function OrderTable({
                             onClick={(e) => handleFilterClick(column.key, e)}
                             className={cn(
                               "p-1 rounded-md transition-all duration-200 hover:scale-105",
-                              (activeColumnFilter === column.key || filterDropdown?.column === column.key)
-                                ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" 
-                                : sortColumn === column.key
-                                  ? "text-blue-500 hover:text-blue-600 hover:bg-blue-100"
-                                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                            (activeColumnFilter === column.key || filterDropdown?.column === column.key)
+                              ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" 
+                              : sortState?.key === column.key
+                                ? "text-blue-500 hover:text-blue-600 hover:bg-blue-100"
+                                : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
                             )}
                             title={`Filter ${column.label}`}
                           >
@@ -381,7 +404,7 @@ export default function OrderTable({
   }
 
   return (
-    <div className={`bg-white rounded-lg border border-gray-200 shadow-sm`}>
+    <div className={`bg-white rounded-lg border border-gray-200 shadow-sm`} style={{ maxHeight: 'none', overflow: 'visible' }}>
       {/* Search Status Indicator */}
       {searchQuery && (
         <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
@@ -411,7 +434,7 @@ export default function OrderTable({
         </div>
       )}
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full" key={`orders-table-${sortedOrders.length}`}>
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-4 py-2 text-left">
@@ -428,24 +451,25 @@ export default function OrderTable({
               {columns.map((column) => (
                 <th
                   key={column.key}
-                  className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 relative"
+                  className={cn("text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 relative",
+                    compact ? 'py-1 px-2' : 'py-2 px-3'
+                  )}
                 >
                   <div className="flex items-center justify-between">
                     <span>{column.label}</span>
                     <div className="flex items-center space-x-1">
-                      {column.sortable && (
+                      {column.key !== 'tags' && column.key !== 'deliveryMethod' && column.sortable && (
                         <button
-                          onClick={() => handleSort(column.key)}
-                          className="p-1 rounded-md transition-all duration-200 hover:scale-105 text-gray-400 hover:text-gray-600 hover:bg-gray-50"
-                          title={`Sort by ${column.label}`}
+                          onClick={() => onRequestSort?.(column.key as any)}
+                          className={cn(
+                            "ml-1 p-1 rounded-md transition-all duration-200 hover:bg-gray-100",
+                            sortState?.key === column.key ? "text-gray-900" : "text-gray-500 hover:text-gray-700"
+                          )}
+                          aria-label={`Sort by ${column.label}`}
                         >
-                          <div className="flex flex-col">
-                            <div className={`w-0 h-0 border-l-3 border-r-3 border-b-3 border-transparent ${
-                              sortColumn === column.key && sortDirection === 'asc' ? 'border-b-gray-400' : 'border-b-gray-300'
-                            }`} />
-                            <div className={`w-0 h-0 border-l-3 border-r-3 border-t-3 border-transparent ${
-                              sortColumn === column.key && sortDirection === 'desc' ? 'border-t-gray-400' : 'border-t-gray-300'
-                            }`} />
+                          <div className="flex flex-col items-center justify-center leading-none">
+                            <ChevronUp className={cn("h-3.5 w-3.5", sortState?.key === column.key && sortState?.dir === 'asc' ? "text-gray-900" : "text-gray-300")}/>
+                            <ChevronDown className={cn("h-3.5 w-3.5 -mt-0.5", sortState?.key === column.key && sortState?.dir === 'desc' ? "text-gray-900" : "text-gray-300")}/>
                           </div>
                         </button>
                       )}
@@ -469,9 +493,11 @@ export default function OrderTable({
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {sortedOrders.map((order, index) => (
+            {(() => {
+              console.log('🔍 Rendering table rows:', sortedOrders.length, 'orders')
+              return sortedOrders.map((order, index) => (
               <tr
-                key={order.id}
+                key={`${order.id}-${index}`}
                 className="hover:bg-gray-50 cursor-pointer transition-colors duration-150"
                 onClick={(e) => {
                   // If clicking checkbox or button, do not open preview
@@ -483,7 +509,7 @@ export default function OrderTable({
                   }
                 }}
               >
-                <td className="px-4 py-2">
+                <td className={cn(compact ? 'px-3 py-1.5' : 'px-4 py-2')}>
                   <input
                     type="checkbox"
                     checked={selectedItems.includes(order.id)}
@@ -493,12 +519,15 @@ export default function OrderTable({
                   />
                 </td>
                 {columns.map((column) => (
-                  <td key={column.key} className="px-3 py-2 text-sm text-gray-900 border-r border-gray-200">
+                  <td key={column.key} className={cn("text-sm text-gray-900 border-r border-gray-200",
+                    compact ? 'py-1.5 px-2' : 'py-2 px-3'
+                  )}>
                     {column.render ? column.render(order, index) : String(order[column.key as keyof Order] || '')}
                   </td>
                 ))}
               </tr>
-            ))}
+            ))
+            })()}
           </tbody>
         </table>
       </div>

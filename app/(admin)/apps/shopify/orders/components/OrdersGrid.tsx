@@ -10,6 +10,17 @@ interface OrdersGridProps {
   onOrderClick: (order: Order, event?: React.MouseEvent) => void;
   getStatusBadge: (status: string) => React.ReactNode;
   cardsPerRow?: number;
+  visibleFields?: {
+    customer: boolean;
+    email: boolean;
+    total: boolean;
+    date: boolean;
+    items: boolean;
+    payment: boolean;
+    tags: boolean;
+    channel: boolean;
+    delivery: boolean;
+  };
   // Filter props
   activeColumnFilter: string | null;
   columnFilters: any;
@@ -27,6 +38,7 @@ const OrdersGrid: React.FC<OrdersGridProps> = ({
   onOrderClick,
   getStatusBadge,
   cardsPerRow = 4,
+  visibleFields,
   activeColumnFilter,
   columnFilters,
   onFilterClick,
@@ -176,9 +188,9 @@ const OrdersGrid: React.FC<OrdersGridProps> = ({
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
       {/* Grid Content */}
       <div className={getGridClasses(cardsPerRow).className} style={getGridClasses(cardsPerRow).style}>
-        {orders.map((order) => (
+        {orders.map((order, index) => (
           <div
-            key={order.id}
+            key={`${order.id}-${index}`}
             className="p-3 hover:bg-gray-50 transition-colors duration-200 cursor-pointer border border-gray-300 hover:border-gray-400 rounded-lg bg-white shadow-sm flex flex-col h-full"
             onClick={(e) => onOrderClick(order, e)}
           >
@@ -198,40 +210,50 @@ const OrdersGrid: React.FC<OrdersGridProps> = ({
               </div>
               {getStatusBadge(order.fulfillmentStatus)}
             </div>
-            <div className="text-sm text-gray-500 mb-2">{order.customerName}</div>
+            {visibleFields?.customer !== false && (
+              <div className="text-sm text-gray-500 mb-2">{order.customerName}</div>
+            )}
             <div className="space-y-2 flex-1">
                 {/* Total */}
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Total</span>
-                  <span className="font-medium text-gray-900">${order.total}</span>
-                </div>
+                {visibleFields?.total !== false && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Total</span>
+                    <span className="font-medium text-gray-900">${order.total}</span>
+                  </div>
+                )}
 
                 {/* Date */}
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Date</span>
-                  <span className="text-sm text-gray-900">{order.createdAt}</span>
-                </div>
+                {visibleFields?.date !== false && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Date</span>
+                    <span className="text-sm text-gray-900">{order.createdAt}</span>
+                  </div>
+                )}
 
                 {/* Items */}
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Items</span>
-                  <span className="text-sm text-gray-900">{order.items.length} items</span>
-                </div>
+                {visibleFields?.items !== false && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Items</span>
+                    <span className="text-sm text-gray-900">{order.items.length} items</span>
+                  </div>
+                )}
 
                 {/* Payment Status */}
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Payment</span>
-                  <span className={`text-sm px-2 py-1 rounded-full ${
-                    order.financialStatus === 'paid' 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {order.financialStatus}
-                  </span>
-                </div>
+                {visibleFields?.payment !== false && (
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Payment</span>
+                    <span className={`text-sm px-2 py-1 rounded-full ${
+                      order.financialStatus === 'paid' 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {order.financialStatus}
+                    </span>
+                  </div>
+                )}
 
                 {/* Tags */}
-                {order.tags && order.tags.length > 0 && (
+                {visibleFields?.tags !== false && order.tags && order.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1">
                     {order.tags.slice(0, 2).map((tag, index) => (
                       <span
@@ -250,8 +272,12 @@ const OrdersGrid: React.FC<OrdersGridProps> = ({
                 )}
             </div>
             <div className="flex items-center justify-between text-sm mt-2 pt-2 border-t border-gray-100">
-              <span className="text-gray-600">{order.channel}</span>
-              <span className="text-gray-500">{order.deliveryMethod}</span>
+              {visibleFields?.channel !== false && (
+                <span className="text-gray-600">{order.channel}</span>
+              )}
+              {visibleFields?.delivery !== false && (
+                <span className="text-gray-500">{order.deliveryMethod}</span>
+              )}
             </div>
           </div>
         ))}

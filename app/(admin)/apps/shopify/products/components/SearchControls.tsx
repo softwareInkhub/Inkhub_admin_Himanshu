@@ -1,6 +1,6 @@
 'use client'
 
-import { Search, Filter, X, Plus, ChevronDown, Edit, Trash2, Download } from 'lucide-react'
+import { Search, Filter, X, ChevronDown, Edit, Trash2, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { parseAdvancedSearchQuery, getSearchSuggestions, debounce } from '../utils/advancedSearch'
@@ -66,6 +66,9 @@ interface SearchControlsProps {
   // Algolia search props
   isAlgoliaSearching?: boolean
   useAlgoliaSearch?: boolean
+  // Algolia filter props
+  isAlgoliaFiltering?: boolean
+  useAlgoliaFilters?: boolean
 }
 
 export default function SearchControls({
@@ -104,6 +107,9 @@ export default function SearchControls({
   // Algolia search props
   isAlgoliaSearching = false,
   useAlgoliaSearch = false,
+  // Algolia filter props
+  isAlgoliaFiltering = false,
+  useAlgoliaFilters = false,
   onImport,
   onPrint,
   onSettings,
@@ -406,19 +412,7 @@ export default function SearchControls({
                     </div>
                   )}
                   
-                  {/* Add Custom Filter Button - Auto-adjustable positioning */}
-                  <button 
-                    onClick={() => setShowCustomFilterDropdown(!showCustomFilterDropdown)}
-                    className={cn(
-                      "px-3 py-2 text-sm text-blue-600 hover:text-blue-700 border border-blue-300 rounded-md hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 transition-all duration-200 flex items-center space-x-1 bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10 flex-shrink-0",
-                      searchQuery.length > 40 ? "ml-3" : "ml-2"
-                    )}
-                    title="Add Custom Filter"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                  
-                                     {/* Custom Filter Dropdown */}
+                  {/* Custom Filter Dropdown */}
                    {showCustomFilterDropdown && (
                     <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-30 custom-filter-dropdown">
                       <div className="p-3">
@@ -446,21 +440,6 @@ export default function SearchControls({
                     </div>
                   )}
                   
-                  {/* Clear Search Button */}
-                  <button
-                    onClick={() => {
-                      setSearchQuery('')
-                      // Clear search state in parent component
-                      onClearSearch()
-                    }}
-                    className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-md border border-gray-300 bg-white shadow-sm text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-all duration-200 hover:shadow-md relative z-20 flex-shrink-0",
-                      searchQuery.length > 40 ? "ml-3" : "ml-2"
-                    )}
-                    title="Clear search"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
                 </div>
               </div>
           </div>
@@ -471,7 +450,7 @@ export default function SearchControls({
           {/* Export Button */}
           <button
             onClick={onExport}
-            className="px-3 py-2 text-gray-700 hover:text-green-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 transition-all duration-200 hover:shadow-md text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-green-400 h-10"
+            className="px-3 py-2 text-gray-700 hover:text-green-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-green-400 h-10"
           >
             <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
               <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -485,7 +464,7 @@ export default function SearchControls({
           <div className="relative">
             <button
               onClick={() => setShowHeaderDropdown(!showHeaderDropdown)}
-              className="px-3 py-2 text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 hover:shadow-md flex items-center space-x-1 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-purple-400 h-10"
+              className="px-3 py-2 text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 flex items-center space-x-1 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-purple-400 h-10"
             >
               <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
                 <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -544,14 +523,23 @@ export default function SearchControls({
             className={cn(
               "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
               showAdvancedFilter
-                ? "bg-gradient-to-r from-orange-50 to-orange-100 border-orange-300 text-orange-600 shadow-md hover:shadow-lg"
-                : "text-gray-700 hover:text-orange-700 hover:bg-gradient-to-r hover:from-orange-50 hover:to-orange-100 hover:border-orange-400"
+                ? "bg-gradient-to-r from-orange-50 to-orange-100 border-orange-300 text-orange-600 hover:shadow-lg"
+                : "text-gray-700 hover:text-orange-700 hover:bg-gradient-to-r hover:from-orange-50 hover:to-orange-100 hover:border-orange-400",
+              isAlgoliaFiltering && "opacity-75 cursor-not-allowed"
             )}
-            title="Advanced Filter"
+            title={isAlgoliaFiltering ? "Filtering with Algolia..." : "Advanced Filter"}
+            disabled={isAlgoliaFiltering}
           >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-            </svg>
+            {isAlgoliaFiltering ? (
+              <div className="flex items-center space-x-1">
+                <div className="w-3 h-3 border border-orange-600 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-xs">Filtering...</span>
+              </div>
+            ) : (
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            )}
           </button>
           
           {/* View Mode Button */}
@@ -593,7 +581,7 @@ export default function SearchControls({
             className={cn(
               "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
               isFullScreen
-                ? "bg-gradient-to-r from-teal-50 to-teal-100 border-teal-300 text-teal-600 shadow-md hover:shadow-lg"
+                ? "bg-gradient-to-r from-teal-50 to-teal-100 border-teal-300 text-teal-600 hover:shadow-lg"
                 : "text-gray-700 hover:text-teal-700 hover:bg-gradient-to-r hover:from-teal-50 hover:to-teal-100 hover:border-teal-400"
             )}
             title={isFullScreen ? "Exit Full Screen" : "Enter Full Screen"}

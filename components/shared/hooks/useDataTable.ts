@@ -59,7 +59,6 @@ export function useDataTable<T extends BaseEntity>({
   const [showSearchBuilder, setShowSearchBuilder] = useState(false)
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false)
   const [showAdditionalControls, setShowAdditionalControls] = useState(false)
-  const [showCustomFilterDropdown, setShowCustomFilterDropdown] = useState(false)
   const [showHeaderDropdown, setShowHeaderDropdown] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
 
@@ -274,8 +273,6 @@ export function useDataTable<T extends BaseEntity>({
     setShowAdvancedFilter,
     showAdditionalControls,
     setShowAdditionalControls,
-    showCustomFilterDropdown,
-    setShowCustomFilterDropdown,
     showHeaderDropdown,
     setShowHeaderDropdown,
     

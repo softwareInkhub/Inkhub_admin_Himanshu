@@ -5,7 +5,7 @@ import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { X } from 'lucide-react'
 import { debounce } from './utils/advancedSearch'
-import { debouncedAlgoliaSearch } from './utils/algoliaSearch'
+import { debouncedAlgoliaSearch, searchProductsWithAdvancedFilters } from './utils/algoliaSearch'
 import HighlightedText from './components/HighlightedText'
 import { SearchHistory, saveSearchToHistory } from './utils/searchSuggestions'
 
@@ -61,6 +61,11 @@ function ProductsClient({ initialData }: ProductsClientProps) {
   const [useAlgoliaSearch, setUseAlgoliaSearch] = useState(false)
   const searchInProgressRef = useRef(false)
 
+  // Advanced Filters Algolia states
+  const [algoliaFilterResults, setAlgoliaFilterResults] = useState<Product[]>([])
+  const [isAlgoliaFiltering, setIsAlgoliaFiltering] = useState(false)
+  const [useAlgoliaFilters, setUseAlgoliaFilters] = useState(false)
+
   // Search history state
   const [searchHistory, setSearchHistory] = useState<SearchHistory[]>([])
 
@@ -73,6 +78,62 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     tags: [] as string[],
     vendors: [] as string[]
   })
+
+  // Advanced Filters Algolia search function
+  const handleAdvancedFiltersAlgoliaSearch = useCallback(async (filters: {
+    productStatus?: string[]
+    priceRange?: { min?: string; max?: string }
+    dateRange?: { start?: string; end?: string }
+    tags?: string[]
+    vendors?: string[]
+  }) => {
+    console.log('🔍 Advanced Filters Algolia search triggered with:', filters)
+    
+    // Check if any filters are active
+    const hasActiveFilters = (
+      (filters.productStatus && filters.productStatus.length > 0) ||
+      (filters.priceRange && (filters.priceRange.min || filters.priceRange.max)) ||
+      (filters.dateRange && (filters.dateRange.start || filters.dateRange.end)) ||
+      (filters.tags && filters.tags.length > 0) ||
+      (filters.vendors && filters.vendors.length > 0)
+    )
+    
+    if (!hasActiveFilters) {
+      console.log('🔍 No active filters, clearing Algolia filter results')
+      setAlgoliaFilterResults([])
+      setUseAlgoliaFilters(false)
+      setIsAlgoliaFiltering(false)
+      return
+    }
+    
+    console.log('🔍 Active filters detected, starting Algolia search')
+    setUseAlgoliaFilters(true)
+    setIsAlgoliaFiltering(true)
+    
+    try {
+      const results = await searchProductsWithAdvancedFilters(
+        filters,
+        productData,
+        140 // Total chunks
+      )
+      
+      console.log('✅ Advanced Filters Algolia search completed:', results.length, 'results')
+      setAlgoliaFilterResults(results)
+      setIsAlgoliaFiltering(false)
+      
+    } catch (error) {
+      console.error('❌ Advanced Filters Algolia search error:', error)
+      setAlgoliaFilterResults([])
+      setIsAlgoliaFiltering(false)
+    }
+  }, [productData])
+
+  // Trigger Algolia search when Advanced Filters change
+  useEffect(() => {
+    if (showAdvancedFilter) {
+      handleAdvancedFiltersAlgoliaSearch(advancedFilters)
+    }
+  }, [advancedFilters, showAdvancedFilter, handleAdvancedFiltersAlgoliaSearch])
 
   // Column Header Filter states
   const [columnFilters, setColumnFilters] = useState({
@@ -124,7 +185,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
   // Pagination states
   const { productsPage, setProductsPage } = useAppStore()
   const [currentPage, setCurrentPage] = useState(productsPage || 1)
-  const [itemsPerPage, setItemsPerPage] = useState(25)
+  const [itemsPerPage, setItemsPerPage] = useState(500)
   
   // Keep local pagination synced with store across tab switches/refresh
   useEffect(() => {
@@ -159,8 +220,8 @@ function ProductsClient({ initialData }: ProductsClientProps) {
       const savedSettings = localStorage.getItem('products-settings')
       return savedSettings ? JSON.parse(savedSettings) : {
         defaultViewMode: 'table',
-        itemsPerPage: 25,
-        showAdvancedFilters: true,
+        itemsPerPage: 500,
+        showAdvancedFilters: false,
         autoSaveFilters: false,
         defaultExportFormat: 'csv',
         includeImagesInExport: false,
@@ -169,8 +230,8 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     }
     return {
       defaultViewMode: 'table',
-      itemsPerPage: 25,
-      showAdvancedFilters: true,
+      itemsPerPage: 500,
+      showAdvancedFilters: false,
       autoSaveFilters: false,
       defaultExportFormat: 'csv',
       includeImagesInExport: false,
@@ -319,46 +380,13 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     weightUnit: String(v?.weight_unit ?? v?.weightUnit ?? 'kg')
   })
 
-  const mapRecordToProduct = (raw: any, idx: number): Product => {
+  const mapRecordToProduct = (raw: any, idx: number): Product | null => {
     // Remove excessive console logging for performance
     
     // Handle product image data structure (from cache) - legacy support
     if (raw?.product_id && raw?.src && !raw?.title) {
-      // This is product image data, create a product from it
-      const productId = String(raw.product_id)
-      const imageUrl = String(raw.src)
-      const altText = String(raw.alt || 'Product Image')
-      
-      return {
-        id: productId,
-        title: altText || '',
-        handle: toSlug(altText || ''),
-        vendor: '',
-        productType: '',
-        price: 0,
-        compareAtPrice: undefined,
-        cost: 0,
-        inventoryQuantity: 0,
-        status: 'active' as Product['status'],
-        publishedAt: raw.created_at ? parseDate(raw.created_at) : undefined,
-        createdAt: parseDate(raw.created_at || new Date()),
-        updatedAt: raw.updated_at ? parseDate(raw.updated_at) : new Date().toISOString(),
-        tags: [],
-        images: [imageUrl],
-        variants: [{
-          id: `variant-${productId}`,
-          title: '',
-          price: 0,
-          inventoryQuantity: 0,
-          sku: '',
-          weight: 0,
-          weightUnit: 'kg'
-        }],
-        collections: [],
-        selected: false,
-        salesChannels: 1,
-        category: ''
-      }
+      // This is a product image record, not a product → skip
+      return null
     }
     
     // Handle actual product data structure (from Shopify cache)
@@ -376,8 +404,13 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     const statusRaw = String(raw?.status ?? 'active').toLowerCase()
     const status = (statusRaw === 'active' || statusRaw === 'draft' || statusRaw === 'archived') ? statusRaw as Product['status'] : 'active'
 
+    // Guard: require an id and a non-empty title
+    const idValue = String(raw?.id ?? raw?.product_id ?? raw?.gid ?? '')
+    if (!idValue) return null
+    if (!title) return null
+
     return {
-      id: String(raw?.id ?? raw?.product_id ?? raw?.gid ?? ''),
+      id: idValue,
       title,
       handle: String(raw?.handle ?? toSlug(title)),
       vendor: String(raw?.vendor ?? raw?.brand ?? ''),
@@ -406,25 +439,44 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     setError(null)
     
     try {
-      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
+      const BACKEND_URL = 'https://brmh.in' // Temporarily hardcoded for debugging
       
       // First try to fetch chunk:0 directly since we know it exists
       const chunk0Url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=chunk:0`
       
+      console.log('🌐 Fetching from URL:', chunk0Url)
+      
       const chunk0Res = await fetch(chunk0Url, { 
-        signal: AbortSignal.timeout(8000)
+        signal: AbortSignal.timeout(8000),
+        headers: { Accept: 'application/json', 'Accept-Encoding': 'identity' }
       })
       
+      console.log('📡 Response status:', chunk0Res.status, chunk0Res.statusText)
+      
       if (chunk0Res.ok) {
-        const chunk0Json = await chunk0Res.json()
+        const text = await chunk0Res.text()
+        const chunk0Json = JSON.parse(text)
         
         if (chunk0Json?.data && Array.isArray(chunk0Json.data)) {
           try {
-            const mappedProducts = chunk0Json.data.map(mapRecordToProduct)
+            console.log('📦 Raw data from API:', chunk0Json.data.slice(0, 2)) // Show first 2 items
             
-            setProductData(mappedProducts)
-            setTotalProducts(mappedProducts.length)
-            setChunkData({ 'chunk:0': mappedProducts })
+            // Map, filter invalid/null, and de-duplicate by id
+            const mappedProducts = (chunk0Json.data
+              .map(mapRecordToProduct)
+              .filter(Boolean) as Product[])
+            const uniqueProducts = Array.from(new Map(mappedProducts.map(p => [p.id, p])).values())
+            
+            console.log('✅ Mapped products:', {
+              rawCount: chunk0Json.data.length,
+              mappedCount: mappedProducts.length,
+              uniqueCount: uniqueProducts.length,
+              firstProduct: uniqueProducts[0]
+            })
+            
+            setProductData(uniqueProducts)
+            setTotalProducts(uniqueProducts.length)
+            setChunkData({ 'chunk:0': uniqueProducts })
             setChunkKeys(['chunk:0'])
             setIsDataLoaded(true)
             setLoading(false)
@@ -447,7 +499,13 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         }
         
         console.error('❌ Cache fetch error:', e)
-        setError(`Failed to load products: ${e.message}`)
+        
+        // Check if it's a 404 error (no data available)
+        if (e.message.includes('404') || e.message.includes('Not Found')) {
+          setError('No products data available. Please cache the products data first using the Caching page.')
+        } else {
+          setError(`Failed to load products: ${e.message}`)
+        }
       } finally {
         setIsDataLoaded(true)
         setLoading(false)
@@ -456,10 +514,13 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
   // Fetch real products from cache API using chunk-based approach
   useEffect(() => {
+    console.log('🚀 Products page mounted, starting data fetch...')
+    
     // Check if we have cached data first
     if (typeof window !== 'undefined') {
       const cached = localStorage.getItem('products-cache')
       if (cached) {
+        console.log('💾 Found cached data, checking age...')
         try {
           const parsed = JSON.parse(cached)
           const now = Date.now()
@@ -467,6 +528,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
           const cacheTTL = 10 * 60 * 1000 // 10 minutes
           
           if (cacheAge < cacheTTL && parsed.data && Array.isArray(parsed.data)) {
+            console.log('✅ Using fresh cached data:', parsed.data.length, 'products')
             // Use cached data if it's fresh
             setProductData(parsed.data)
             setTotalProducts(parsed.data.length)
@@ -475,10 +537,15 @@ function ProductsClient({ initialData }: ProductsClientProps) {
             setIsDataLoaded(true)
             setLoading(false)
             return
+          } else {
+            console.log('⏰ Cached data is stale, fetching fresh data...')
           }
         } catch (e) {
+          console.log('❌ Invalid cache, fetching fresh data...')
           // Invalid cache, continue with fresh fetch
         }
+      } else {
+        console.log('📭 No cached data found, fetching fresh data...')
       }
     }
 
@@ -491,6 +558,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     setError(null)
     hasFetchedRef.current = false
 
+    console.log('🌐 Starting fresh API fetch...')
     fetchProducts()
   }, [])
 
@@ -546,13 +614,27 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     }
   }, [productData.length])
 
-  // Calculate KPI metrics
+  // Calculate KPI metrics - reflect filtered data when Algolia filters are active
   const kpiMetrics = useMemo(() => {
-    return calculateKPIMetrics(productData)
-  }, [productData])
+    const dataToUse = useAlgoliaFilters && algoliaFilterResults.length > 0 
+      ? algoliaFilterResults 
+      : (useAlgoliaSearch && algoliaSearchResults.length > 0 
+        ? algoliaSearchResults 
+        : productData)
+    
+    return calculateKPIMetrics(dataToUse)
+  }, [productData, useAlgoliaFilters, algoliaFilterResults, useAlgoliaSearch, algoliaSearchResults])
 
   // Get all products for filtering (combine all chunks)
   const allProducts = useMemo(() => {
+    console.log('🔍 AllProducts Debug:', {
+      chunkKeys: chunkKeys,
+      chunkDataKeys: Object.keys(chunkData),
+      chunkDataLength: Object.values(chunkData).flat().length,
+      productDataLength: productData.length,
+      productData: productData.slice(0, 2) // Show first 2 products
+    })
+    
     if (chunkKeys.length > 0) {
       const chunkProducts = Object.values(chunkData).flat()
       return chunkProducts
@@ -563,10 +645,23 @@ function ProductsClient({ initialData }: ProductsClientProps) {
       // Filter products based on all criteria - optimized for performance
   const filteredProducts = useMemo(() => {
       
-      // Use Algolia search results if available, otherwise use local filtering
-      let filtered = useAlgoliaSearch && algoliaSearchResults.length > 0 
-        ? algoliaSearchResults 
-        : filterProducts(allProducts, activeFilter, debouncedSearchQuery, columnFilters, advancedFilters)
+      // Start with deduplicated product data
+      let filtered = allProducts
+      
+      // Priority 1: Use Algolia filter results if Advanced Filters are active
+      if (useAlgoliaFilters && algoliaFilterResults.length > 0) {
+        console.log('🔍 Using Algolia Advanced Filters results:', algoliaFilterResults.length, 'products')
+        filtered = algoliaFilterResults
+      }
+      // Priority 2: Use Algolia search results if regular search is active
+      else if (useAlgoliaSearch && algoliaSearchResults.length > 0) {
+        console.log('🔍 Using Algolia search results:', algoliaSearchResults.length, 'products')
+        filtered = algoliaSearchResults
+      }
+      // Priority 3: Use local filtering if no Algolia results
+      else {
+        filtered = filterProducts(allProducts, activeFilter, debouncedSearchQuery, columnFilters, advancedFilters)
+      }
       
       // Apply custom filters only if they exist
       if (customFilters.length > 0) {
@@ -678,20 +773,33 @@ function ProductsClient({ initialData }: ProductsClientProps) {
       customFilters, 
       searchConditions, 
       useAlgoliaSearch, 
-      algoliaSearchResults
+      algoliaSearchResults,
+      useAlgoliaFilters,
+      algoliaFilterResults
     ])
+
+    // Calculate total items for pagination - use Algolia filter results if active
+    const totalItemsForPagination = useAlgoliaFilters && algoliaFilterResults.length > 0 
+      ? algoliaFilterResults.length 
+      : filteredProducts.length
+    
+    // When Algolia filters are active, show all results on one page for better UX
+    // Otherwise use normal pagination
+    const effectiveItemsPerPage = useAlgoliaFilters && algoliaFilterResults.length > 0 
+      ? algoliaFilterResults.length 
+      : itemsPerPage
 
     // Memoize paginated data
     const paginatedData = useMemo(() => {
-      const startIndex = (currentPage - 1) * itemsPerPage
-      const endIndex = startIndex + itemsPerPage
+      const startIndex = (currentPage - 1) * effectiveItemsPerPage
+      const endIndex = startIndex + effectiveItemsPerPage
       return filteredProducts.slice(startIndex, endIndex)
-    }, [filteredProducts, currentPage, itemsPerPage])
+    }, [filteredProducts, currentPage, effectiveItemsPerPage])
 
     // Memoize total pages
     const totalPages = useMemo(() => {
-      return Math.ceil(filteredProducts.length / itemsPerPage)
-    }, [filteredProducts.length, itemsPerPage])
+      return Math.ceil(totalItemsForPagination / effectiveItemsPerPage)
+    }, [totalItemsForPagination, effectiveItemsPerPage])
 
     // KPI calculations will be handled by the existing logic
 
@@ -833,9 +941,6 @@ function ProductsClient({ initialData }: ProductsClientProps) {
       setShowSettingsModal(false)
     }
 
-    const handleCreateProduct = () => {
-      console.log('Create product clicked')
-    }
 
     // Bulk operation handlers
     const handleBulkEdit = () => {
@@ -1094,17 +1199,45 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     }
 
     if (error) {
+      const isNoDataError = error.includes('No products data available')
+      
       return (
         <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="text-red-600 text-lg font-semibold mb-2">Error Loading Products</div>
+          <div className="text-center max-w-md">
+            <div className={`text-lg font-semibold mb-2 ${isNoDataError ? 'text-orange-600' : 'text-red-600'}`}>
+              {isNoDataError ? 'No Products Data Available' : 'Error Loading Products'}
+            </div>
             <div className="text-gray-600 mb-4">{error}</div>
-            <button 
-              onClick={() => setError(null)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              Retry
-            </button>
+            
+            {isNoDataError && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <div className="text-blue-800 font-medium mb-2">How to fix this:</div>
+                <ol className="text-blue-700 text-sm text-left space-y-1">
+                  <li>1. Go to the <strong>Caching</strong> page in Settings</li>
+                  <li>2. Click "Start Caching" for the <strong>Products</strong> section</li>
+                  <li>3. Wait for the caching to complete</li>
+                  <li>4. Return to this page and refresh</li>
+                </ol>
+              </div>
+            )}
+            
+            <div className="space-x-2">
+              <button 
+                onClick={() => setError(null)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Retry
+              </button>
+              
+              {isNoDataError && (
+                <button 
+                  onClick={() => window.location.href = '/settings/caching'}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  Go to Caching Page
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )
@@ -1131,7 +1264,11 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         {/* KPI Metrics */}
         <KPIGrid 
           kpiMetrics={kpiMetrics} 
-          products={allProducts}
+          products={useAlgoliaFilters && algoliaFilterResults.length > 0 
+            ? algoliaFilterResults 
+            : (useAlgoliaSearch && algoliaSearchResults.length > 0 
+              ? algoliaSearchResults 
+              : allProducts)}
           onRefresh={(kpiKey) => {
             console.log(`Refreshing ${kpiKey} KPI...`)
             // Here you can implement actual refresh logic
@@ -1196,6 +1333,9 @@ function ProductsClient({ initialData }: ProductsClientProps) {
           // Algolia search props
           isAlgoliaSearching={isAlgoliaSearching}
           useAlgoliaSearch={useAlgoliaSearch}
+          // Algolia filter props
+          isAlgoliaFiltering={isAlgoliaFiltering}
+          useAlgoliaFilters={useAlgoliaFilters}
         />
         </div>
 
@@ -1510,7 +1650,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
                 {/* Product Status */}
                 <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-1.5 space-y-1">
-                  <label className="block text-xs font-semibold text-gray-800 flex items-center space-x-2">
+                  <label className="text-xs font-semibold text-gray-800 flex items-center space-x-2">
                     <div className="w-5 h-5 bg-blue-500 rounded-lg flex items-center justify-center">
                       <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -1547,7 +1687,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
                 {/* Price Range */}
                 <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-lg p-1.5 space-y-1">
-                  <label className="block text-xs font-semibold text-gray-800 flex items-center space-x-2">
+                  <label className="text-xs font-semibold text-gray-800 flex items-center space-x-2">
                     <div className="w-5 h-5 bg-green-500 rounded-lg flex items-center justify-center">
                       <svg className="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
@@ -1587,7 +1727,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
                 {/* Date Range */}
                 <div className="bg-gradient-to-br from-purple-50 to-violet-50 border border-purple-200 rounded-lg p-1.5 space-y-1">
-                  <label className="block text-xs font-semibold text-gray-800 flex items-center space-x-2">
+                  <label className="text-xs font-semibold text-gray-800 flex items-center space-x-2">
                     <div className="w-5 h-5 bg-purple-500 rounded-lg flex items-center justify-center">
                       <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -1633,7 +1773,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
                 {/* Tags */}
                 <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 rounded-lg p-1.5 space-y-1">
-                  <label className="block text-xs font-semibold text-gray-800 flex items-center space-x-2">
+                  <label className="text-xs font-semibold text-gray-800 flex items-center space-x-2">
                     <div className="w-5 h-5 bg-orange-500 rounded-lg flex items-center justify-center">
                       <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -1670,7 +1810,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
                 {/* Vendors */}
                 <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 rounded-lg p-1.5 space-y-1">
-                  <label className="block text-xs font-semibold text-gray-800 flex items-center space-x-2">
+                  <label className="text-xs font-semibold text-gray-800 flex items-center space-x-2">
                     <div className="w-5 h-5 bg-indigo-500 rounded-lg flex items-center justify-center">
                       <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -1726,7 +1866,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
             {/* Bulk Actions Bar - Common for all views */}
             <BulkActionsBar
               selectedProducts={selectedProducts}
-              totalProducts={filteredProducts.length}
+              totalProducts={totalItemsForPagination}
               onBulkEdit={handleBulkEdit}
               onExportSelected={handleExportSelected}
               onBulkDelete={handleBulkDelete}
@@ -1765,7 +1905,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 currentPage={currentPage}
                 totalPages={totalPages}
                 itemsPerPage={itemsPerPage}
-                totalItems={filteredProducts.length}
+                totalItems={totalItemsForPagination}
                 onPageChange={handlePageChange}
                 onItemsPerPageChange={handleItemsPerPageChange}
               />
@@ -1861,7 +2001,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 <Pagination
                   currentPage={currentPage}
                   totalPages={totalPages}
-                  totalItems={filteredProducts.length}
+                  totalItems={totalItemsForPagination}
                   itemsPerPage={itemsPerPage}
                   onPageChange={handlePageChange}
                   onItemsPerPageChange={handleItemsPerPageChange}
@@ -1915,7 +2055,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                   currentPage={currentPage}
                   totalPages={totalPages}
                   itemsPerPage={itemsPerPage}
-                  totalItems={filteredProducts.length}
+                  totalItems={totalItemsForPagination}
                   onPageChange={handlePageChange}
                   onItemsPerPageChange={handleItemsPerPageChange}
                 />
@@ -1982,7 +2122,11 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         <ExportModal
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
-          products={filteredProducts}
+          products={useAlgoliaFilters && algoliaFilterResults.length > 0 
+            ? algoliaFilterResults 
+            : (useAlgoliaSearch && algoliaSearchResults.length > 0 
+              ? algoliaSearchResults 
+              : filteredProducts)}
           selectedProducts={selectedProducts}
         />
 
@@ -2432,7 +2576,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
                       />
                       <div className="ml-3">
-                        <div className="text-sm font-medium text-gray-900">All products ({filteredProducts.length})</div>
+                        <div className="text-sm font-medium text-gray-900">All products ({totalItemsForPagination})</div>
                         <div className="text-xs text-gray-500">Print all filtered products</div>
                       </div>
                     </label>
@@ -2531,7 +2675,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                     <span className="text-sm font-medium text-gray-700">Print Preview</span>
                   </div>
                   <div className="text-xs text-gray-600 space-y-1">
-                    <div>• {printOptions.printType === 'all' ? `${filteredProducts.length} products` : `${selectedProducts.length} selected products`} will be printed</div>
+                    <div>• {printOptions.printType === 'all' ? `${totalItemsForPagination} products` : `${selectedProducts.length} selected products`} will be printed</div>
                     <div>• Layout: {printOptions.layout.charAt(0).toUpperCase() + printOptions.layout.slice(1)}</div>
                     <div>• Page: {printOptions.pageSize} {printOptions.orientation}</div>
                     <div>• {printOptions.includeImages ? 'With' : 'Without'} images, {printOptions.includeDetails ? 'with' : 'without'} detailed information</div>
@@ -2554,7 +2698,17 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                   <button
                     onClick={() => {
                       // Handle print functionality
-                      const productsToPrint = printOptions.printType === 'all' ? filteredProducts : filteredProducts.filter(p => selectedProducts.includes(p.id))
+                      const productsToPrint = printOptions.printType === 'all' 
+                        ? (useAlgoliaFilters && algoliaFilterResults.length > 0 
+                          ? algoliaFilterResults 
+                          : (useAlgoliaSearch && algoliaSearchResults.length > 0 
+                            ? algoliaSearchResults 
+                            : filteredProducts))
+                        : (useAlgoliaFilters && algoliaFilterResults.length > 0 
+                          ? algoliaFilterResults 
+                          : (useAlgoliaSearch && algoliaSearchResults.length > 0 
+                            ? algoliaSearchResults 
+                            : filteredProducts)).filter(p => selectedProducts.includes(p.id))
                       console.log('Printing products:', {
                         count: productsToPrint.length,
                         options: printOptions,
@@ -2619,10 +2773,11 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                         onChange={(e) => handleSettingsUpdate({ itemsPerPage: parseInt(e.target.value) })}
                         className="border border-gray-300 rounded-md px-3 py-1 text-sm"
                       >
-                        <option value={10}>10</option>
                         <option value={25}>25</option>
                         <option value={50}>50</option>
                         <option value={100}>100</option>
+                        <option value={250}>250</option>
+                        <option value={500}>500</option>
                       </select>
                     </div>
                   </div>
@@ -2773,7 +2928,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                         <div className="text-sm text-green-800">
-                          <strong>Export Ready:</strong> {filteredProducts.length} products available for export in {settings.defaultExportFormat.toUpperCase()} format
+                          <strong>Export Ready:</strong> {totalItemsForPagination} products available for export in {settings.defaultExportFormat.toUpperCase()} format
                         </div>
                       </div>
                     </div>

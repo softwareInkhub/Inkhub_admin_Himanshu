@@ -192,8 +192,6 @@ export interface SearchControlsProps {
   customFilters: CustomFilter[]
   onAddCustomFilter: (filter: CustomFilter) => void
   onRemoveCustomFilter: (id: string) => void
-  showCustomFilterDropdown: boolean
-  setShowCustomFilterDropdown: (show: boolean) => void
   hiddenDefaultFilters: Set<string>
   onShowAllFilters: () => void
   onClearSearch: () => void

@@ -14,12 +14,12 @@ export interface SearchHistory {
   resultCount: number
 }
 
-// Get search suggestions based on current input and available data
+// Ultra-fast search suggestions with optimized performance
 export const getSearchSuggestions = (
   query: string,
   orders: Order[],
   searchHistory: SearchHistory[],
-  maxSuggestions: number = 10
+  maxSuggestions: number = 8 // Reduced for faster processing
 ): SearchSuggestion[] => {
   if (!query.trim()) {
     return getRecentSearches(searchHistory, 5)
@@ -27,84 +27,97 @@ export const getSearchSuggestions = (
 
   const suggestions: SearchSuggestion[] = []
   const queryLower = query.toLowerCase()
+  
+  // Limit order processing for better performance
+  const limitedOrders = orders.slice(0, 1000) // Process only first 1000 orders for speed
 
-  // 1. Serial number suggestions
-  const serialNumberSuggestions = orders
-    .map((order, index) => ({
-      order,
-      serialNumber: index + 1
-    }))
-    .filter(({ serialNumber }) => serialNumber.toString().includes(queryLower))
-    .slice(0, 3)
-    .map(({ order, serialNumber }) => ({
-      id: `serial-${serialNumber}`,
-      text: `Order #${serialNumber}`,
-      type: 'serialNumber' as const,
-      icon: '🔢'
-    }))
+  // 1. Serial number suggestions - optimized
+  if (/^\d/.test(queryLower)) { // Only check if query starts with a number
+    const serialNumberSuggestions = limitedOrders
+      .map((order, index) => ({
+        order,
+        serialNumber: index + 1
+      }))
+      .filter(({ serialNumber }) => serialNumber.toString().includes(queryLower))
+      .slice(0, 2) // Reduced for performance
+      .map(({ order, serialNumber }) => ({
+        id: `serial-${serialNumber}`,
+        text: `Order #${serialNumber}`,
+        type: 'serialNumber' as const,
+        icon: '🔢'
+      }))
 
-  suggestions.push(...serialNumberSuggestions)
+    suggestions.push(...serialNumberSuggestions)
+  }
 
-  // 2. Order number suggestions - with null safety
-  const orderNumberSuggestions = orders
-    .filter(order => 
-      (order.orderNumber && order.orderNumber.toLowerCase().includes(queryLower)) ||
-      (order.orderNumber && order.orderNumber.toLowerCase().startsWith(queryLower))
-    )
-    .slice(0, 3)
-    .map(order => ({
-      id: `order-${order.id}`,
-      text: order.orderNumber || 'Unknown Order',
-      type: 'order' as const,
-      icon: '📦'
-    }))
-
+  // 2. Order number suggestions - optimized with early exit
+  const orderNumberSuggestions = []
+  for (const order of limitedOrders) {
+    if (orderNumberSuggestions.length >= 2) break // Early exit
+    if (order.orderNumber && order.orderNumber.toLowerCase().includes(queryLower)) {
+      orderNumberSuggestions.push({
+        id: `order-${order.id}`,
+        text: order.orderNumber,
+        type: 'order' as const,
+        icon: '📦'
+      })
+    }
+  }
   suggestions.push(...orderNumberSuggestions)
 
-  // 3. Customer name suggestions - with null safety
-  const customerSuggestions = orders
-    .filter(order => 
-      (order.customerName && order.customerName.toLowerCase().includes(queryLower)) ||
-      (order.customerName && order.customerName.toLowerCase().startsWith(queryLower))
-    )
-    .slice(0, 2)
-    .map(order => ({
-      id: `customer-${order.id}`,
-      text: order.customerName || 'Unknown Customer',
-      type: 'customer' as const,
-      icon: '👤'
-    }))
-
+  // 3. Customer name suggestions - optimized with early exit
+  const customerSuggestions = []
+  for (const order of limitedOrders) {
+    if (customerSuggestions.length >= 2) break // Early exit
+    if (order.customerName && order.customerName.toLowerCase().includes(queryLower)) {
+      customerSuggestions.push({
+        id: `customer-${order.id}`,
+        text: order.customerName,
+        type: 'customer' as const,
+        icon: '👤'
+      })
+    }
+  }
   suggestions.push(...customerSuggestions)
 
-  // 4. Status suggestions - with null safety
-  const statusSuggestions = Array.from(new Set(orders.map(o => o.status).filter(Boolean)))
-    .filter(status => status && status.toLowerCase().includes(queryLower))
-    .slice(0, 2)
-    .map(status => ({
-      id: `status-${status}`,
-      text: status || 'Unknown Status',
-      type: 'status' as const,
-      icon: '📊'
-    }))
-
+  // 4. Status suggestions - optimized with Set for deduplication
+  const statusSet = new Set<string>()
+  for (const order of limitedOrders) {
+    if (statusSet.size >= 2) break // Early exit
+    if (order.status && order.status.toLowerCase().includes(queryLower)) {
+      statusSet.add(order.status)
+    }
+  }
+  const statusSuggestions = Array.from(statusSet).map(status => ({
+    id: `status-${status}`,
+    text: status,
+    type: 'status' as const,
+    icon: '📊'
+  }))
   suggestions.push(...statusSuggestions)
 
-  // 5. Tag suggestions - with null safety
-  const allTags = orders.flatMap(o => o.tags || []).filter(Boolean)
-  const tagSuggestions = Array.from(new Set(allTags))
-    .filter(tag => tag && tag.toLowerCase().includes(queryLower))
-    .slice(0, 2)
-    .map(tag => ({
-      id: `tag-${tag}`,
-      text: tag || 'Unknown Tag',
-      type: 'tag' as const,
-      icon: '🏷️'
-    }))
-
+  // 5. Tag suggestions - optimized with early exit
+  const tagSet = new Set<string>()
+  for (const order of limitedOrders) {
+    if (tagSet.size >= 2) break // Early exit
+    if (Array.isArray(order.tags)) {
+      for (const tag of order.tags) {
+        if (tag && tag.toLowerCase().includes(queryLower)) {
+          tagSet.add(tag)
+          if (tagSet.size >= 2) break
+        }
+      }
+    }
+  }
+  const tagSuggestions = Array.from(tagSet).map(tag => ({
+    id: `tag-${tag}`,
+    text: tag,
+    type: 'tag' as const,
+    icon: '🏷️'
+  }))
   suggestions.push(...tagSuggestions)
 
-  // 6. Search history suggestions
+  // 6. Search history suggestions - optimized
   const historySuggestions = searchHistory
     .filter(history => history.query && history.query.toLowerCase().includes(queryLower))
     .slice(0, 2)
@@ -117,12 +130,15 @@ export const getSearchSuggestions = (
 
   suggestions.push(...historySuggestions)
 
-  // Remove duplicates and limit results
-  const uniqueSuggestions = suggestions.filter((suggestion, index, self) => 
-    index === self.findIndex(s => s.text === suggestion.text)
-  )
+  // Remove duplicates using Map for better performance
+  const uniqueMap = new Map<string, SearchSuggestion>()
+  for (const suggestion of suggestions) {
+    if (!uniqueMap.has(suggestion.text)) {
+      uniqueMap.set(suggestion.text, suggestion)
+    }
+  }
 
-  return uniqueSuggestions.slice(0, maxSuggestions)
+  return Array.from(uniqueMap.values()).slice(0, maxSuggestions)
 }
 
 // Get recent searches from history
@@ -183,10 +199,12 @@ export const getPopularSearches = (
     }))
 }
 
-// Debounced search with suggestions
-export const createDebouncedSearch = (delay: number = 300) => {
+// Ultra-fast debounced search with optimized suggestions
+export const createDebouncedSearch = (delay: number = 200) => { // Reduced delay for faster response
   let timeoutId: NodeJS.Timeout | null = null
   let lastQuery = ''
+  let suggestionCache = new Map<string, SearchSuggestion[]>()
+  const SUGGESTION_CACHE_TTL = 30 * 1000 // 30 seconds cache for suggestions
 
   return {
     search: (
@@ -199,19 +217,32 @@ export const createDebouncedSearch = (delay: number = 300) => {
         clearTimeout(timeoutId)
       }
 
-      // Always show suggestions immediately
-      const suggestions = getSearchSuggestions(query, orders, searchHistory)
+      // Check suggestion cache first for instant response
+      const cacheKey = query.toLowerCase()
+      const cachedSuggestions = suggestionCache.get(cacheKey)
+      
+      let suggestions: SearchSuggestion[]
+      if (cachedSuggestions) {
+        suggestions = cachedSuggestions
+      } else {
+        // Generate suggestions and cache them
+        suggestions = getSearchSuggestions(query, orders, searchHistory)
+        suggestionCache.set(cacheKey, suggestions)
+        
+        // Clean up cache periodically
+        setTimeout(() => suggestionCache.delete(cacheKey), SUGGESTION_CACHE_TTL)
+      }
       
       if (query.trim().length === 0) {
         callback([], suggestions)
         return
       }
 
-      // Debounce the actual search
+      // Debounce the actual search with reduced delay
       timeoutId = setTimeout(() => {
         if (query !== lastQuery) {
           lastQuery = query
-          // The actual search will be handled by the existing Algolia search
+          // The actual search will be handled by the existing ultra-fast search
           callback([], suggestions)
         }
       }, delay)
@@ -222,6 +253,10 @@ export const createDebouncedSearch = (delay: number = 300) => {
         clearTimeout(timeoutId)
         timeoutId = null
       }
+    },
+
+    clearCache: () => {
+      suggestionCache.clear()
     }
   }
 }

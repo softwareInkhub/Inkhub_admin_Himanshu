@@ -65,8 +65,9 @@ function mapRecordToProduct(raw: any, idx: number): Product {
 
 async function fetchProductsOrFallback(): Promise<Product[]> {
   try {
-    const allUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=all`
-    const res = await fetch(allUrl, { signal: AbortSignal.timeout(1500) })
+    // Try chunk:0 first since we know it exists
+    const chunk0Url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=chunk:0`
+    const res = await fetch(chunk0Url, { signal: AbortSignal.timeout(1500) })
     if (res.ok) {
       const json = await res.json()
       if (Array.isArray(json?.data)) return json.data.map(mapRecordToProduct)

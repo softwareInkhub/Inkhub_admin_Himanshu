@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
 import { 
   PageTemplate, 
@@ -8,7 +8,7 @@ import {
 } from '@/components/shared'
 import BoardsGridCardFilterHeader from './components/BoardsGridCardFilterHeader'
 import { Board } from './types'
-import { generateBoards } from './utils'
+import { fetchBoards, calculateBoardsKPIs } from './services/boardService'
 
 // Define table columns for boards
 const boardColumns = [
@@ -237,12 +237,34 @@ const boardFilters = [
 function BoardsClient() {
   const { addTab } = useAppStore()
   const hasAddedTab = useRef(false)
+  const [boardsData, setBoardsData] = useState<Board[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch real boards data
+  useEffect(() => {
+    const loadBoards = async () => {
+      try {
+        setIsLoading(true)
+        setError(null)
+        const boards = await fetchBoards()
+        setBoardsData(boards)
+      } catch (err: any) {
+        setError(err.message || 'Failed to load boards')
+        console.error('Error loading boards:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadBoards()
+  }, [])
 
   // Initialize data table hook
   const {
     data: boardData,
     loading,
-    error,
+    error: tableError,
     searchQuery,
     setSearchQuery,
     searchConditions,
@@ -284,7 +306,7 @@ function BoardsClient() {
     clearCustomFilters,
     clearAdvancedFilters
   } = useDataTable<Board>({
-    initialData: generateBoards(100),
+    initialData: boardsData,
     columns: boardColumns,
     searchableFields: [
       { key: 'name', label: 'Name', type: 'text' },
@@ -299,26 +321,37 @@ function BoardsClient() {
     defaultItemsPerPage: 25
   })
 
-  // Calculate KPI metrics based on filtered data
-  const calculatedKPIs = boardKPIs.map(kpi => {
-    switch (kpi.key) {
-      case 'totalBoards':
-        return { ...kpi, value: filteredData.length }
-      case 'totalPins':
-        return { ...kpi, value: filteredData.reduce((sum, board) => sum + (board.pinCount || 0), 0) }
-      case 'totalFollowers':
-        return { ...kpi, value: filteredData.reduce((sum, board) => sum + (board.followers || 0), 0) }
-      case 'publicBoards':
-        return { ...kpi, value: filteredData.filter(board => (board.privacy || 'unknown') === 'public').length }
-      case 'avgPinsPerBoard':
-        return { ...kpi, value: filteredData.length > 0 ? Math.round(filteredData.reduce((sum, board) => sum + (board.pinCount || 0), 0) / filteredData.length) : 0 }
-      case 'activeCategories':
-        const uniqueCategories = new Set(filteredData.map(board => board.category || 'Uncategorized'))
-        return { ...kpi, value: uniqueCategories.size }
-      default:
-        return kpi
+  // Update data table when boards data changes
+  useEffect(() => {
+    if (boardsData.length > 0) {
+      // The useDataTable hook should automatically update when initialData changes
+      // If not, we might need to trigger a refresh
     }
-  })
+  }, [boardsData])
+
+  // Calculate KPI metrics based on real boards data
+  const calculatedKPIs = useMemo(() => {
+    const kpiData = calculateBoardsKPIs(boardsData)
+    
+    return boardKPIs.map(kpi => {
+      switch (kpi.key) {
+        case 'totalBoards':
+          return { ...kpi, value: kpiData.totalBoards.value }
+        case 'totalPins':
+          return { ...kpi, value: kpiData.totalPins.value }
+        case 'totalFollowers':
+          return { ...kpi, value: kpiData.totalFollowers.value }
+        case 'publicBoards':
+          return { ...kpi, value: kpiData.publicBoards.value }
+        case 'avgPinsPerBoard':
+          return { ...kpi, value: kpiData.avgPinsPerBoard.value }
+        case 'activeCategories':
+          return { ...kpi, value: kpiData.activeCategories.value }
+        default:
+          return kpi
+      }
+    })
+  }, [boardsData])
 
   // Tab management
   useEffect(() => {
@@ -359,10 +392,10 @@ function BoardsClient() {
     }
   }
 
-  if (loading && boardData.length === 0) {
-  return (
+  if (isLoading && boardsData.length === 0) {
+    return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500">Loading boards...</div>
+        <div className="text-gray-500">Loading Pinterest boards...</div>
       </div>
     )
   }
@@ -371,7 +404,7 @@ function BoardsClient() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-red-600 text-lg font-semibold mb-2">Error Loading Boards</div>
+          <div className="text-red-600 text-lg font-semibold mb-2">Error Loading Pinterest Boards</div>
           <div className="text-gray-600 mb-4">{error}</div>
           <button 
             onClick={() => window.location.reload()}
@@ -388,7 +421,7 @@ function BoardsClient() {
     <PageTemplate
       config={pageConfig}
       data={currentData}
-      loading={loading}
+      loading={isLoading}
       error={error}
       GridHeaderComponent={BoardsGridCardFilterHeader}
       CardHeaderComponent={BoardsGridCardFilterHeader}
