@@ -371,6 +371,158 @@ export const debouncedAlgoliaSearch = debounce(
   300
 )
 
+// Advanced Filters search across all chunks using Algolia
+export const searchOrdersWithAdvancedFilters = async (
+  filters: {
+    orderStatus?: string[]
+    priceRange?: { min?: string; max?: string }
+    dateRange?: { start?: string; end?: string }
+    tags?: string[]
+    channels?: string[]
+  },
+  currentChunkOrders: Order[],
+  totalChunks: number = 140
+): Promise<Order[]> => {
+  console.log('🔍 Advanced Filters Algolia search with filters:', filters)
+  
+  // Build search query based on filters (case-insensitive)
+  const searchTerms: string[] = []
+  
+  console.log('🔍 Building case-insensitive search terms from filters:', {
+    orderStatus: filters.orderStatus,
+    tags: filters.tags,
+    channels: filters.channels,
+    priceRange: filters.priceRange,
+    dateRange: filters.dateRange
+  })
+  
+  // Add status filters (case-insensitive)
+  if (filters.orderStatus && filters.orderStatus.length > 0) {
+    const statusTerms = filters.orderStatus.map(status => status.toLowerCase()).join(' OR ')
+    searchTerms.push(statusTerms)
+  }
+  
+  // Add tag filters (case-insensitive)
+  if (filters.tags && filters.tags.length > 0) {
+    const tagTerms = filters.tags.map(tag => tag.toLowerCase()).join(' OR ')
+    searchTerms.push(tagTerms)
+  }
+  
+  // Add channel filters (case-insensitive)
+  if (filters.channels && filters.channels.length > 0) {
+    const channelTerms = filters.channels.map(channel => channel.toLowerCase()).join(' OR ')
+    searchTerms.push(channelTerms)
+  }
+  
+  // If no specific filters, return all data
+  if (searchTerms.length === 0) {
+    console.log('🔍 No filter terms, returning empty array')
+    return []
+  }
+  
+  const combinedQuery = searchTerms.join(' AND ').toLowerCase()
+  console.log('🔍 Combined filter query (case-insensitive):', combinedQuery)
+  console.log('🔍 Search terms breakdown:', searchTerms)
+  
+  try {
+    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
+    
+    const requestBody: AlgoliaSearchRequest = {
+      project: "myProject",
+      table: "shopify-inkhub-get-orders",
+      query: combinedQuery,
+      hitsPerPage: 1000, // Get more results for comprehensive filtering
+      page: 0
+    }
+    
+    console.log('🔍 Advanced Filters Algolia request:', JSON.stringify(requestBody, null, 2))
+    
+    const response = await fetch(`${BACKEND_URL}/search/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(30000)
+    })
+    
+    if (!response.ok) {
+      throw new Error(`Algolia search failed: ${response.status}`)
+    }
+    
+    const data: AlgoliaSearchResponse = await response.json()
+    console.log('🔍 Advanced Filters Algolia response:', data.hits?.length || 0, 'results')
+    
+    if (!data.hits || !Array.isArray(data.hits)) {
+      console.warn('No hits found in Advanced Filters Algolia response')
+      return []
+    }
+    
+    // Convert Algolia hits to Order format
+    const convertedOrders: Order[] = []
+    const processedIds = new Set<string>()
+    
+    for (const hit of data.hits) {
+      const order = convertAlgoliaHitToOrder(hit, currentChunkOrders)
+      
+      if (!order) continue
+      
+      // Skip duplicates
+      if (processedIds.has(order.id)) continue
+      processedIds.add(order.id)
+      
+      // Apply additional filters that Algolia might not handle perfectly
+      let passesFilters = true
+      
+      // Apply price range filter
+      if (filters.priceRange && (filters.priceRange.min || filters.priceRange.max)) {
+        const total = order.total || 0
+        const min = filters.priceRange.min ? parseFloat(filters.priceRange.min) : 0
+        const max = filters.priceRange.max ? parseFloat(filters.priceRange.max) : Infinity
+        
+        if (total < min || total > max) {
+          passesFilters = false
+        }
+      }
+      
+      // Apply date range filter
+      if (filters.dateRange && (filters.dateRange.start || filters.dateRange.end)) {
+        const orderDate = new Date(order.createdAt)
+        const start = filters.dateRange.start ? new Date(filters.dateRange.start) : new Date(0)
+        const end = filters.dateRange.end ? new Date(filters.dateRange.end) : new Date()
+        
+        if (orderDate < start || orderDate > end) {
+          passesFilters = false
+        }
+      }
+      
+      if (passesFilters) {
+        convertedOrders.push(order)
+      }
+    }
+    
+    // Sort by date (newest first)
+    const sortedOrders = convertedOrders.sort((a, b) => {
+      const dateA = new Date(a.createdAt || a.updatedAt || 0)
+      const dateB = new Date(b.createdAt || b.updatedAt || 0)
+      return dateB.getTime() - dateA.getTime()
+    })
+    
+    console.log('✅ Advanced Filters Algolia search completed:', sortedOrders.length, 'filtered results')
+    console.log('🔍 Final filtered orders sample:', sortedOrders.slice(0, 3).map(o => ({ 
+      id: o.id, 
+      orderNumber: o.orderNumber, 
+      customerName: o.customerName,
+      financialStatus: o.financialStatus
+    })))
+    return sortedOrders
+    
+  } catch (error) {
+    console.error('❌ Advanced Filters Algolia search error:', error)
+    return []
+  }
+}
+
 // Debounce utility function
 function debounce<T extends (...args: any[]) => any>(
   func: T,

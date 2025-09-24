@@ -1,6 +1,6 @@
 'use client'
 
-import { Search, Filter, Grid, List, X, Plus, ChevronDown } from 'lucide-react'
+import { Search, Filter, Grid, List, X, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface SearchControlsProps {
@@ -33,8 +33,6 @@ interface SearchControlsProps {
   }>
   onAddCustomFilter: (filter: { name: string; field: string; operator: string; value: string }) => void
   onRemoveCustomFilter: (filterId: string) => void
-  showCustomFilterDropdown: boolean
-  setShowCustomFilterDropdown: (show: boolean) => void
   hiddenDefaultFilters: Set<string>
   onShowAllFilters: () => void
   onClearSearch: () => void
@@ -64,8 +62,6 @@ export default function SearchControls({
   customFilters,
   onAddCustomFilter,
   onRemoveCustomFilter,
-  showCustomFilterDropdown,
-  setShowCustomFilterDropdown,
   hiddenDefaultFilters,
   onShowAllFilters,
   onClearSearch,
@@ -88,13 +84,6 @@ export default function SearchControls({
     }
   }
 
-  const getCustomFilterOptions = () => [
-    { key: 'high-followers', label: 'High-follower boards', field: 'followers', operator: 'greater_than', value: '1000' },
-    { key: 'many-pins', label: 'Boards with many pins', field: 'pinCount', operator: 'greater_than', value: '100' },
-    { key: 'recent', label: 'Recently created', field: 'createdAt', operator: 'last_7_days', value: '' },
-    { key: 'featured', label: 'Featured boards', field: 'tags', operator: 'contains', value: 'featured' },
-    { key: 'public', label: 'Public boards', field: 'privacy', operator: 'equals', value: 'public' }
-  ]
 
   return (
     <div className="px-4 py-3 border-b border-gray-200 bg-white">
@@ -186,44 +175,6 @@ export default function SearchControls({
             <span>Filters</span>
           </button>
 
-          {/* Custom Filters Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowCustomFilterDropdown(!showCustomFilterDropdown)}
-              className="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors flex items-center space-x-1"
-            >
-              <Plus className="h-3 w-3" />
-              <span>Custom</span>
-              <ChevronDown className="h-3 w-3" />
-            </button>
-
-            {showCustomFilterDropdown && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-20">
-                <div className="p-2">
-                  <div className="text-xs font-medium text-gray-700 mb-2">Quick Filters</div>
-                  <div className="space-y-1">
-                    {getCustomFilterOptions().map((option) => (
-                      <button
-                        key={option.key}
-                        onClick={() => {
-                          onAddCustomFilter({
-                            name: option.label,
-                            field: option.field,
-                            operator: option.operator,
-                            value: option.value
-                          })
-                          setShowCustomFilterDropdown(false)
-                        }}
-                        className="w-full text-left px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
         {/* Right side - View Controls */}

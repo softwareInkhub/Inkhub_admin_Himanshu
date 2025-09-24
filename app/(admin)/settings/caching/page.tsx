@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { 
   Zap, 
   Package, 
@@ -26,6 +26,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { saveSnapshot, loadSnapshot, clearSnapshot } from '@/lib/snapshots';
 
 interface Resource {
   id: string;
@@ -41,6 +42,8 @@ interface Resource {
   startTime?: string;
   estimatedTime?: number;
   retryCount: number;
+  table?: string; // backend cache table name
+  savedSnapshot?: boolean; // whether a local snapshot was saved
 }
 
 const initialResources: Resource[] = [
@@ -55,6 +58,8 @@ const initialResources: Resource[] = [
     lastUpdated: null,
     progress: 0,
     retryCount: 0,
+    table: 'shopify-inkhub-get-orders',
+    savedSnapshot: false,
   },
   {
     id: 'shopify-products',
@@ -67,6 +72,8 @@ const initialResources: Resource[] = [
     lastUpdated: null,
     progress: 0,
     retryCount: 0,
+    table: 'shopify-inkhub-get-products',
+    savedSnapshot: false,
   },
   {
     id: 'pinterest-pins',
@@ -79,6 +86,8 @@ const initialResources: Resource[] = [
     lastUpdated: null,
     progress: 0,
     retryCount: 0,
+    table: 'pinterest_inkhub_main_get_pins',
+    savedSnapshot: false,
   },
   {
     id: 'pinterest-boards',
@@ -91,6 +100,8 @@ const initialResources: Resource[] = [
     lastUpdated: null,
     progress: 0,
     retryCount: 0,
+    table: 'pinterest_inkhub_main_get_boards',
+    savedSnapshot: false,
   },
   {
     id: 'design-library',
@@ -103,6 +114,8 @@ const initialResources: Resource[] = [
     lastUpdated: null,
     progress: 0,
     retryCount: 0,
+    table: 'admin-design-image',
+    savedSnapshot: false,
   },
 ];
 
@@ -148,7 +161,12 @@ export default function SystemEngineDashboard() {
   const [overallProgress, setOverallProgress] = useState(0);
   const [completedResources, setCompletedResources] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [useLocalSnapshotFirst, setUseLocalSnapshotFirst] = useState(true);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
+  const controllersRef = useRef<{ [id: string]: AbortController | undefined }>({});
+
+  const BACKEND_URL = useMemo(() => process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001', []);
+  const PROJECT = 'my-app';
 
   // Add tab for this page
   useEffect(() => {
@@ -172,10 +190,68 @@ export default function SystemEngineDashboard() {
     setCompletedResources(completed);
   }, [resources]);
 
-  // Simulate resource loading with better error handling
-  const startResource = async (resourceId: string) => {
+  // Helper to resiliently parse API JSON
+  function safeJson<T = any>(val: any): T | null {
+    try { return val as T } catch { return null }
+  }
+
+  async function fetchJson(url: string, controller?: AbortController, maxRetries: number = 6) {
+    let attempt = 0
+    let lastError: any = null
+    while (attempt < maxRetries) {
+      try {
+        const tsParam = `ts=${Date.now()}`
+        const sep = url.includes('?') ? '&' : '?'
+        const bustUrl = `${url}${sep}${tsParam}`
+
+        // Manual timeout in addition to AbortController to protect against hanging connections
+        const timeout = setTimeout(() => {
+          try { controller?.abort() } catch {}
+        }, 30000)
+
+        const res = await fetch(bustUrl, {
+          signal: controller?.signal,
+          cache: 'no-store',
+          headers: { 'Accept': 'application/json', 'Accept-Encoding': 'identity' }
+        })
+        clearTimeout(timeout)
+        if (!res.ok) throw new Error(`Request failed ${res.status}`)
+        try {
+          const text = await res.text()
+          return JSON.parse(text)
+        } catch (parseErr: any) {
+          // Retry JSON parse errors, often due to truncated bodies (CONTENT_LENGTH_MISMATCH)
+          throw new Error(`JSON_PARSE_ERROR: ${parseErr?.message || 'Unexpected end of input'}`)
+        }
+      } catch (err: any) {
+        lastError = err
+        // Retry on network errors like ERR_CONTENT_LENGTH_MISMATCH/TypeError
+        const message = String(err?.message || '')
+        const retriable = /NetworkError|TypeError|CONTENT_LENGTH_MISMATCH|Failed to fetch|timeout|JSON_PARSE_ERROR/i.test(message)
+        attempt++
+        if (!retriable || attempt >= maxRetries) break
+        await new Promise(r => setTimeout(r, 400 * attempt))
+      }
+    }
+    throw lastError || new Error('Request failed')
+  }
+
+  // Local snapshot helpers
+  const SNAP_RESOURCE_PREFIX = 'snapshot-resource-'
+  const SNAP_CHUNK_PREFIX = 'orders-chunk-snapshot-'
+  // Replaced with centralized snapshot helpers (IndexedDB with localStorage fallback)
+  const saveOrderChunkSnapshot = (chunkNumber: number, rows: any[]) => {
+    try {
+      const payload = { data: rows, savedAt: Date.now() }
+      localStorage.setItem(`${SNAP_CHUNK_PREFIX}${chunkNumber}`, JSON.stringify(payload))
+    } catch {}
+  }
+
+  // Start cache loading for a single resource by reading keys and chunks from backend cache
+  const startResource = async (resourceId: string, options?: { bypassSnapshot?: boolean }) => {
     const resource = resources.find(r => r.id === resourceId);
     if (!resource) return;
+    const table = resource.table;
 
     setLoadingStates(prev => ({ ...prev, [resourceId]: true }));
     
@@ -193,60 +269,180 @@ export default function SystemEngineDashboard() {
     ));
 
     try {
-      // Simulate loading process with potential errors
-      const totalSteps = 100;
-      const shouldError = Math.random() < 0.1; // 10% chance of error
-      const errorStep = shouldError ? Math.floor(Math.random() * 80) + 20 : -1;
+      const controller = new AbortController();
+      controllersRef.current[resourceId] = controller;
 
-      for (let i = 0; i <= totalSteps; i++) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
-        if (i === errorStep) {
-          throw new Error(`Failed to load ${resource.name} at ${i}%`);
+      if (!table) throw new Error('No table configured');
+
+      // Try local snapshot first unless bypassed
+      if (!options?.bypassSnapshot && useLocalSnapshotFirst) {
+        const snap = await loadSnapshot(resourceId)
+        if (snap && Array.isArray(snap.data) && snap.data.length > 0) {
+          setResources(prev => prev.map(r =>
+            r.id === resourceId
+              ? {
+                  ...r,
+                  status: 'completed',
+                  progress: 100,
+                  itemsLoaded: snap.data.length,
+                  cacheHealth: 'healthy',
+                  savedSnapshot: true,
+                  lastUpdated: new Date(snap.savedAt).toISOString()
+                }
+              : r
+          ))
+          setLoadingStates(prev => ({ ...prev, [resourceId]: false }))
+          const c = controllersRef.current[resourceId]; if (c) delete controllersRef.current[resourceId]
+          return
+        }
+      }
+
+      // 1) Get available keys for the table
+      const keysUrl = `${BACKEND_URL}/cache/data?project=${PROJECT}&table=${encodeURIComponent(table)}`;
+      const keysJson = await fetchJson(keysUrl, controller);
+      const keysList: string[] = (keysJson?.keys as string[]) || (keysJson?.data as string[]) || [];
+
+      // Prefer 'all' aggregate if available
+      if (keysList.includes('all')) {
+        const allUrl = `${BACKEND_URL}/cache/data?project=${PROJECT}&table=${encodeURIComponent(table)}&key=all`;
+        const allJson = await fetchJson(allUrl, controller);
+        const allRows = Array.isArray(allJson?.data) ? allJson.data : (Array.isArray(allJson) ? allJson : []);
+        const totalItems = allRows.length;
+
+        if (totalItems > 0) {
+          // Save full resource snapshot for durability
+          await saveSnapshot(resourceId, table, allRows)
+          setResources(prev => prev.map(r => 
+            r.id === resourceId 
+              ? { 
+                  ...r,
+                  status: 'completed',
+                  progress: 100,
+                  itemsLoaded: totalItems,
+                  lastUpdated: new Date().toISOString(),
+                  cacheHealth: 'healthy',
+                  savedSnapshot: true
+                }
+              : r
+          ));
+          return;
+        }
+        // If 'all' exists but empty, treat as no data and fall through to chunk logic to double-check
+      }
+
+      const chunkKeys = keysList.filter(k => /^chunk:?\d+$/i.test(String(k)) || /^chunk:\d+$/i.test(String(k)));
+
+      // fallback: if keys API didn't return chunks, attempt conservative probe of only chunk:0
+      let keysToFetch = chunkKeys;
+      if (keysToFetch.length === 0) {
+        keysToFetch = ['chunk:0'];
+      }
+
+      let totalItems = 0;
+      const totalChunks = keysToFetch.length;
+      let skippedChunks = 0
+      for (let i = 0; i < keysToFetch.length; i++) {
+        const key = keysToFetch[i];
+        const url = `${BACKEND_URL}/cache/data?project=${PROJECT}&table=${encodeURIComponent(table)}&key=${encodeURIComponent(key)}`;
+        try {
+          const json = await fetchJson(url, controller);
+          const rows = Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []);
+          totalItems += rows.length;
+          // If this is orders table with chunk:X keys, persist per-chunk snapshot
+          if (/^chunk:\d+$/i.test(String(key)) && table === 'shopify-inkhub-get-orders') {
+            const num = parseInt(String(key).split(':')[1])
+            if (!isNaN(num)) saveOrderChunkSnapshot(num, rows)
+          }
+        } catch (err: any) {
+          // If a chunk is missing, consider as end of data for probe mode
+          if (keysList.length === 0 && /404|Request failed/.test(String(err?.message))) {
+            // stop probing further and try 'all' as a final fallback
+            try {
+              const allUrl = `${BACKEND_URL}/cache/data?project=${PROJECT}&table=${encodeURIComponent(table)}&key=all`;
+              const allJson = await fetchJson(allUrl, controller);
+              const allRows = Array.isArray(allJson?.data) ? allJson.data : (Array.isArray(allJson) ? allJson : []);
+              totalItems += allRows.length;
+            } catch {}
+            break;
+          }
+          // For transient network issues (like CONTENT_LENGTH_MISMATCH), skip this chunk and continue
+          const msg = String(err?.message || '')
+          if (/CONTENT_LENGTH_MISMATCH|JSON_PARSE_ERROR|Failed to fetch|timeout|NetworkError|TypeError/i.test(msg)) {
+            skippedChunks++
+          } else {
+            throw err
+          }
         }
 
+        const progress = totalChunks > 0 ? Math.min(100, Math.round(((i + 1) / totalChunks) * 100)) : Math.min(100, (i + 1) * 10);
         setResources(prev => prev.map(r => 
           r.id === resourceId 
             ? { 
                 ...r, 
-                progress: i, 
-                itemsLoaded: Math.floor((i / totalSteps) * 1000),
-                lastUpdated: new Date().toISOString()
+                progress, 
+                itemsLoaded: totalItems,
+                lastUpdated: new Date().toISOString(),
+                cacheHealth: 'healthy'
               }
             : r
         ));
       }
 
-      // Complete the resource
-      setResources(prev => prev.map(r => 
-        r.id === resourceId 
-          ? { 
-              ...r, 
-              status: 'completed', 
-              progress: 100, 
-              itemsLoaded: 1000,
-              cacheHealth: 'healthy',
-              lastUpdated: new Date().toISOString()
-            }
-          : r
-      ));
+      if (totalItems > 0) {
+        setResources(prev => prev.map(r => 
+          r.id === resourceId 
+            ? { 
+                ...r, 
+                status: 'completed', 
+                progress: 100, 
+                itemsLoaded: totalItems,
+                cacheHealth: skippedChunks > 0 ? 'warning' : 'healthy',
+                lastUpdated: new Date().toISOString(),
+                savedSnapshot: true
+              }
+            : r
+        ));
+      } else {
+        throw new Error(`No cache data found for table ${table}`)
+      }
     } catch (error: any) {
-      setResources(prev => prev.map(r => 
-        r.id === resourceId 
-          ? { 
-              ...r, 
-              status: 'error', 
-              error: error.message,
-              retryCount: r.retryCount + 1
-            }
-          : r
-      ));
+      const message = String(error?.message || '')
+      // Gracefully handle empty cache (404) as "no data yet" instead of hard error
+      if (/404/.test(message)) {
+        setResources(prev => prev.map(r => 
+          r.id === resourceId 
+            ? { 
+                ...r, 
+                status: 'idle',
+                progress: 0,
+                itemsLoaded: 0,
+                cacheHealth: 'unknown',
+                error: undefined
+              }
+            : r
+        ))
+      } else {
+        setResources(prev => prev.map(r => 
+          r.id === resourceId 
+            ? { 
+                ...r, 
+                status: 'error', 
+                error: message,
+                retryCount: r.retryCount + 1
+              }
+            : r
+        ));
+      }
     } finally {
       setLoadingStates(prev => ({ ...prev, [resourceId]: false }));
+      const c = controllersRef.current[resourceId];
+      if (c) delete controllersRef.current[resourceId];
     }
   };
 
   const stopResource = (resourceId: string) => {
+    const c = controllersRef.current[resourceId];
+    if (c) c.abort();
     setResources(prev => prev.map(r => 
       r.id === resourceId 
         ? { 
@@ -260,6 +456,8 @@ export default function SystemEngineDashboard() {
   };
 
   const pauseResource = (resourceId: string) => {
+    const c = controllersRef.current[resourceId];
+    if (c) c.abort();
     setResources(prev => prev.map(r => 
       r.id === resourceId 
         ? { ...r, status: 'paused' }
@@ -274,7 +472,7 @@ export default function SystemEngineDashboard() {
     }
   };
 
-  const clearResource = (resourceId: string) => {
+  const clearResource = async (resourceId: string) => {
     setResources(prev => prev.map(r => 
       r.id === resourceId 
         ? { 
@@ -288,6 +486,7 @@ export default function SystemEngineDashboard() {
           }
         : r
     ));
+    try { await clearSnapshot(resourceId) } catch {}
   };
 
   const refreshAll = () => {
@@ -315,6 +514,7 @@ export default function SystemEngineDashboard() {
   };
 
   const stopAll = () => {
+    Object.values(controllersRef.current).forEach(c => c?.abort());
     setResources(prev => prev.map(r => 
       r.status === 'loading' 
         ? { ...r, status: 'paused' }
@@ -335,7 +535,7 @@ export default function SystemEngineDashboard() {
         </div>
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm text-gray-600">
               <CheckCircle className="h-4 w-4 text-green-500" />
               <span>{completedResources} of {resources.length} resources loaded</span>
             </div>
@@ -343,7 +543,20 @@ export default function SystemEngineDashboard() {
               Overall Progress: {overallProgress.toFixed(0)}%
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <div className="flex items-center gap-2 mr-2">
+              <label className="text-sm text-gray-700">Use local snapshot first</label>
+              <button
+                onClick={() => setUseLocalSnapshotFirst(v => !v)}
+                className={cn(
+                  "px-2 py-1 rounded text-sm border",
+                  useLocalSnapshotFirst ? "bg-emerald-50 border-emerald-300 text-emerald-700" : "bg-gray-50 border-gray-300 text-gray-700"
+                )}
+                title="When ON, Start will load from local snapshot if available and skip cloud fetch."
+              >
+                {useLocalSnapshotFirst ? 'ON' : 'OFF'}
+              </button>
+            </div>
             <button
               onClick={startAll}
               className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -401,6 +614,65 @@ export default function SystemEngineDashboard() {
                   </div>
                 </div>
                 <div className="flex gap-1">
+                  {/* Save snapshot/export button */}
+                  {resource.status === 'completed' && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const snap = await loadSnapshot(resource.id)
+                          if (!snap || !snap.data || snap.data.length === 0) {
+                            alert('No snapshot found. Start this resource first to save a snapshot.')
+                            return
+                          }
+                          const blob = new Blob([JSON.stringify(snap, null, 2)], { type: 'application/json' })
+                          const url = URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = `${resource.id}-snapshot.json`
+                          a.click()
+                          URL.revokeObjectURL(url)
+                        } catch (e) {
+                          alert('Failed to export snapshot')
+                        }
+                      }}
+                      className="px-3 py-1 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                      title="Export Snapshot"
+                    >
+                      Export
+                    </button>
+                  )}
+                  {/* Import snapshot */}
+                  {(['idle','completed','error','paused'] as Array<Resource['status']>).includes(resource.status) && (
+                    <label className="px-3 py-1 rounded text-sm font-medium bg-white border text-gray-800 hover:bg-gray-50 transition-colors cursor-pointer">
+                      Import
+                      <input
+                        type="file"
+                        accept="application/json"
+                        className="hidden"
+                        onChange={async (e) => {
+                          try {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            const text = await file.text()
+                            const parsed = JSON.parse(text)
+                            if (!Array.isArray(parsed?.data)) { alert('Invalid snapshot file.'); return }
+                            await saveSnapshot(resource.id, parsed.table, parsed.data)
+                            setResources(prev => prev.map(r => r.id === resource.id ? {
+                              ...r,
+                              status: 'completed',
+                              progress: 100,
+                              itemsLoaded: parsed.data.length,
+                              cacheHealth: 'healthy',
+                              savedSnapshot: true,
+                              lastUpdated: new Date().toISOString()
+                            } : r))
+                            ;(e.target as HTMLInputElement).value = ''
+                            alert(`Imported snapshot for ${resource.name} (${parsed.data.length} items).`)
+                          } catch { alert('Failed to import snapshot.') }
+                        }}
+                      />
+                    </label>
+                  )}
                   {resource.status === 'idle' && (
                     <button
                       onClick={() => startResource(resource.id)}

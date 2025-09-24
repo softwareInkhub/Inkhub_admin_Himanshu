@@ -14,7 +14,6 @@ import {
   X,
   ChevronDown,
   ChevronUp,
-  Plus,
   Eye,
   Edit,
   Trash2,
@@ -43,8 +42,6 @@ export default function SearchControls({
   customFilters,
   onAddCustomFilter,
   onRemoveCustomFilter,
-  showCustomFilterDropdown,
-  setShowCustomFilterDropdown,
   hiddenDefaultFilters,
   onShowAllFilters,
   onClearSearch,
@@ -92,7 +89,6 @@ export default function SearchControls({
 
   const handleResetAll = () => {
     setActiveFilter('')
-    setShowCustomFilterDropdown(false)
     setShowHeaderDropdown(false)
     setShowAdvancedFilter(false)
     if (searchQuery) handleClearSearch()
@@ -188,80 +184,6 @@ export default function SearchControls({
     setShowSuggestions(false)
   }
 
-  // Build generic custom filter options (mirrors Products)
-  const getCustomFilterOptions = () => {
-    const items = Array.isArray(currentItems) ? currentItems : []
-    const options: Array<{
-      key: string
-      label: string
-      field: string
-      operator: string
-      value: string
-    }> = []
-
-    // Status filters
-    const statuses = Array.from(new Set(items.map((it: any) => it.status).filter(Boolean)))
-    statuses.forEach(status => {
-      options.push({
-        key: `status-${status}`,
-        label: `${status} items`,
-        field: 'status',
-        operator: 'equals',
-        value: status
-      })
-    })
-
-    // Type filters
-    const types = Array.from(new Set(items.map((it: any) => it.type || it.productType).filter(Boolean)))
-    types.forEach(type => {
-      options.push({
-        key: `type-${type}`,
-        label: `${type} items`,
-        field: 'type',
-        operator: 'equals',
-        value: type
-      })
-    })
-
-    // Vendor filters
-    const vendors = Array.from(new Set(items.map((it: any) => it.vendor || it.owner).filter(Boolean)))
-    vendors.forEach(vendor => {
-      options.push({
-        key: `vendor-${vendor}`,
-        label: `By ${vendor}`,
-        field: 'vendor',
-        operator: 'equals',
-        value: vendor
-      })
-    })
-
-    // Category filters
-    const categories = Array.from(new Set(items.map((it: any) => it.category || it.board).filter(Boolean)))
-    categories.forEach(category => {
-      options.push({
-        key: `category-${category}`,
-        label: `In ${category}`,
-        field: 'category',
-        operator: 'equals',
-        value: category
-      })
-    })
-
-    // Tag filters
-    const allTags = items.flatMap((it: any) => Array.isArray(it.tags) ? it.tags : []).filter(Boolean)
-    const uniqueTags = Array.from(new Set(allTags))
-    uniqueTags.forEach(tag => {
-      options.push({
-        key: `tag-${tag}`,
-        label: `Tagged ${tag}`,
-        field: 'tags',
-        operator: 'contains',
-        value: tag
-      })
-    })
-
-    return options.slice(0, 20) // Limit to first 20 options
-  }
 
   return (
     <div className="px-3 py-0.5 border-b-0 bg-white shadow-sm">
@@ -337,46 +259,7 @@ export default function SearchControls({
                   </div>
                 )}
 
-                {/* Add Custom Filter Button - Auto-adjustable positioning */}
-                <button
-                  onClick={() => setShowCustomFilterDropdown(!showCustomFilterDropdown)}
-                  className={cn(
-                    "px-3 py-2 text-sm text-blue-600 hover:text-blue-700 border border-blue-300 rounded-md hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 transition-all duration-200 flex items-center space-x-1 bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10 flex-shrink-0",
-                    searchQuery.length > 40 ? "ml-3" : "ml-2"
-                  )}
-                  title="Add Custom Filter"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
 
-                {/* Custom Filter Dropdown */}
-                {showCustomFilterDropdown && (
-                  <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-30 custom-filter-dropdown">
-                    <div className="p-3">
-                      <div className="text-sm font-medium text-gray-700 mb-3">Add Custom Filter</div>
-                      <div className="max-h-64 overflow-y-auto space-y-1">
-                        {getCustomFilterOptions().map((option) => (
-                          <button
-                            key={option.key}
-                            onClick={() => {
-                              onAddCustomFilter({
-                                id: option.key,
-                                name: option.label,
-                                field: option.field,
-                                operator: option.operator,
-                                value: option.value
-                              })
-                              setShowCustomFilterDropdown(false)
-                            }}
-                            className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
                 
 
               </div>
@@ -389,7 +272,7 @@ export default function SearchControls({
           {/* Export Button */}
           <button
             onClick={onExport}
-            className="px-3 py-2 text-gray-700 hover:text-green-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 transition-all duration-200 hover:shadow-md text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-green-400 h-10"
+            className="px-3 py-2 text-gray-700 hover:text-green-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-green-400 h-10"
           >
             <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
               <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -403,7 +286,7 @@ export default function SearchControls({
           <div className="relative">
             <button
               onClick={() => setShowHeaderDropdown(!showHeaderDropdown)}
-              className="px-3 py-2 text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 hover:shadow-md flex items-center space-x-1 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-purple-400 h-10"
+              className="px-3 py-2 text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 flex items-center space-x-1 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-purple-400 h-10"
             >
               <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
                 <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -586,8 +469,6 @@ export default function SearchControls({
           customFilters={customFilters}
           onAddCustomFilter={onAddCustomFilter}
           onRemoveCustomFilter={onRemoveCustomFilter}
-          showCustomFilterDropdown={showCustomFilterDropdown}
-          setShowCustomFilterDropdown={setShowCustomFilterDropdown}
           hiddenDefaultFilters={hiddenDefaultFilters}
           onShowAllFilters={onShowAllFilters}
           getUniqueValues={getUniqueValues}

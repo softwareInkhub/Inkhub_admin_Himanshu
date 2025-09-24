@@ -414,8 +414,6 @@ export default function PageTemplate<T extends BaseEntity>({
           customFilters={customFilters}
           onAddCustomFilter={handleCustomFilter}
           onRemoveCustomFilter={() => {}}
-          showCustomFilterDropdown={false}
-          setShowCustomFilterDropdown={() => {}}
           hiddenDefaultFilters={new Set()}
           onShowAllFilters={() => {}}
           onClearSearch={clearSearch}
@@ -469,7 +467,7 @@ export default function PageTemplate<T extends BaseEntity>({
 
       {/* Main Content Area - Scrollable */}
       <div className={cn(
-        isFullScreen ? "flex-1 overflow-hidden flex flex-col" : "px-4 pb-4"
+        isFullScreen ? "flex-1 overflow-auto flex flex-col" : "px-4 pb-4"
       )}>
         {viewMode === 'table' && (
           <>
@@ -494,7 +492,7 @@ export default function PageTemplate<T extends BaseEntity>({
             </div>
             {/* Table Body - Scrollable */}
             <div className={cn(
-              isFullScreen ? "flex-1 overflow-auto" : ""
+              isFullScreen ? "flex-1 overflow-auto min-h-0" : ""
             )}>
               {/* Table content will be rendered here by DataTable component */}
             </div>
@@ -542,7 +540,7 @@ export default function PageTemplate<T extends BaseEntity>({
             {/* Grid Content - Scrollable */}
             <div className={cn(
               getGridClasses(gridCardsPerRow).className, 
-              isFullScreen ? "flex-1 overflow-auto px-4" : ""
+              isFullScreen ? "flex-1 overflow-auto px-4 min-h-0" : ""
             )} style={getGridClasses(gridCardsPerRow).style}>
               {filteredData.map((item: T) => (
                 <div
@@ -644,7 +642,7 @@ export default function PageTemplate<T extends BaseEntity>({
             {/* Card Content - Scrollable */}
             <div className={cn(
               getGridClasses(cardCardsPerRow).className, 
-              isFullScreen ? "flex-1 overflow-auto px-4" : ""
+              isFullScreen ? "flex-1 overflow-auto px-4 min-h-0" : ""
             )} style={getGridClasses(cardCardsPerRow).style}>
               {filteredData.map((item: T) => {
                 const anyItem: any = item as any

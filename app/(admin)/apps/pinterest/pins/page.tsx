@@ -17,6 +17,7 @@ const pinColumns = [
     key: 'pin',
     label: 'PIN',
     sortable: true,
+    width: 'w-48',
     render: (value: any, pin: Pin) => (
       <div className="flex items-center space-x-3">
         <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
@@ -32,9 +33,11 @@ const pinColumns = [
             </div>
           )}
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-gray-900 truncate">
-            {pin.title || 'Untitled Pin'}
+        <div className="flex-1 min-w-0 max-w-32">
+          <div className="text-sm font-medium text-gray-900 truncate" title={pin.title || 'Untitled Pin'}>
+            {(pin.title || 'Untitled Pin').length > 20 
+              ? `${(pin.title || 'Untitled Pin').substring(0, 20)}...` 
+              : (pin.title || 'Untitled Pin')}
           </div>
         </div>
       </div>

@@ -20,9 +20,18 @@ export const getUniqueValuesForField = (orders: Order[], field: keyof Order): st
 
 export const getUniqueTagsFromOrders = (orders: Order[]): string[] => {
   const tags = new Set<string>()
+  const seenLowercase = new Set<string>()
+  
   orders.forEach(order => {
     if (order.tags && Array.isArray(order.tags)) {
-      order.tags.forEach(tag => tags.add(tag))
+      order.tags.forEach(tag => {
+        const lowercaseTag = tag.toLowerCase()
+        // Only add if we haven't seen this tag in lowercase before
+        if (!seenLowercase.has(lowercaseTag)) {
+          seenLowercase.add(lowercaseTag)
+          tags.add(tag) // Keep original case for display
+        }
+      })
     }
   })
   return Array.from(tags).sort()
@@ -30,9 +39,16 @@ export const getUniqueTagsFromOrders = (orders: Order[]): string[] => {
 
 export const getUniqueChannelsFromOrders = (orders: Order[]): string[] => {
   const channels = new Set<string>()
+  const seenLowercase = new Set<string>()
+  
   orders.forEach(order => {
     if (order.channel) {
-      channels.add(order.channel)
+      const lowercaseChannel = order.channel.toLowerCase()
+      // Only add if we haven't seen this channel in lowercase before
+      if (!seenLowercase.has(lowercaseChannel)) {
+        seenLowercase.add(lowercaseChannel)
+        channels.add(order.channel) // Keep original case for display
+      }
     }
   })
   return Array.from(channels).sort()

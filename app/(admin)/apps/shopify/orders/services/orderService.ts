@@ -128,13 +128,13 @@ export const getTotalChunks = async (): Promise<number> => {
         return count
       }
     }
-    // Default to 137 (based on data); also cache default briefly to avoid spamming
-    cachedTotalChunks = { value: 137, timestamp: Date.now() }
-    return 137
+    // Default to 140 (based on actual data structure: 139 full pages + 1 partial page); also cache default briefly to avoid spamming
+    cachedTotalChunks = { value: 140, timestamp: Date.now() }
+    return 140
   } catch (error) {
     // Network failed, use cached fallback or default
     if (cachedTotalChunks) return cachedTotalChunks.value
-    return 137
+    return 140
   }
 }
 
@@ -274,6 +274,85 @@ export const getOrdersForPage = async (pageNumber: number, itemsPerPage: number 
 }
 
 
+
+// Get all orders from all chunks for comprehensive filtering
+export const getAllOrdersForFiltering = async (): Promise<{
+  orders: Order[]
+  totalChunks: number
+  totalOrders: number
+}> => {
+  console.log('🔄 Fetching all orders from all chunks for comprehensive filtering...')
+  
+  try {
+    const totalChunks = await getTotalChunks()
+    console.log(`📊 Total chunks to fetch: ${totalChunks}`)
+    
+    const allOrders: Order[] = []
+    const errors: string[] = []
+    
+    // Fetch all chunks in parallel with controlled concurrency
+    const batchSize = 10 // Process 10 chunks at a time to avoid overwhelming the server
+    for (let batchStart = 0; batchStart < totalChunks; batchStart += batchSize) {
+      const batchEnd = Math.min(batchStart + batchSize, totalChunks)
+      console.log(`📦 Fetching chunks ${batchStart} to ${batchEnd - 1}...`)
+      
+      const batchPromises = []
+      for (let chunkNumber = batchStart; chunkNumber < batchEnd; chunkNumber++) {
+        batchPromises.push(
+          fetchChunk(chunkNumber).catch(error => {
+            console.warn(`⚠️ Failed to fetch chunk ${chunkNumber}:`, error)
+            errors.push(`Chunk ${chunkNumber}: ${error.message}`)
+            return [] // Return empty array for failed chunks
+          })
+        )
+      }
+      
+      const batchResults = await Promise.all(batchPromises)
+      
+      // Flatten and add to allOrders
+      batchResults.forEach(chunkOrders => {
+        allOrders.push(...chunkOrders)
+      })
+      
+      // Small delay between batches to be respectful to the server
+      if (batchEnd < totalChunks) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+    
+    // Remove duplicates based on order ID
+    const seenIds = new Set<string>()
+    const deduplicatedOrders = allOrders.filter(order => {
+      if (seenIds.has(order.id)) {
+        return false
+      }
+      seenIds.add(order.id)
+      return true
+    })
+    
+    // Sort by date (newest first)
+    const sortedOrders = deduplicatedOrders.sort((a, b) => {
+      const dateA = new Date(a.createdAt || a.updatedAt || 0)
+      const dateB = new Date(b.createdAt || b.updatedAt || 0)
+      return dateB.getTime() - dateA.getTime()
+    })
+    
+    console.log(`✅ Successfully loaded ${sortedOrders.length} orders from ${totalChunks} chunks`)
+    if (errors.length > 0) {
+      console.warn(`⚠️ Encountered ${errors.length} errors while fetching chunks:`, errors.slice(0, 3))
+    }
+    
+    return {
+      orders: sortedOrders,
+      totalChunks,
+      totalOrders: sortedOrders.length
+    }
+    
+  } catch (error: any) {
+    console.error('💥 Error in getAllOrdersForFiltering:', error)
+    throw new Error(`Failed to fetch all orders: ${error.message}`)
+  }
+}
 
 // Legacy function for backward compatibility (now fetches only chunk 0)
 export const getTransformedOrders = async (): Promise<Order[]> => {

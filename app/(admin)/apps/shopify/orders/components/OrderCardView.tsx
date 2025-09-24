@@ -17,6 +17,17 @@ interface OrderCardViewProps {
   error?: string | null
   searchQuery?: string
   isFullScreen?: boolean
+  visibleFields?: {
+    customer: boolean
+    email: boolean
+    total: boolean
+    date: boolean
+    items: boolean
+    payment: boolean
+    tags: boolean
+    channel: boolean
+    delivery: boolean
+  }
 }
 
 export default function OrderCardView({
@@ -31,7 +42,8 @@ export default function OrderCardView({
   loading = false,
   error = null,
   searchQuery = '',
-  isFullScreen = false
+  isFullScreen = false,
+  visibleFields
 }: OrderCardViewProps) {
   // Note: This component now displays as a List View instead of Card Grid View
   const [hoveredCard, setHoveredCard] = useState<string | null>(null)
@@ -65,9 +77,9 @@ export default function OrderCardView({
   return (
     <div>
       <div className="space-y-2">
-        {data.map((order) => (
+        {data.map((order, index) => (
           <div
-            key={order.id}
+            key={`${order.id}-${index}`}
             className={`bg-white border rounded-lg p-3 cursor-pointer transition-all duration-200 ${
               hoveredCard === order.id ? 'shadow-md border-blue-300' : 'border-gray-200 hover:border-gray-300'
             }`}
@@ -112,10 +124,14 @@ export default function OrderCardView({
             {/* List Item Content */}
             <div className="flex items-center space-x-6 mt-2">
               {/* Customer Info */}
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-gray-900 truncate">{order.customerName}</div>
-                <div className="text-xs text-gray-500 truncate">{order.customerEmail}</div>
-              </div>
+              {visibleFields?.customer !== false && (
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-900 truncate">{order.customerName}</div>
+                  {visibleFields?.email && (
+                    <div className="text-xs text-gray-500 truncate">{order.customerEmail}</div>
+                  )}
+                </div>
+              )}
 
               {/* Status */}
               <div className="flex-shrink-0">
@@ -129,18 +145,23 @@ export default function OrderCardView({
               </div>
 
               {/* Items */}
-              <div className="flex-shrink-0 text-xs text-gray-500">
-                {order.items?.length || 0} item{(order.items?.length || 0) !== 1 ? 's' : ''}
-              </div>
+              {visibleFields?.items !== false && (
+                <div className="flex-shrink-0 text-xs text-gray-500">
+                  {order.items?.length || 0} item{(order.items?.length || 0) !== 1 ? 's' : ''}
+                </div>
+              )}
 
               {/* Date */}
-              <div className="flex-shrink-0 text-xs text-gray-500">
-                {order.createdAt ? format(new Date(order.createdAt), 'MMM dd, yyyy') : 'No date'}
-              </div>
+              {visibleFields?.date !== false && (
+                <div className="flex-shrink-0 text-xs text-gray-500">
+                  {order.createdAt ? format(new Date(order.createdAt), 'MMM dd, yyyy') : 'No date'}
+                </div>
+              )}
 
               {/* Tags */}
-              <div className="flex-shrink-0">
-                {order.tags && order.tags.length > 0 && (
+              {visibleFields?.tags !== false && (
+                <div className="flex-shrink-0">
+                  {order.tags && order.tags.length > 0 && (
                   <div className="flex gap-1">
                     {order.tags.slice(0, 2).map((tag, index) => (
                       <span key={index} className="px-1 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">
@@ -153,13 +174,18 @@ export default function OrderCardView({
                       </span>
                     )}
                   </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
 
               {/* Channel & Delivery */}
               <div className="flex-shrink-0 text-xs text-gray-500">
-                <div className="truncate max-w-32">{order.channel}</div>
-                <div className="truncate max-w-32">{order.deliveryMethod}</div>
+                {visibleFields?.channel !== false && (
+                  <div className="truncate max-w-32">{order.channel}</div>
+                )}
+                {visibleFields?.delivery !== false && (
+                  <div className="truncate max-w-32">{order.deliveryMethod}</div>
+                )}
               </div>
             </div>
           </div>

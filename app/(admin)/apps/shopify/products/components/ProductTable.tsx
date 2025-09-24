@@ -248,7 +248,7 @@ export default function ProductTable({
         <tbody className="bg-white">
           {(currentProducts || []).map((product, index) => (
             <tr 
-              key={product.id} 
+              key={`${product.id}-${index}`} 
               onClick={(e) => onProductClick(product, e)}
               className={cn(
                 "hover:bg-gray-50 transition-colors cursor-pointer",

@@ -24,6 +24,8 @@ import {
 import { useAppStore } from '@/lib/store'
 import { cn } from '@/lib/utils'
 import { Logo } from './Logo'
+import { SiShopify, SiPinterest } from 'react-icons/si'
+import styles from './sidebar.module.css'
 
 interface SidebarItem {
   title: string
@@ -34,31 +36,7 @@ interface SidebarItem {
   iconColor?: string
 }
 
-// Custom app icons with official brand colors
-const ShopifyIcon = ({ className }: { className?: string }) => (
-  <div className={cn("flex items-center justify-center transition-all duration-300 group-hover:scale-110", className)}>
-    <svg className="h-4 w-4 transition-all duration-300 group-hover:rotate-12" viewBox="0 0 24 24">
-      {/* Green background circle */}
-      <circle cx="12" cy="12" r="10" fill="#95BF47"/>
-      {/* White shopping bag with handles */}
-      <path d="M8 6h8v2H8V6zm0 2h8v10H8V8z" fill="white"/>
-      <path d="M7 6h2v2H7V6zm8 0h2v2h-2V6z" fill="white"/>
-      {/* Green S inside */}
-      <path d="M10 10h4v1h-4v-1zm0 2h4v1h-4v-1zm0 2h4v1h-4v-1z" fill="#95BF47"/>
-    </svg>
-  </div>
-)
-
-const PinterestIcon = ({ className }: { className?: string }) => (
-  <div className={cn("flex items-center justify-center transition-all duration-300 group-hover:scale-110", className)}>
-    <svg className="h-4 w-4 transition-all duration-300 group-hover:rotate-12" viewBox="0 0 24 24">
-      {/* Red circle background */}
-      <circle cx="12" cy="12" r="10" fill="#E60023"/>
-      {/* White P letter */}
-      <path d="M10 8h4v8h-4V8zm0 2h2v4h-2v-4z" fill="white"/>
-    </svg>
-  </div>
-)
+// Use official brand icons from react-icons (Shopify/Pinterest)
 
 const sidebarItems: SidebarItem[] = [
   {
@@ -76,7 +54,7 @@ const sidebarItems: SidebarItem[] = [
       {
         title: 'Shopify',
         path: '/apps/shopify',
-        icon: ShopifyIcon,
+        icon: (props: any) => <SiShopify className={cn('h-4 w-4 text-[#95BF47]', props?.className)} />, 
         isApp: true,
         iconColor: 'text-green-600',
         children: [
@@ -87,7 +65,7 @@ const sidebarItems: SidebarItem[] = [
       {
         title: 'Pinterest',
         path: '/apps/pinterest',
-        icon: PinterestIcon,
+        icon: (props: any) => <SiPinterest className={cn('h-4 w-4 text-[#E60023]', props?.className)} />,
         isApp: true,
         iconColor: 'text-red-600',
         children: [
@@ -136,9 +114,10 @@ interface SidebarItemProps {
   item: SidebarItem
   level: number
   isCollapsed: boolean
+  onActivate: () => void
 }
 
-function SidebarItemComponent({ item, level, isCollapsed }: SidebarItemProps) {
+function SidebarItemComponent({ item, level, isCollapsed, onActivate }: SidebarItemProps) {
   const pathname = usePathname()
   const [isExpanded, setIsExpanded] = useState(() => {
     // Auto-expand if current path matches this item or its children
@@ -165,6 +144,10 @@ function SidebarItemComponent({ item, level, isCollapsed }: SidebarItemProps) {
   const handleClick = () => {
     if (hasChildren) {
       setIsExpanded(!isExpanded)
+    }
+    // If sidebar is collapsed, expand it on any item click
+    if (isCollapsed) {
+      onActivate()
     }
   }
 
@@ -222,6 +205,7 @@ function SidebarItemComponent({ item, level, isCollapsed }: SidebarItemProps) {
               item={child}
               level={level + 1}
               isCollapsed={isCollapsed}
+              onActivate={onActivate}
             />
           ))}
         </div>
@@ -233,42 +217,65 @@ function SidebarItemComponent({ item, level, isCollapsed }: SidebarItemProps) {
 export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useAppStore()
 
+  // Expand sidebar only when currently collapsed
+  const expandIfCollapsed = () => {
+    if (sidebarCollapsed) {
+      toggleSidebar()
+    }
+  }
+
   return (
     <div className={cn(
-      "flex h-full w-64 flex-col border-r border-secondary-200 bg-white/80 backdrop-blur-sm dark:border-secondary-700 dark:bg-secondary-800/80 transition-all duration-300",
-      sidebarCollapsed && "w-16"
+      "flex h-full w-60 flex-col justify-between rounded-xl shadow-md border-r border-secondary-200 bg-white/80 backdrop-blur-sm dark:border-secondary-700 dark:bg-secondary-800/80 transition-all duration-300 ease-in-out",
+      sidebarCollapsed && "w-[72px]"
     )}>
-      {/* Header */}
-      <div className="flex h-16 items-center justify-between border-b border-secondary-200 px-4 dark:border-secondary-700">
+      {/* Top: Logo + Navigation */}
+      <div className="flex flex-col min-h-0">
+        {/* Header */}
+        <div className="flex h-16 items-center justify-between border-b border-secondary-200 px-4 dark:border-secondary-700">
         {!sidebarCollapsed ? (
-          <Logo size="md" />
+          // Expanded: full logo (icon + text)
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg border border-white/100">
+              <span className="text-sm font-bold tracking-tight text-white drop-shadow-sm">I</span>
+            </div>
+            <span className="text-base font-semibold tracking-wide">INKHUB</span>
+          </div>
         ) : (
-          <div className="flex h-8 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 text-white font-bold shadow-lg transition-all duration-300 hover:scale-110 hover:rotate-3 border border-white/100">
+          // Collapsed: icon only with fixed size, perfectly centered
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg transition-all duration-300 hover:scale-110 hover:rotate-3 border border-white/100 mx-auto">
             <span className="text-sm font-bold tracking-tight text-white drop-shadow-sm">I</span>
           </div>
         )}
+        </div>
+
+        {/* Navigation (scrollable when content exceeds viewport) */}
+        <nav className={cn("flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-1 p-4 scroll-smooth", styles.scrollArea)}>
+          {sidebarItems.map((item) => (
+            <SidebarItemComponent
+              key={item.path}
+              item={item}
+              level={0}
+              isCollapsed={sidebarCollapsed}
+              onActivate={expandIfCollapsed}
+            />
+          ))}
+        </nav>
+      </div>
+
+      {/* Bottom: Collapse/Expand Toggle */}
+      <div className="border-t border-secondary-200 p-3 dark:border-secondary-700">
         <button
           onClick={toggleSidebar}
-          className="rounded-lg p-1 text-secondary-800 hover:bg-secondary-100 hover-lift dark:text-secondary-400 dark:hover:bg-secondary-700 transition-all duration-300 hover:scale-110 hover:rotate-180 ml-4"
+          className="w-full flex items-center justify-center rounded-lg p-2 text-secondary-800 hover:bg-secondary-100 hover-lift dark:text-secondary-400 dark:hover:bg-secondary-700 transition-all duration-300 ease-in-out"
+          aria-label="Toggle sidebar"
         >
           <ChevronRight className={cn(
-            "h-5 w-5 transition-transform duration-300",
+            "h-5 w-5 transition-transform duration-300 ease-in-out",
             sidebarCollapsed && "rotate-180"
           )} />
         </button>
       </div>
-
-      {/* Navigation (scrollable when content exceeds viewport) */}
-      <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-1 p-4">
-        {sidebarItems.map((item) => (
-          <SidebarItemComponent
-            key={item.path}
-            item={item}
-            level={0}
-            isCollapsed={sidebarCollapsed}
-          />
-        ))}
-      </nav>
     </div>
   )
 } 
