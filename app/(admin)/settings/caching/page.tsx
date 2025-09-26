@@ -165,7 +165,7 @@ export default function SystemEngineDashboard() {
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const controllersRef = useRef<{ [id: string]: AbortController | undefined }>({});
 
-  const BACKEND_URL = useMemo(() => process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001', []);
+  const BACKEND_URL = useMemo(() => process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in', []);
   const PROJECT = 'my-app';
 
   // Add tab for this page

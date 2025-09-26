@@ -356,12 +356,12 @@ function BoardsClient() {
   // Tab management
   useEffect(() => {
     if (!hasAddedTab.current) {
-    addTab({
-      title: 'Pinterest Boards',
-      path: '/apps/pinterest/boards',
-      pinned: false,
-      closable: true,
-    })
+      addTab({
+        title: 'Pinterest Boards',
+        path: '/apps/pinterest/boards',
+        pinned: false,
+        closable: true,
+      })
       hasAddedTab.current = true
     }
   }, [addTab])

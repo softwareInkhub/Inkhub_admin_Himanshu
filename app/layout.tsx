@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
 import './globals.css'
 import { ThemeProvider } from '@/components/ThemeProvider'
 
-const inter = Inter({ subsets: ['latin'] })
+// Use system fonts to avoid Google Fonts connectivity issues
+const fontClass = 'font-sans'
 
 export const metadata: Metadata = {
   title: 'INKHUB Admin',
@@ -17,7 +17,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <body className={`${inter.className} h-full`}>
+      <body className={`${fontClass} h-full antialiased`}>
         <ThemeProvider>
           {children}
         </ThemeProvider>

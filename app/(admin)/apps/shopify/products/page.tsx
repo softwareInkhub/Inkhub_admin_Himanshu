@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useAppStore } from '@/lib/store'
+import { useProductsPageStore } from '@/lib/stores/products-page-store'
+import { UrlStateProvider } from '@/components/UrlStateProvider'
 import { cn } from '@/lib/utils'
 import { X } from 'lucide-react'
 import { debounce } from './utils/advancedSearch'
@@ -38,7 +40,76 @@ interface ProductsClientProps {
 }
 
 function ProductsClient({ initialData }: ProductsClientProps) {
+  return (
+    <UrlStateProvider>
+      {({ searchParams, setParams }) => (
+        <ProductsClientContent 
+          initialData={initialData} 
+          searchParams={searchParams} 
+          setParams={setParams} 
+        />
+      )}
+    </UrlStateProvider>
+  );
+}
+
+function ProductsClientContent({ 
+  initialData, 
+  searchParams, 
+  setParams 
+}: ProductsClientProps & { 
+  searchParams: URLSearchParams; 
+  setParams: (patch: Record<string, string | number | undefined>) => void; 
+}) {
   const { addTab, tabs } = useAppStore()
+
+  // Get persistent state from Zustand store
+  const {
+    pageIndex, pageSize, sorting, columnFilters, globalFilter,
+    setPageIndex, setPageSize, setSorting, setColumnFilters, setGlobalFilter,
+    moreActionsOpen, setMoreActionsOpen,
+    selectedRowIds, setSelectedRowIds,
+    scrollY, setScrollY,
+    reset: resetPageState
+  } = useProductsPageStore()
+
+  // Hydrate from URL on first mount
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const p = searchParams.get("p")
+    const sz = searchParams.get("sz")
+    const s = searchParams.get("s") // search query
+    if (p) setPageIndex(Number(p))
+    if (sz) setPageSize(Number(sz))
+    if (s) setGlobalFilter(s)
+    window.history.scrollRestoration = "manual"
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Restore scroll position after first paint
+  useEffect(() => {
+    if (scrollY > 0) {
+      window.scrollTo({ top: scrollY, behavior: "instant" as ScrollBehavior })
+    }
+  }, [scrollY])
+
+  // Persist scroll on tab hide and unmount
+  useEffect(() => {
+    const save = () => setScrollY(window.scrollY)
+    window.addEventListener("beforeunload", save)
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") save()
+    })
+    return () => {
+      save()
+      window.removeEventListener("beforeunload", save)
+    }
+  }, [setScrollY])
+
+  // Sync minimal state to URL for shareable links
+  useEffect(() => {
+    setParams({ p: pageIndex, sz: pageSize, s: globalFilter })
+  }, [pageIndex, pageSize, globalFilter, setParams])
+
   const [productData, setProductData] = useState<Product[]>([])
   const [chunkData, setChunkData] = useState<{ [key: string]: Product[] }>({})
   const [chunkKeys, setChunkKeys] = useState<string[]>([])
@@ -47,13 +118,12 @@ function ProductsClient({ initialData }: ProductsClientProps) {
   const [error, setError] = useState<string | null>(null)
   const [totalProducts, setTotalProducts] = useState(0)
   
-  // Filter states
+  // Filter states - using Zustand store for persistent state
   const [activeFilter, setActiveFilter] = useState('all')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState(globalFilter) // Initialize with stored value
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(globalFilter)
   const [searchConditions, setSearchConditions] = useState<SearchCondition[]>([])
   const [showSearchBuilder, setShowSearchBuilder] = useState(false)
-  const [selectedProducts, setSelectedProducts] = useState<string[]>([])
   
   // Algolia search states
   const [algoliaSearchResults, setAlgoliaSearchResults] = useState<Product[]>([])
@@ -135,19 +205,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     }
   }, [advancedFilters, showAdvancedFilter, handleAdvancedFiltersAlgoliaSearch])
 
-  // Column Header Filter states
-  const [columnFilters, setColumnFilters] = useState({
-    title: '',
-    status: [] as string[],
-    productType: [] as string[],
-    vendor: [] as string[],
-    category: [] as string[],
-    tags: [] as string[],
-    price: '',
-    inventoryQuantity: '',
-    createdAt: '',
-    updatedAt: ''
-  })
+  // Column Header Filter states - using Zustand store
   const [activeColumnFilter, setActiveColumnFilter] = useState<string | null>(null)
 
   // Custom Filter states
@@ -182,18 +240,17 @@ function ProductsClient({ initialData }: ProductsClientProps) {
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
   
-  // Pagination states
-  const { productsPage, setProductsPage } = useAppStore()
-  const [currentPage, setCurrentPage] = useState(productsPage || 1)
-  const [itemsPerPage, setItemsPerPage] = useState(500)
+  // Pagination states - using Zustand store
+  const [currentPage, setCurrentPage] = useState(pageIndex + 1) // Convert 0-based to 1-based
+  const [itemsPerPage, setItemsPerPage] = useState(pageSize)
   
-  // Keep local pagination synced with store across tab switches/refresh
+  // Keep local currentPage in sync with Zustand store
   useEffect(() => {
-    const pageFromStore = productsPage || 1
-    if (pageFromStore !== currentPage) {
-      setCurrentPage(pageFromStore)
+    const storePage = pageIndex + 1 // Convert 0-based to 1-based
+    if (storePage !== currentPage) {
+      setCurrentPage(storePage)
     }
-  }, [productsPage])
+  }, [pageIndex, currentPage])
 
   // Cards per row state for grid/card views
   const [cardsPerRow, setCardsPerRow] = useState(() => {
@@ -255,16 +312,12 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
   // Apply items per page setting
   useEffect(() => {
-    if ((productsPage || 1) !== currentPage) {
-      setCurrentPage(productsPage || 1)
-    }
-  }, [productsPage])
-
-  useEffect(() => {
     if (settings.itemsPerPage && settings.itemsPerPage !== itemsPerPage) {
       setItemsPerPage(settings.itemsPerPage)
+      setPageSize(settings.itemsPerPage)
     }
-  }, [settings.itemsPerPage])
+  }, [settings.itemsPerPage, itemsPerPage, setPageSize])
+
 
   // Apply advanced filter setting
   useEffect(() => {
@@ -381,7 +434,11 @@ function ProductsClient({ initialData }: ProductsClientProps) {
   })
 
   const mapRecordToProduct = (raw: any, idx: number): Product | null => {
-    // Remove excessive console logging for performance
+    try {
+      // Skip if no raw data
+      if (!raw || typeof raw !== 'object') {
+        return null
+      }
     
     // Handle product image data structure (from cache) - legacy support
     if (raw?.product_id && raw?.src && !raw?.title) {
@@ -389,33 +446,59 @@ function ProductsClient({ initialData }: ProductsClientProps) {
       return null
     }
     
-    // Handle actual product data structure (from Shopify cache)
+      // Extract basic fields with better fallbacks
+      const idValue = raw?.id || raw?.product_id || raw?.gid || `product-${idx}`
+      const title = raw?.title || raw?.name || `Product ${idx + 1}`
+      
+      // Skip if we can't get a valid ID or title
+      if (!idValue || !title) {
+        return null
+      }
+      
+      // Handle variants
     const variantsArray: any[] = Array.isArray(raw?.variants) ? raw.variants : []
-    const totalInventory = variantsArray.reduce((sum, v) => sum + (Number(v?.inventory_quantity ?? v?.inventoryQuantity ?? 0) || 0), 0)
+      const totalInventory = variantsArray.reduce((sum, v) => {
+        const qty = Number(v?.inventory_quantity ?? v?.inventoryQuantity ?? 0)
+        return sum + (isNaN(qty) ? 0 : qty)
+      }, 0)
+      
     const primaryVariant = variantsArray[0] || {}
+      
+      // Handle images
     const imagesArr = Array.isArray(raw?.images) ? raw.images : (raw?.image ? [raw.image] : [])
     const imageUrls = imagesArr
-      .map((img: any) => typeof img === 'string' ? img : (img?.src || img?.url))
+        .map((img: any) => {
+          if (typeof img === 'string') return img
+          return img?.src || img?.url || ''
+        })
       .filter(Boolean)
 
-    const title = String(raw?.title ?? raw?.name ?? '')
-    const productType = String(raw?.product_type ?? raw?.productType ?? raw?.category ?? '')
-    const priceCandidate = primaryVariant?.price || raw?.price
-    const statusRaw = String(raw?.status ?? 'active').toLowerCase()
-    const status = (statusRaw === 'active' || statusRaw === 'draft' || statusRaw === 'archived') ? statusRaw as Product['status'] : 'active'
+      // Extract other fields
+      const productType = raw?.product_type || raw?.productType || raw?.category || ''
+      const priceCandidate = primaryVariant?.price || raw?.price || 0
+      const statusRaw = String(raw?.status || 'active').toLowerCase()
+      const status = (statusRaw === 'active' || statusRaw === 'draft' || statusRaw === 'archived') 
+        ? statusRaw as Product['status'] 
+        : 'active'
 
-    // Guard: require an id and a non-empty title
-    const idValue = String(raw?.id ?? raw?.product_id ?? raw?.gid ?? '')
-    if (!idValue) return null
-    if (!title) return null
+      // Handle tags
+      let tags: string[] = []
+      if (Array.isArray(raw?.tags)) {
+        tags = raw.tags
+      } else if (typeof raw?.tags === 'string') {
+        tags = raw.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
+      }
+
+      // Handle collections
+      const collections = Array.isArray(raw?.collections) ? raw.collections : []
 
     return {
-      id: idValue,
-      title,
-      handle: String(raw?.handle ?? toSlug(title)),
-      vendor: String(raw?.vendor ?? raw?.brand ?? ''),
-      productType,
-      price: Number(priceCandidate ?? 0) || 0,
+        id: String(idValue),
+        title: String(title),
+        handle: raw?.handle || toSlug(title),
+        vendor: String(raw?.vendor || raw?.brand || ''),
+        productType: String(productType),
+        price: Number(priceCandidate) || 0,
       compareAtPrice: primaryVariant?.compare_at_price != null ? Number(primaryVariant.compare_at_price) : undefined,
       cost: Number(primaryVariant?.cost ?? raw?.cost ?? 0) || 0,
       inventoryQuantity: Number(raw?.inventory_quantity ?? raw?.inventoryQuantity ?? totalInventory) || 0,
@@ -423,84 +506,113 @@ function ProductsClient({ initialData }: ProductsClientProps) {
       publishedAt: raw?.published_at ? parseDate(raw?.published_at) : undefined,
       createdAt: parseDate(raw?.created_at ?? raw?.createdAt),
       updatedAt: parseDate(raw?.updated_at ?? raw?.updatedAt),
-      tags: Array.isArray(raw?.tags) ? raw.tags : (typeof raw?.tags === 'string' ? raw.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []),
-      images: imageUrls.length > 0 ? imageUrls : [],
+        tags,
+        images: imageUrls,
       variants: variantsArray.map(mapVariant),
-      collections: Array.isArray(raw?.collections) ? raw.collections : [],
+        collections,
       selected: false,
       salesChannels: Number(raw?.salesChannels ?? 1) || 1,
-      category: productType || ''
+        category: String(productType) || ''
+      }
+    } catch (error) {
+      console.error(`Error mapping product at index ${idx}:`, error, raw)
+      return null
     }
   }
 
   // Fetch real products from cache API
-  const fetchProducts = async () => {
-    setLoading(true)
+  const fetchProducts = async (isBackground: boolean = false) => {
+    // Prevent duplicate fetches on first mount (Strict Mode double-invoke)
+    if (hasFetchedRef.current && !isBackground) {
+      console.log('⏭️ Skipping fetch: already in progress or completed')
+      return
+    }
+    hasFetchedRef.current = true
+    if (!isBackground) setLoading(true)
     setError(null)
     
     try {
-      const BACKEND_URL = 'https://brmh.in' // Temporarily hardcoded for debugging
+      const BACKEND_URL = 'https://brmh.in'
       
-      // First try to fetch chunk:0 directly since we know it exists
-      const chunk0Url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=chunk:0`
+      // Try multiple possible keys for products data
+      const possibleKeys = ['chunk:0', 'all', 'products']
       
-      console.log('🌐 Fetching from URL:', chunk0Url)
-      
-      const chunk0Res = await fetch(chunk0Url, { 
-        signal: AbortSignal.timeout(8000),
+      for (const key of possibleKeys) {
+        try {
+          const url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=${key}`
+          console.log('🌐 Trying URL:', url)
+          
+          const response = await fetch(url, { 
+          signal: AbortSignal.timeout(45000),
         headers: { Accept: 'application/json', 'Accept-Encoding': 'identity' }
       })
       
-      console.log('📡 Response status:', chunk0Res.status, chunk0Res.statusText)
-      
-      if (chunk0Res.ok) {
-        const text = await chunk0Res.text()
-        const chunk0Json = JSON.parse(text)
-        
-        if (chunk0Json?.data && Array.isArray(chunk0Json.data)) {
-          try {
-            console.log('📦 Raw data from API:', chunk0Json.data.slice(0, 2)) // Show first 2 items
+          console.log('📡 Response status:', response.status, response.statusText)
+          
+          if (response.ok) {
+            const text = await response.text()
+            const jsonData = JSON.parse(text)
             
-            // Map, filter invalid/null, and de-duplicate by id
-            const mappedProducts = (chunk0Json.data
-              .map(mapRecordToProduct)
-              .filter(Boolean) as Product[])
-            const uniqueProducts = Array.from(new Map(mappedProducts.map(p => [p.id, p])).values())
-            
-            console.log('✅ Mapped products:', {
-              rawCount: chunk0Json.data.length,
-              mappedCount: mappedProducts.length,
-              uniqueCount: uniqueProducts.length,
-              firstProduct: uniqueProducts[0]
-            })
-            
+            if (jsonData?.data && Array.isArray(jsonData.data)) {
+              console.log('📦 Raw data from API:', {
+                key,
+                count: jsonData.data.length,
+                firstItem: jsonData.data[0]
+              })
+              
+              // Map and filter products
+              const mappedProducts = jsonData.data
+                .map((raw: any, idx: number) => {
+                  try {
+                    return mapRecordToProduct(raw, idx)
+                  } catch (error) {
+                    console.warn(`Failed to map product at index ${idx}:`, error)
+                    return null
+                  }
+                })
+                .filter(Boolean) as Product[]
+              
+              // Remove duplicates by id
+              const uniqueProducts = Array.from(
+                new Map(mappedProducts.map(p => [p.id, p])).values()
+              )
+              
+              console.log('✅ Successfully processed products:', {
+                key,
+                rawCount: jsonData.data.length,
+                mappedCount: mappedProducts.length,
+                uniqueCount: uniqueProducts.length,
+                sampleProduct: uniqueProducts[0]
+              })
+              
+              // Set the data
             setProductData(uniqueProducts)
             setTotalProducts(uniqueProducts.length)
-            setChunkData({ 'chunk:0': uniqueProducts })
-            setChunkKeys(['chunk:0'])
+              setChunkData({ [key]: uniqueProducts })
+              setChunkKeys([key])
             setIsDataLoaded(true)
             setLoading(false)
-            setError(null) // Clear any previous errors
-            return
-                      } catch (mappingError: any) {
-              console.error('❌ Mapping error:', mappingError)
-              throw new Error(`Data mapping failed: ${mappingError.message}`)
+              setError(null)
+              return // Success, exit the function
             }
-          } else {
-            throw new Error('Invalid data format from cache')
           }
-        } else {
-          throw new Error(`Cache API error: ${chunk0Res.status} ${chunk0Res.statusText}`)
+        } catch (keyError) {
+          console.log(`❌ Failed to fetch with key "${key}":`, keyError)
+          // Continue to next key
         }
-        
+      }
+      
+      // If we get here, all keys failed
+      throw new Error('No products data found in any cache key. Please cache the products data first.')
+      
       } catch (e: any) {
         if (e?.name === 'AbortError') {
+        console.log('⏹️ Request aborted')
           return
         }
         
         console.error('❌ Cache fetch error:', e)
         
-        // Check if it's a 404 error (no data available)
         if (e.message.includes('404') || e.message.includes('Not Found')) {
           setError('No products data available. Please cache the products data first using the Caching page.')
         } else {
@@ -508,13 +620,19 @@ function ProductsClient({ initialData }: ProductsClientProps) {
         }
       } finally {
         setIsDataLoaded(true)
-        setLoading(false)
+        if (!isBackground) setLoading(false)
       }
   }
 
   // Fetch real products from cache API using chunk-based approach
   useEffect(() => {
     console.log('🚀 Products page mounted, starting data fetch...')
+    
+    // Only fetch if we haven't fetched yet or if data is empty
+    if (hasFetchedRef.current && productData.length > 0) {
+      console.log('📦 Data already loaded, skipping fetch')
+      return
+    }
     
     // Check if we have cached data first
     if (typeof window !== 'undefined') {
@@ -525,20 +643,25 @@ function ProductsClient({ initialData }: ProductsClientProps) {
           const parsed = JSON.parse(cached)
           const now = Date.now()
           const cacheAge = now - (parsed.timestamp || 0)
-          const cacheTTL = 10 * 60 * 1000 // 10 minutes
+          const cacheTTL = 30 * 60 * 1000 // 30 minutes to avoid frequent cold loads
           
-          if (cacheAge < cacheTTL && parsed.data && Array.isArray(parsed.data)) {
+          if (cacheAge < cacheTTL && parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
             console.log('✅ Using fresh cached data:', parsed.data.length, 'products')
             // Use cached data if it's fresh
             setProductData(parsed.data)
             setTotalProducts(parsed.data.length)
-            setChunkData({ 'chunk:0': parsed.data })
-            setChunkKeys(['chunk:0'])
+            setChunkData({ 'cached': parsed.data })
+            setChunkKeys(['cached'])
             setIsDataLoaded(true)
             setLoading(false)
+            hasFetchedRef.current = true
+            // Trigger a background refresh without blocking UI
+            ;(async () => {
+              try { await fetchProducts(true) } catch {}
+            })()
             return
           } else {
-            console.log('⏰ Cached data is stale, fetching fresh data...')
+            console.log('⏰ Cached data is stale or empty, fetching fresh data...')
           }
         } catch (e) {
           console.log('❌ Invalid cache, fetching fresh data...')
@@ -560,7 +683,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
     console.log('🌐 Starting fresh API fetch...')
     fetchProducts()
-  }, [])
+  }, []) // Remove productData.length dependency to prevent infinite loops
 
   // Tab management
   useEffect(() => {
@@ -805,18 +928,18 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
     // Handle product selection
     const handleSelectProduct = (productId: string) => {
-      setSelectedProducts(prev => 
-        prev.includes(productId) 
-          ? prev.filter(id => id !== productId)
-          : [...prev, productId]
-      )
+      const currentIds = useProductsPageStore.getState().selectedRowIds
+      const newIds = currentIds.includes(productId) 
+        ? currentIds.filter((id: string) => id !== productId)
+        : [...currentIds, productId]
+      setSelectedRowIds(newIds)
     }
 
     const handleSelectAll = () => {
-      if (selectedProducts.length === paginatedData.length) {
-        setSelectedProducts([])
+      if (selectedRowIds.length === paginatedData.length) {
+        setSelectedRowIds([])
       } else {
-        setSelectedProducts(paginatedData.map(p => p.id))
+        setSelectedRowIds(paginatedData.map(p => p.id))
       }
     }
 
@@ -835,19 +958,25 @@ function ProductsClient({ initialData }: ProductsClientProps) {
     // Handle pagination
     const handlePageChange = (page: number) => {
       setCurrentPage(page)
-      setProductsPage(page)
+      setPageIndex(page - 1) // Convert 1-based to 0-based
     }
 
     const handleItemsPerPageChange = (items: number) => {
     // Allow changing items per page since we're now using filtered data
       setItemsPerPage(items)
+      setPageSize(items)
       setCurrentPage(1)
-      setProductsPage(1)
+      setPageIndex(0) // Reset to first page (0-based)
     }
 
     // Handle column filtering
     const handleColumnFilterChange = (column: string, value: any) => {
-      setColumnFilters(prev => ({ ...prev, [column]: value }))
+      const currentFilters = useProductsPageStore.getState().columnFilters
+      const newFilters = {
+        ...currentFilters,
+        [column]: value
+      }
+      setColumnFilters(newFilters)
     }
 
     const toggleColumnFilter = (column: string) => {
@@ -912,6 +1041,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
     const clearSearch = () => {
       setSearchQuery('')
+      setGlobalFilter('') // Clear from Zustand store
     }
 
     // Handle filter visibility
@@ -1304,7 +1434,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
           onShowAllFilters={showAllFilters}
           onClearSearch={clearSearch}
           onClearSearchConditions={clearSearchConditions}
-          selectedProducts={selectedProducts}
+          selectedProducts={selectedRowIds}
           onBulkEdit={handleBulkEdit}
           onExportSelected={handleExportSelected}
           onBulkDelete={handleBulkDelete}
@@ -1865,7 +1995,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
           )}>
             {/* Bulk Actions Bar - Common for all views */}
             <BulkActionsBar
-              selectedProducts={selectedProducts}
+              selectedProducts={selectedRowIds}
               totalProducts={totalItemsForPagination}
               onBulkEdit={handleBulkEdit}
               onExportSelected={handleExportSelected}
@@ -1880,7 +2010,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 )}>
               <ProductTable
                 currentProducts={paginatedData}
-                selectedProducts={selectedProducts}
+                selectedProducts={selectedRowIds}
                 onSelectProduct={handleSelectProduct}
                 onSelectAll={handleSelectAll}
                 onProductClick={handleProductClick}
@@ -1920,7 +2050,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                   isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : ""
                 )}>
                   <GridCardFilterHeader
-                    selectedProducts={selectedProducts}
+                    selectedProducts={selectedRowIds}
                     currentProducts={paginatedData}
                     onSelectAll={handleSelectAll}
                     activeColumnFilter={activeColumnFilter}
@@ -1950,7 +2080,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                     <div className="flex items-center space-x-3 mb-3">
                     <input
                       type="checkbox"
-                        checked={selectedProducts.includes(product.id)}
+                        checked={selectedRowIds.includes(product.id)}
                       onChange={(e) => {
                           e.stopPropagation()
                           handleSelectProduct(product.id)
@@ -2017,7 +2147,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                   isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : ""
                 )}>
                   <GridCardFilterHeader
-                    selectedProducts={selectedProducts}
+                    selectedProducts={selectedRowIds}
                     currentProducts={paginatedData}
                     onSelectAll={handleSelectAll}
                     activeColumnFilter={activeColumnFilter}
@@ -2036,7 +2166,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 )}>
                 <ProductCardView
                   currentProducts={paginatedData}
-                  selectedProducts={selectedProducts}
+                  selectedProducts={selectedRowIds}
                   onSelectProduct={handleSelectProduct}
                   onProductClick={handleProductClick}
                   getStatusBadge={getStatusBadgeForProduct}
@@ -2127,7 +2257,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
             : (useAlgoliaSearch && algoliaSearchResults.length > 0 
               ? algoliaSearchResults 
               : filteredProducts)}
-          selectedProducts={selectedProducts}
+          selectedProducts={selectedRowIds}
         />
 
 
@@ -2149,7 +2279,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">Bulk Edit Products</h2>
                     <p className="text-sm text-gray-500">
-                Edit {selectedProducts.length} selected product{selectedProducts.length !== 1 ? 's' : ''}
+                Edit {selectedRowIds.length} selected product{selectedRowIds.length !== 1 ? 's' : ''}
               </p>
                   </div>
                 </div>
@@ -2350,7 +2480,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                    <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
                      <div className="flex justify-between">
                        <span className="text-gray-600">Products to edit:</span>
-                       <span className="font-medium">{selectedProducts.length}</span>
+                       <span className="font-medium">{selectedRowIds.length}</span>
                   </div>
                      <div className="flex justify-between">
                        <span className="text-gray-600">Fields to update:</span>
@@ -2360,7 +2490,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 </div>
                      <div className="flex justify-between">
                        <span className="text-gray-600">Estimated time:</span>
-                       <span className="font-medium">~{Math.ceil(selectedProducts.length / 10)} seconds</span>
+                       <span className="font-medium">~{Math.ceil(selectedRowIds.length / 10)} seconds</span>
               </div>
                      {Object.values(bulkEditForm).filter(field => field.enabled).length > 0 && (
                        <div className="mt-3 pt-3 border-t border-gray-200">
@@ -2417,7 +2547,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
 
                      // Handle bulk edit logic here
                      console.log('Applying bulk edit changes...', {
-                       selectedProducts,
+                       selectedRowIds,
                        changes: bulkEditForm,
                        enabledFields: enabledFields.length
                      })
@@ -2455,7 +2585,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Delete Products</h3>
               <p className="text-sm text-gray-600 mb-4">
-                Are you sure you want to delete {selectedProducts.length} selected product{selectedProducts.length !== 1 ? 's' : ''}? This action cannot be undone.
+                Are you sure you want to delete {selectedRowIds.length} selected product{selectedRowIds.length !== 1 ? 's' : ''}? This action cannot be undone.
               </p>
               <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
                 <p className="text-sm text-red-700">
@@ -2472,7 +2602,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                 <button
                   onClick={() => {
                     // Handle bulk delete logic here
-                    setSelectedProducts([])
+                    setSelectedRowIds([])
                     closeBulkDeleteModal()
                   }}
                   className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
@@ -2590,7 +2720,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
                       />
                       <div className="ml-3">
-                        <div className="text-sm font-medium text-gray-900">Selected products ({selectedProducts.length})</div>
+                        <div className="text-sm font-medium text-gray-900">Selected products ({selectedRowIds.length})</div>
                         <div className="text-xs text-gray-500">Print only selected products</div>
                       </div>
                     </label>
@@ -2675,7 +2805,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                     <span className="text-sm font-medium text-gray-700">Print Preview</span>
                   </div>
                   <div className="text-xs text-gray-600 space-y-1">
-                    <div>• {printOptions.printType === 'all' ? `${totalItemsForPagination} products` : `${selectedProducts.length} selected products`} will be printed</div>
+                    <div>• {printOptions.printType === 'all' ? `${totalItemsForPagination} products` : `${selectedRowIds.length} selected products`} will be printed</div>
                     <div>• Layout: {printOptions.layout.charAt(0).toUpperCase() + printOptions.layout.slice(1)}</div>
                     <div>• Page: {printOptions.pageSize} {printOptions.orientation}</div>
                     <div>• {printOptions.includeImages ? 'With' : 'Without'} images, {printOptions.includeDetails ? 'with' : 'without'} detailed information</div>
@@ -2708,7 +2838,7 @@ function ProductsClient({ initialData }: ProductsClientProps) {
                           ? algoliaFilterResults 
                           : (useAlgoliaSearch && algoliaSearchResults.length > 0 
                             ? algoliaSearchResults 
-                            : filteredProducts)).filter(p => selectedProducts.includes(p.id))
+                            : filteredProducts)).filter(p => selectedRowIds.includes(p.id))
                       console.log('Printing products:', {
                         count: productsToPrint.length,
                         options: printOptions,
