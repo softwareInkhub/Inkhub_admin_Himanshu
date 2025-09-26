@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useAppStore } from '@/lib/store'
+import { useOrdersPageStore } from '@/lib/stores/orders-page-store'
+import { UrlStateProvider } from '@/components/UrlStateProvider'
 import { cn } from '@/lib/utils'
 import { X } from 'lucide-react'
 import { debounce } from '../products/utils/advancedSearch'
@@ -39,11 +41,82 @@ interface OrdersClientProps {
 }
 
 function OrdersClient({ initialData }: OrdersClientProps) {
+  return (
+    <UrlStateProvider>
+      {({ searchParams, setParams }) => (
+        <OrdersClientContent 
+          initialData={initialData} 
+          searchParams={searchParams} 
+          setParams={setParams} 
+        />
+      )}
+    </UrlStateProvider>
+  );
+}
+
+function OrdersClientContent({ 
+  initialData, 
+  searchParams, 
+  setParams 
+}: OrdersClientProps & { 
+  searchParams: URLSearchParams; 
+  setParams: (patch: Record<string, string | number | undefined>) => void; 
+}) {
   const { addTab, tabs, activeTabId } = useAppStore()
   const isActive = useMemo(() => {
     const active = tabs.find(t => t.id === activeTabId)
     return active?.path === '/apps/shopify/orders'
   }, [activeTabId, tabs])
+
+  // Get persistent state from Zustand store
+  const {
+    pageIndex, pageSize, sorting, columnFilters, globalFilter,
+    setPageIndex, setPageSize, setSorting, setColumnFilters, setGlobalFilter,
+    moreActionsOpen, setMoreActionsOpen,
+    selectedRowIds, setSelectedRowIds,
+    scrollY, setScrollY,
+    reset: resetPageState
+  } = useOrdersPageStore()
+
+  // Hydrate from URL on first mount (only page, size for simplicity)
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const p = searchParams.get("p")
+    const sz = searchParams.get("sz")
+    const s = searchParams.get("s") // search query
+    if (p) setPageIndex(Number(p))
+    if (sz) setPageSize(Number(sz))
+    if (s) setGlobalFilter(s)
+    // Avoid browser default scroll restore for consistent behavior
+    window.history.scrollRestoration = "manual"
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Restore scroll position after first paint
+  useEffect(() => {
+    if (scrollY > 0) {
+      window.scrollTo({ top: scrollY, behavior: "instant" as ScrollBehavior })
+    }
+  }, [scrollY])
+
+  // Persist scroll on tab hide and unmount
+  useEffect(() => {
+    const save = () => setScrollY(window.scrollY)
+    window.addEventListener("beforeunload", save)
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") save()
+    })
+    return () => {
+      save()
+      window.removeEventListener("beforeunload", save)
+    }
+  }, [setScrollY])
+
+  // Sync minimal state to URL for shareable links
+  useEffect(() => {
+    setParams({ p: pageIndex, sz: pageSize, s: globalFilter })
+  }, [pageIndex, pageSize, globalFilter, setParams])
+
+
   const [orderData, setOrderData] = useState<Order[]>([])
   const [chunkData, setChunkData] = useState<{ [key: string]: Order[] }>({})
   const [chunkKeys, setChunkKeys] = useState<string[]>([])
@@ -52,19 +125,18 @@ function OrdersClient({ initialData }: OrdersClientProps) {
   const [error, setError] = useState<string | null>(null)
   const [totalOrders, setTotalOrders] = useState(69911) // Initialize with estimated total
   
-  // Filter states
+  // Filter states - using Zustand store for persistent state
   const [activeFilter, setActiveFilter] = useState('')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState(globalFilter) // Initialize with stored value
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(globalFilter)
   const [searchConditions, setSearchConditions] = useState<SearchCondition[]>([])
   const [showSearchBuilder, setShowSearchBuilder] = useState(false)
-  const [selectedOrders, setSelectedOrders] = useState<string[]>([])
   
-  // Sorting state
-  const [sortState, setSortState] = useState<{ key: string | null; dir: 'asc' | 'desc' | null }>({
-    key: null,
-    dir: null
-  })
+  // Sorting state - using Zustand store
+  const sortState = useMemo(() => ({
+    key: sorting.length > 0 ? sorting[0].id : null,
+    dir: sorting.length > 0 ? (sorting[0].desc ? 'desc' as const : 'asc' as const) : null
+  }), [sorting])
   
   // Algolia search states
   const [algoliaSearchResults, setAlgoliaSearchResults] = useState<Order[]>([])
@@ -151,21 +223,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     }
   }, [advancedFilters, showAdvancedFilter, handleAdvancedFiltersAlgoliaSearch])
 
-  // Column Header Filter states
-  const [columnFilters, setColumnFilters] = useState({
-    serialNumber: '',
-    orderNumber: '',
-    customerName: '',
-    status: [] as string[],
-    fulfillmentStatus: [] as string[],
-    financialStatus: [] as string[],
-    channel: [] as string[],
-    deliveryMethod: [] as string[],
-    tags: [] as string[],
-    total: '',
-    createdAt: '',
-    updatedAt: ''
-  })
+  // Column Header Filter states - using Zustand store
   const [activeColumnFilter, setActiveColumnFilter] = useState<string | null>(null)
 
   // Custom Filter states
@@ -305,21 +363,9 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     setShowEditFieldsModal(false)
   }
   
-  // Pagination states (persisted in store) - ensure we start with page 1
-  const { ordersPage, setOrdersPage } = useAppStore()
-  
-  // Reset to page 1 if invalid page is stored
-  useEffect(() => {
-    if (ordersPage && ordersPage > 140) {
-      console.log(`🔄 Resetting invalid page ${ordersPage} to page 1`)
-      setOrdersPage(1)
-    }
-  }, [ordersPage, setOrdersPage])
-  const setOrdersScroll = useAppStore(s => s.setOrdersScroll)
-  const initialOrdersScrollRef = useRef<number>(typeof window !== 'undefined' ? (useAppStore.getState().ordersScroll || 0) : 0)
-  const hasRestoredScrollRef = useRef<boolean>(false)
-  const [currentPage, setCurrentPage] = useState(1) // Always start with page 1
-  const [itemsPerPage, setItemsPerPage] = useState(25)
+  // Pagination states - using Zustand store
+  const [currentPage, setCurrentPage] = useState(pageIndex + 1) // Convert 0-based to 1-based
+  const [itemsPerPage, setItemsPerPage] = useState(pageSize)
   
   // Cache state and StrictMode guard (logic-only, no UI changes)
   const [cacheKey, setCacheKey] = useState<string>('')
@@ -457,130 +503,6 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     }
   }, [])
 
-  // Throttled scroll position persistence
-  const throttledSaveRef = useRef<((y: number) => void) | null>(null)
-  useEffect(() => {
-    const throttle = (fn: (y: number) => void, wait: number) => {
-      let last = 0
-      let timeout: any
-      let lastArgs: any[] | null = null
-      return (...args: any[]) => {
-        const now = Date.now()
-        if (now - last >= wait) {
-          last = now
-          fn(args[0] as number)
-        } else {
-          if (timeout) clearTimeout(timeout)
-          lastArgs = args
-          timeout = setTimeout(() => {
-            last = Date.now()
-            if (lastArgs) fn(lastArgs[0] as number)
-          }, wait - (now - last))
-        }
-      }
-    }
-    throttledSaveRef.current = throttle((y: number) => {
-      try { setOrdersScroll(y) } catch {}
-    }, 200)
-  }, [setOrdersScroll])
-
-  // Attach scroll listeners to save position
-  useEffect(() => {
-    const onScroll = () => {
-      const y = isFullScreen && fullScreenScrollRef.current
-        ? fullScreenScrollRef.current.scrollTop
-        : (typeof window !== 'undefined' ? window.scrollY : 0)
-      throttledSaveRef.current && throttledSaveRef.current(y)
-    }
-
-    if (isFullScreen && fullScreenScrollRef.current) {
-      const el = fullScreenScrollRef.current
-      el.addEventListener('scroll', onScroll, { passive: true } as any)
-      return () => {
-        el.removeEventListener('scroll', onScroll as any)
-      }
-    } else {
-      if (typeof window !== 'undefined') {
-        window.addEventListener('scroll', onScroll, { passive: true } as any)
-        return () => {
-          window.removeEventListener('scroll', onScroll as any)
-        }
-      }
-    }
-  }, [isFullScreen])
-
-  // Restore scroll position after data renders
-  useEffect(() => {
-    if (!isDataLoaded || hasRestoredScrollRef.current) return
-    const y = initialOrdersScrollRef.current || 0
-    if (y <= 0) {
-      hasRestoredScrollRef.current = true
-      return
-    }
-    const restore = () => {
-      try {
-        if (isFullScreen && fullScreenScrollRef.current) {
-          fullScreenScrollRef.current.scrollTop = y
-        } else if (typeof window !== 'undefined') {
-          window.scrollTo(0, y)
-        }
-        hasRestoredScrollRef.current = true
-      } catch {}
-    }
-    if (typeof window !== 'undefined') {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          restore()
-        })
-      })
-      setTimeout(() => {
-        if (!hasRestoredScrollRef.current) restore()
-      }, 300)
-    }
-  }, [isDataLoaded, isFullScreen])
-
-  // Save scroll on unmount
-  useEffect(() => {
-    return () => {
-      const y = isFullScreen && fullScreenScrollRef.current
-        ? fullScreenScrollRef.current.scrollTop
-        : (typeof window !== 'undefined' ? window.scrollY : 0)
-      try { setOrdersScroll(y) } catch {}
-    }
-  }, [isFullScreen, setOrdersScroll])
-
-  // Restore scroll each time the Orders tab becomes active (Keep-Alive tabs)
-  useEffect(() => {
-    if (!isActive) return
-    // Ensure data/content is ready
-    if (!isDataLoaded) return
-    const y = (typeof window !== 'undefined') ? (useAppStore.getState().ordersScroll || 0) : 0
-    if (y <= 0) return
-    const restore = () => {
-      try {
-        if (isFullScreen && fullScreenScrollRef.current) {
-          fullScreenScrollRef.current.scrollTop = y
-        } else if (typeof window !== 'undefined') {
-          window.scrollTo(0, y)
-        }
-      } catch {}
-    }
-    if (typeof window !== 'undefined') {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => restore())
-      })
-      setTimeout(() => restore(), 200)
-    }
-  }, [isActive, isDataLoaded, isFullScreen])
-
-  // Save scroll when tab deactivates (Keep-Alive tabs)
-  useEffect(() => {
-    if (isActive) return
-    const y = isFullScreen && fullScreenScrollRef.current
-      ? (fullScreenScrollRef.current.scrollTop || 0)
-      : (typeof window !== 'undefined' ? window.scrollY : 0)
-    try { setOrdersScroll(y) } catch {}
-  }, [isActive, isFullScreen, setOrdersScroll])
 
     // Load orders data for current page
   useEffect(() => {
@@ -633,7 +555,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
         if (validPage !== currentPage) {
           console.log(`🔄 Correcting invalid page ${currentPage} to ${validPage}`)
           setCurrentPage(validPage)
-          setOrdersPage(validPage)
+          setPageIndex(validPage - 1) // Convert to 0-based
           return // Exit early, will retry with correct page
         }
         
@@ -800,13 +722,13 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     })
   }
   
-  // Keep local currentPage in sync with store on tab switches (but ensure it's valid)
+  // Keep local currentPage in sync with Zustand store
   useEffect(() => {
-    const validPage = Math.max(1, Math.min(ordersPage || 1, totalPages || 1))
-    if (validPage !== currentPage) {
-      setCurrentPage(validPage)
+    const storePage = pageIndex + 1 // Convert 0-based to 1-based
+    if (storePage !== currentPage) {
+      setCurrentPage(storePage)
     }
-  }, [ordersPage, totalPages, currentPage, useAlgoliaFilters, algoliaFilterResults])
+  }, [pageIndex, currentPage])
 
   // Debounced search query
   useEffect(() => {
@@ -1432,33 +1354,31 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     }
   }, [filteredData, comprehensiveKPIs, useAlgoliaFilters, algoliaFilterResults])
 
-  // Event handlers
+  // Event handlers - using Zustand store
   const handleSelectItem = useCallback((id: string) => {
-    setSelectedOrders(prev => 
-      prev.includes(id) 
-        ? prev.filter(item => item !== id)
-        : [...prev, id]
-    )
-  }, [])
+    const currentIds = useOrdersPageStore.getState().selectedRowIds
+    const newIds = currentIds.includes(id) 
+      ? currentIds.filter((item: string) => item !== id)
+      : [...currentIds, id]
+    setSelectedRowIds(newIds)
+  }, [setSelectedRowIds])
 
-  // Sorting handler
+  // Sorting handler - using Zustand store
   const handleRequestSort = useCallback((key: string) => {
-    setSortState(prev => {
-      if (prev.key === key) {
-        // If clicking the same column, cycle through: asc -> desc -> null
-        if (prev.dir === 'asc') {
-          return { key, dir: 'desc' }
-        } else if (prev.dir === 'desc') {
-          return { key: null, dir: null }
-        } else {
-          return { key, dir: 'asc' }
-        }
+    const currentSort = sorting.find(s => s.id === key)
+    if (currentSort) {
+      if (currentSort.desc) {
+        // Currently descending, remove sort
+        setSorting([])
       } else {
-        // If clicking a different column, start with ascending
-        return { key, dir: 'asc' }
+        // Currently ascending, make descending
+        setSorting([{ id: key, desc: true }])
       }
-    })
-  }, [])
+    } else {
+      // No current sort, make ascending
+      setSorting([{ id: key, desc: false }])
+    }
+  }, [sorting, setSorting])
 
   // Utility function for getting unique values from order data
   const getUniqueValues = useCallback((field: string) => {
@@ -1477,19 +1397,19 @@ function OrdersClient({ initialData }: OrdersClientProps) {
   }, [deduplicatedOrderData])
 
   const handleSelectAll = useCallback(() => {
-    if (selectedOrders.length === currentData.length) {
-      setSelectedOrders([])
+    if (selectedRowIds.length === currentData.length) {
+      setSelectedRowIds([])
     } else {
-      setSelectedOrders(currentData.map(order => order.id))
+      setSelectedRowIds(currentData.map(order => order.id))
     }
-  }, [selectedOrders.length, currentData])
+  }, [selectedRowIds.length, currentData, setSelectedRowIds])
 
-  // Pagination handlers
+  // Pagination handlers - using Zustand store
   const handlePageChange = (page: number) => {
     console.log(`🔄 Changing to page ${page}...`)
     setCurrentPage(page)
-    setOrdersPage(page)
-    setSelectedOrders([]) // Clear selection when changing pages
+    setPageIndex(page - 1) // Convert 1-based to 0-based
+    setSelectedRowIds([]) // Clear selection when changing pages
     
     // Reset to top of page
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -1498,8 +1418,9 @@ function OrdersClient({ initialData }: OrdersClientProps) {
   const handleItemsPerPageChange = (newItemsPerPage: number) => {
     console.log(`🔄 Changing items per page to ${newItemsPerPage}...`)
     setItemsPerPage(newItemsPerPage)
+    setPageSize(newItemsPerPage)
     setCurrentPage(1) // Reset to first page when changing items per page
-    setOrdersPage(1)
+    setPageIndex(0) // Reset to first page (0-based)
   }
 
   // Ultra-fast search handlers
@@ -1556,13 +1477,14 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     console.log('🧹 Clearing search - starting clear process')
     setSearchQuery('')
     setDebouncedSearchQuery('')
+    setGlobalFilter('') // Clear from Zustand store
     setAlgoliaSearchResults([])
     setUseAlgoliaSearch(false)
     setIsAlgoliaSearching(false)
     // Force re-render of filtered data by clearing search conditions
     setSearchConditions([])
     console.log('🧹 Clearing search - all states cleared')
-  }, [])
+  }, [setGlobalFilter])
 
   // Generate search suggestions
   useEffect(() => {
@@ -1608,11 +1530,13 @@ function OrdersClient({ initialData }: OrdersClientProps) {
   }, [])
 
   const handleColumnFilter = useCallback((column: string, value: any) => {
-    setColumnFilters(prev => ({
-      ...prev,
+    const currentFilters = useOrdersPageStore.getState().columnFilters
+    const newFilters = {
+      ...currentFilters,
       [column]: value
-    }))
-  }, [])
+    }
+    setColumnFilters(newFilters)
+  }, [setColumnFilters])
 
   const handleCustomFilter = useCallback((filter: { name: string; field: string; operator: string; value: string }) => {
     const customFilter: CustomFilter = {
@@ -1632,20 +1556,8 @@ function OrdersClient({ initialData }: OrdersClientProps) {
   const clearAllFilters = useCallback(() => {
     setSearchQuery('')
     setSearchConditions([])
-    setColumnFilters({
-      serialNumber: '',
-      orderNumber: '',
-      customerName: '',
-      status: [],
-      fulfillmentStatus: [],
-      financialStatus: [],
-      channel: [],
-      deliveryMethod: [],
-      tags: [],
-      total: '',
-      createdAt: '',
-      updatedAt: ''
-    })
+    setGlobalFilter('') // Clear from Zustand store
+    setColumnFilters({}) // Clear all column filters
     setAdvancedFilters({
       orderStatus: [],
       priceRange: { min: '', max: '' },
@@ -1656,7 +1568,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
     })
     setCustomFilters([])
     setActiveFilter('')
-  }, [])
+  }, [setGlobalFilter, setColumnFilters])
 
   // Define all possible table columns for orders
   const allOrderColumns = [
@@ -1932,7 +1844,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
           onShowAllFilters={() => setHiddenDefaultFilters(new Set())}
           onClearSearch={clearSearch}
           onClearSearchConditions={() => setSearchConditions([])}
-         selectedOrders={selectedOrders}
+         selectedOrders={selectedRowIds}
           onBulkEdit={() => setShowBulkEditModal(true)}
           onExportSelected={() => setShowExportModal(true)}
           onBulkDelete={() => setShowBulkDeleteModal(true)}
@@ -2405,9 +2317,9 @@ function OrdersClient({ initialData }: OrdersClientProps) {
       )}
 
       {/* Bulk Actions Bar */}
-      {selectedOrders.length > 0 && (
+      {selectedRowIds.length > 0 && (
         <BulkActionsBar
-          selectedProducts={selectedOrders}
+          selectedProducts={selectedRowIds}
           totalProducts={totalItemsForPagination}
           onBulkEdit={() => setShowBulkEditModal(true)}
           onExportSelected={() => setShowExportModal(true)}
@@ -2435,7 +2347,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
               
            <OrderTable
                 currentOrders={currentData}
-             selectedItems={selectedOrders}
+             selectedItems={selectedRowIds}
              onSelectItem={handleSelectItem}
              onSelectAll={handleSelectAll}
                 onRowClick={(order: Order, e: React.MouseEvent) => {
@@ -2465,7 +2377,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
             <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
               {/* Grid Header */}
               <GridCardFilterHeader
-                selectedOrders={selectedOrders}
+                selectedOrders={selectedRowIds}
                 currentOrders={currentData}
                 onSelectAll={handleSelectAll}
              activeColumnFilter={activeColumnFilter}
@@ -2480,7 +2392,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
               <OrdersGrid
                   orders={currentData}
             cardsPerRow={cardsPerRow}
-                  selectedOrders={selectedOrders}
+                  selectedOrders={selectedRowIds}
                   onSelectOrder={(id) => handleSelectItem(id)}
                   onOrderClick={(order, e) => {
                     if ((e?.target as HTMLElement)?.closest('input,button')) return
@@ -2524,7 +2436,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             {/* Card/List Header (no per row control) */}
             <GridCardFilterHeader
-              selectedOrders={selectedOrders}
+              selectedOrders={selectedRowIds}
               currentOrders={currentData}
               onSelectAll={handleSelectAll}
               activeColumnFilter={activeColumnFilter}
@@ -2537,7 +2449,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
           <OrderCardView
                 data={currentData}
                 columns={orderColumns}
-            selectedItems={selectedOrders}
+            selectedItems={selectedRowIds}
             onSelectItem={handleSelectItem}
                 onOrderClick={(order, e) => {
                   if ((e.target as HTMLElement).closest('input,button')) return
@@ -2639,7 +2551,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
           products={filteredData as any}
-          selectedProducts={selectedOrders}
+          selectedProducts={selectedRowIds}
         />
       )}
 
@@ -2709,7 +2621,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer">
                       <input type="radio" name="printScope" className="text-blue-600 focus:ring-blue-500" />
-                      <span className="text-sm text-gray-700">Selected orders ({selectedOrders.length})</span>
+                      <span className="text-sm text-gray-700">Selected orders ({selectedRowIds.length})</span>
                     </label>
                   </div>
                 </div>
@@ -2757,7 +2669,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
 
                 {/* Preview */}
                 <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
-                  <p>{selectedOrders.length > 0 ? selectedOrders.length : totalItemsForPagination} orders will be printed</p>
+                  <p>{selectedRowIds.length > 0 ? selectedRowIds.length : totalItemsForPagination} orders will be printed</p>
                   <p>Layout: Table</p>
                   <p>Page: A4 portrait</p>
                   <p>With images, with detailed information</p>
@@ -2888,7 +2800,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
                   </div>
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">Bulk Edit Orders</h2>
-                    <p className="text-sm text-gray-500">Edit {selectedOrders.length} selected order{selectedOrders.length !== 1 ? 's' : ''}</p>
+                    <p className="text-sm text-gray-500">Edit {selectedRowIds.length} selected order{selectedRowIds.length !== 1 ? 's' : ''}</p>
                   </div>
                 </div>
                 <button onClick={() => setShowBulkEditModal(false)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
@@ -2950,7 +2862,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
 
                   {/* Edit Summary */}
                   <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-700">
-                    <div>Orders to edit: {selectedOrders.length}</div>
+                    <div>Orders to edit: {selectedRowIds.length}</div>
                     <div>Fields to update: dynamic</div>
                     <div>Estimated time: ~1 seconds</div>
                   </div>
@@ -2969,7 +2881,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">Delete Orders</h3>
-            <p className="text-gray-600 mb-4">Are you sure you want to delete {selectedOrders.length} orders? This action cannot be undone.</p>
+            <p className="text-gray-600 mb-4">Are you sure you want to delete {selectedRowIds.length} orders? This action cannot be undone.</p>
             <div className="flex justify-end space-x-2">
               <button
                 onClick={() => setShowBulkDeleteModal(false)}
@@ -2979,7 +2891,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
               </button>
               <button
                 onClick={() => {
-                  setSelectedOrders([])
+                  setSelectedRowIds([])
                   setShowBulkDeleteModal(false)
                 }}
                 className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
@@ -3051,7 +2963,7 @@ function OrdersClient({ initialData }: OrdersClientProps) {
 export default function ShopifyOrdersPage() {
   return (
     <div className="h-full">
-      <OrdersClient />
+      <OrdersClient initialData={{ items: [], lastEvaluatedKey: null, total: 0 }} />
     </div>
   )
 } 
