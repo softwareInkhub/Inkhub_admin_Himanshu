@@ -2,11 +2,12 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
-import { ChevronUp, ChevronDown } from 'lucide-react'
+import { ChevronUp, ChevronDown, Braces } from 'lucide-react'
 import { Order } from '../types'
 import OrderFilterDropdown from './OrderFilterDropdown'
 import { cn } from '@/lib/utils'
 import SortIndicator from './SortIndicator'
+import JsonViewerModal from './JsonViewerModal'
 
 
 interface OrderTableProps {
@@ -69,6 +70,10 @@ export default function OrderTable({
     column: string;
     position: { x: number; y: number };
   } | null>(null)
+
+  // JSON viewer state
+  const [jsonOpen, setJsonOpen] = useState(false)
+  const [jsonOrder, setJsonOrder] = useState<Order | null>(null)
 
   const sortedOrders = useMemo(() => {
     // Debug logging for OrderTable component
@@ -490,6 +495,12 @@ export default function OrderTable({
                   </div>
                 </th>
               ))}
+              {/* Actions column header */}
+              <th className={cn("text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                compact ? 'py-1 px-2' : 'py-2 px-3'
+              )}>
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -525,6 +536,19 @@ export default function OrderTable({
                     {column.render ? column.render(order, index) : String(order[column.key as keyof Order] || '')}
                   </td>
                 ))}
+                {/* Actions cell */}
+                <td className={cn("text-sm text-gray-900",
+                  compact ? 'py-1.5 px-2' : 'py-2 px-3'
+                )}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setJsonOrder(order); setJsonOpen(true) }}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 hover:border-blue-300 transition-colors"
+                    title="View JSON"
+                  >
+                    <Braces className="h-4 w-4" />
+                    View JSON
+                  </button>
+                </td>
               </tr>
             ))
             })()}
@@ -546,6 +570,14 @@ export default function OrderTable({
           getUniqueValues={getUniqueValues}
         />
       )}
+
+      {/* JSON Modal */}
+      <JsonViewerModal
+        isOpen={jsonOpen}
+        title={jsonOrder ? `Order ${jsonOrder.orderNumber || jsonOrder.id} JSON` : 'Order JSON'}
+        data={jsonOrder}
+        onClose={() => setJsonOpen(false)}
+      />
     </div>
   )
 }

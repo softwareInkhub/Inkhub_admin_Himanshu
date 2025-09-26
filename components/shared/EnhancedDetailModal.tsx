@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { X, Edit, Trash, Save, Upload, Eye, Image as ImageIcon } from 'lucide-react'
+import { X, Edit, Trash, Save, Upload, Eye, Image as ImageIcon, Braces, Clipboard } from 'lucide-react'
+import dynamic from 'next/dynamic'
+const ReactJson = dynamic(() => import('react-json-view'), { ssr: false })
 import { cn } from '@/lib/utils'
 
 interface EnhancedDetailModalProps {
@@ -31,6 +33,68 @@ export default function EnhancedDetailModal({
   const [imageLoading, setImageLoading] = useState(false)
   const [imageError, setImageError] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showJson, setShowJson] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const copyJsonToClipboard = async () => {
+    try {
+      const text = JSON.stringify(isEditing ? editedData : item, null, 2)
+      if (typeof navigator !== 'undefined' && navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = text
+        textarea.style.position = 'fixed'
+        textarea.style.left = '-9999px'
+        document.body.appendChild(textarea)
+        textarea.focus()
+        textarea.select()
+        try { document.execCommand('copy') } catch {}
+        document.body.removeChild(textarea)
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch (e) {
+      console.error('Copy failed:', e)
+    }
+  }
+
+  // Keyboard shortcuts: Esc = close, J = toggle JSON, C = copy JSON
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = async (e: KeyboardEvent) => {
+      // Ignore when focused inside inputs/textareas/selects/contenteditable
+      const target = e.target as HTMLElement | null
+      const tag = (target?.tagName || '').toLowerCase()
+      const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable
+      if (isTyping) return
+
+      // Escape closes modal
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+        return
+      }
+
+      // Ignore if any modifier is pressed
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+
+      // J toggles JSON view
+      if (e.key.toLowerCase() === 'j') {
+        e.preventDefault()
+        setShowJson(prev => !prev)
+        return
+      }
+
+      // C copies JSON
+      if (e.key.toLowerCase() === 'c') {
+        await copyJsonToClipboard()
+        return
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [isOpen, showJson, isEditing, editedData, item, onClose])
 
   // Initialize edited data when modal opens
   useEffect(() => {
@@ -342,6 +406,8 @@ export default function EnhancedDetailModal({
 
           {/* Content */}
           <div className="p-4 overflow-y-auto flex-1 min-h-0">
+            {/* Page 1: Details */}
+            {!showJson && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Left Column - Large Image */}
               <div className="space-y-4">
@@ -615,6 +681,57 @@ export default function EnhancedDetailModal({
                 )}
               </div>
             </div>
+            )}
+
+            {/* Page 2: JSON */}
+            {showJson && (
+              <div className="h-full flex flex-col">
+                <div className="flex items-center justify-between mb-2">
+                  <h5 className="text-sm font-medium text-gray-900">Raw JSON</h5>
+                  <button
+                    onClick={copyJsonToClipboard}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-100 hover:border-gray-400 transition-colors"
+                    title="Copy JSON"
+                  >
+                    <Clipboard className="h-4 w-4" />
+                    {copied ? 'Copied!' : 'Copy JSON'}
+                  </button>
+                </div>
+                <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg p-3 bg-gray-50">
+                  {typeof ReactJson !== 'undefined' ? (
+                    <ReactJson
+                      src={currentData}
+                      name={false}
+                      collapsed={2}
+                      displayDataTypes={false}
+                      displayObjectSize={false}
+                      enableClipboard={false}
+                      theme={{
+                        base00: '#ffffff',
+                        base01: '#f5f7fb',
+                        base02: '#e5e7eb',
+                        base03: '#9ca3af',
+                        base04: '#111827',
+                        base05: '#1f2937',
+                        base06: '#374151',
+                        base07: '#111827',
+                        base08: '#1f2937',
+                        base09: '#2563eb',
+                        base0A: '#10b981',
+                        base0B: '#111827',
+                        base0C: '#4b5563',
+                        base0D: '#2563eb',
+                        base0E: '#9333ea',
+                        base0F: '#d97706',
+                      }}
+                      style={{ fontSize: 12 }}
+                    />
+                  ) : (
+                    <pre className="text-xs text-gray-800">{JSON.stringify(currentData, null, 2)}</pre>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer - Action Buttons */}
@@ -622,20 +739,41 @@ export default function EnhancedDetailModal({
             <div className="flex space-x-3">
               {!isEditing ? (
                 <>
+                  {!showJson && (
+                    <>
+                      <button
+                        onClick={handleEdit}
+                        className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                      >
+                        <Edit className="h-4 w-4" />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        onClick={() => setShowDeleteConfirm(true)}
+                        className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                      >
+                        <Trash className="h-4 w-4" />
+                        <span>Delete</span>
+                      </button>
+                    </>
+                  )}
                   <button
-                    onClick={handleEdit}
-                    className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                    onClick={() => setShowJson(prev => !prev)}
+                    className="flex items-center space-x-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors"
                   >
-                    <Edit className="h-4 w-4" />
-                    <span>Edit</span>
+                    <Braces className="h-4 w-4" />
+                    <span>{showJson ? 'Back to Details' : 'View JSON'}</span>
                   </button>
+                  {showJson && (
                   <button
-                    onClick={() => setShowDeleteConfirm(true)}
-                    className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-                  >
-                    <Trash className="h-4 w-4" />
-                    <span>Delete</span>
-                  </button>
+                    onClick={copyJsonToClipboard}
+                      className="flex items-center space-x-2 px-4 py-2 bg-white text-gray-800 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      title="Copy JSON"
+                    >
+                      <Clipboard className="h-4 w-4" />
+                    <span>{copied ? 'Copied!' : 'Copy JSON'}</span>
+                    </button>
+                  )}
                 </>
               ) : (
                 <>

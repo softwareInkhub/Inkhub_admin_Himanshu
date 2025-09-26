@@ -205,6 +205,143 @@ function ProductsClientContent({
     }
   }, [advancedFilters, showAdvancedFilter, handleAdvancedFiltersAlgoliaSearch])
 
+  // Derive advanced filters from column header filters and trigger Algolia
+  useEffect(() => {
+    const cf = columnFilters || {}
+
+    const derived = {
+      productStatus: [] as string[],
+      priceRange: { min: '', max: '' } as { min?: string; max?: string },
+      dateRange: { start: '', end: '' } as { start?: string; end?: string },
+    tags: [] as string[],
+      vendors: [] as string[],
+    }
+
+    // Local refiners that we can apply after Algolia returns
+    const refiners: {
+      title?: string
+      productType?: string[]
+      category?: string[]
+      inventoryQuantity?: string
+    } = {}
+
+    const has = (v: any) => Array.isArray(v) ? v.length > 0 : (v !== undefined && v !== null && String(v) !== '')
+
+    // status -> productStatus
+    if (has(cf['status'])) {
+      derived.productStatus = Array.isArray(cf['status']) ? cf['status'] as string[] : [String(cf['status'])]
+    }
+    // price -> priceRange (>, <, =, or number)
+    if (has(cf['price'])) {
+      const v = String(cf['price']).trim()
+      if (v.startsWith('>')) derived.priceRange.min = v.slice(1)
+      else if (v.startsWith('<')) derived.priceRange.max = v.slice(1)
+      else if (v.startsWith('=')) { derived.priceRange.min = v.slice(1); derived.priceRange.max = v.slice(1) }
+      else if (!isNaN(Number(v))) { derived.priceRange.min = v; derived.priceRange.max = v }
+    }
+    // createdAt / updatedAt -> dateRange (prefer createdAt exact day; if both exist, use min/max)
+    const created = has(cf['createdAt']) ? new Date(String(cf['createdAt'])) : null
+    const updated = has(cf['updatedAt']) ? new Date(String(cf['updatedAt'])) : null
+    if (created && !isNaN(created.getTime())) {
+      const d = created.toISOString().slice(0, 10)
+      derived.dateRange.start = d
+      derived.dateRange.end = d
+    }
+    if (updated && !isNaN(updated.getTime())) {
+      const d = updated.toISOString().slice(0, 10)
+      if (!derived.dateRange.start || d < derived.dateRange.start) derived.dateRange.start = d
+      if (!derived.dateRange.end || d > derived.dateRange.end) derived.dateRange.end = d
+    }
+    // tags -> tags
+    if (has(cf['tags'])) {
+      derived.tags = Array.isArray(cf['tags']) ? cf['tags'] as string[] : [String(cf['tags'])]
+    }
+    // vendor -> vendors
+    if (has(cf['vendor'])) {
+      derived.vendors = Array.isArray(cf['vendor']) ? cf['vendor'] as string[] : [String(cf['vendor'])]
+    }
+    // title -> text search via Algolia
+    if (has(cf['title'])) {
+      refiners.title = String(cf['title']).trim()
+    }
+    // productType/category/inventoryQuantity as local refiners (post-Algolia)
+    if (has(cf['productType'])) {
+      refiners.productType = Array.isArray(cf['productType']) ? cf['productType'] as string[] : [String(cf['productType'])]
+    }
+    if (has(cf['category'])) {
+      refiners.category = Array.isArray(cf['category']) ? cf['category'] as string[] : [String(cf['category'])]
+    }
+    if (has(cf['inventoryQuantity'])) {
+      refiners.inventoryQuantity = String(cf['inventoryQuantity'])
+    }
+
+    const filtersActive = (
+      derived.productStatus.length > 0 ||
+      !!derived.priceRange.min || !!derived.priceRange.max ||
+      !!derived.dateRange.start || !!derived.dateRange.end ||
+      derived.tags.length > 0 ||
+      derived.vendors.length > 0
+    )
+
+    const applyRefiners = (base: Product[]) => {
+      let result = base
+      // productType/category refiners
+      if (refiners.productType && refiners.productType.length > 0) {
+        result = result.filter(p => refiners.productType!.includes(String(p.productType)))
+      }
+      if (refiners.category && refiners.category.length > 0) {
+        result = result.filter(p => refiners.category!.includes(String(p.category)))
+      }
+      // inventoryQuantity numeric filter using >,<,=, or direct value
+      if (refiners.inventoryQuantity) {
+        const v = refiners.inventoryQuantity.trim()
+        result = result.filter(p => {
+          const qty = Number(p.inventoryQuantity || 0)
+          if (v.startsWith('>')) return qty > Number(v.slice(1))
+          if (v.startsWith('<')) return qty < Number(v.slice(1))
+          if (v.startsWith('=')) return qty === Number(v.slice(1))
+          if (!isNaN(Number(v))) return qty === Number(v)
+          return true
+        })
+      }
+      return result
+    }
+
+    const searchSpace: Product[] = (chunkKeys && chunkKeys.length > 0) ? (Object.values(chunkData).flat() as Product[]) : productData
+
+    if (filtersActive && refiners.title) {
+      // Run both: advanced Algolia filters and title Algolia search, then intersect
+      handleAdvancedFiltersAlgoliaSearch(derived)
+      setIsAlgoliaFiltering(true)
+      setUseAlgoliaFilters(true)
+      debouncedAlgoliaSearch(refiners.title, searchSpace, (products) => {
+        // Intersect by id with current algoliaFilterResults if present; otherwise just use search
+        const byId = new Set((algoliaFilterResults.length > 0 ? algoliaFilterResults : products).map(p => p.id))
+        const intersection = products.filter(p => byId.has(p.id))
+        const refined = applyRefiners(intersection)
+        setAlgoliaFilterResults(refined)
+        setIsAlgoliaFiltering(false)
+      }, 300)
+    } else if (filtersActive) {
+      // Only advanced filters
+      setUseAlgoliaFilters(true)
+      handleAdvancedFiltersAlgoliaSearch(derived)
+    } else if (refiners.title) {
+      // Only title column filter → run Algolia text search across chunks
+      setUseAlgoliaFilters(true)
+      setIsAlgoliaFiltering(true)
+      debouncedAlgoliaSearch(refiners.title, searchSpace, (products) => {
+        const refined = applyRefiners(products)
+        setAlgoliaFilterResults(refined)
+        setIsAlgoliaFiltering(false)
+      }, 300)
+    } else {
+      setUseAlgoliaFilters(false)
+      setAlgoliaFilterResults([])
+      setIsAlgoliaFiltering(false)
+    }
+  }, [columnFilters, handleAdvancedFiltersAlgoliaSearch, productData, chunkData, chunkKeys])
+
   // Column Header Filter states - using Zustand store
   const [activeColumnFilter, setActiveColumnFilter] = useState<string | null>(null)
 

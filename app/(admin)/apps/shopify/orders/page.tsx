@@ -223,6 +223,69 @@ function OrdersClientContent({
     }
   }, [advancedFilters, showAdvancedFilter, handleAdvancedFiltersAlgoliaSearch])
 
+  // Map table column filters to advanced filter shape and trigger Algolia
+  useEffect(() => {
+    // Build derived filters from column filters
+    const derived = {
+      orderStatus: [] as string[],
+      priceRange: { min: '', max: '' } as { min?: string; max?: string },
+      dateRange: { start: '', end: '' } as { start?: string; end?: string },
+      tags: [] as string[],
+      channels: [] as string[],
+    }
+
+    const cf = columnFilters || {}
+    const has = (v: any) => Array.isArray(v) ? v.length > 0 : (v !== undefined && v !== null && String(v) !== '')
+
+    // fulfillmentStatus -> orderStatus (case-insensitive)
+    if (has(cf['fulfillmentStatus'])) {
+      derived.orderStatus = Array.isArray(cf['fulfillmentStatus']) ? cf['fulfillmentStatus'] as string[] : [String(cf['fulfillmentStatus'])]
+    }
+    // financialStatus can also be treated as orderStatus for server-side filtering if supported
+    if (!derived.orderStatus.length && has(cf['financialStatus'])) {
+      derived.orderStatus = Array.isArray(cf['financialStatus']) ? cf['financialStatus'] as string[] : [String(cf['financialStatus'])]
+    }
+    // total -> priceRange (support ">N", "<N", "=N") or direct number
+    if (has(cf['total'])) {
+      const v = String(cf['total']).trim()
+      if (v.startsWith('>')) derived.priceRange.min = v.slice(1)
+      else if (v.startsWith('<')) derived.priceRange.max = v.slice(1)
+      else if (v.startsWith('=')) { derived.priceRange.min = v.slice(1); derived.priceRange.max = v.slice(1) }
+      else if (!isNaN(Number(v))) { derived.priceRange.min = v; derived.priceRange.max = v }
+    }
+    // createdAt -> dateRange (exact-day match)
+    if (has(cf['createdAt'])) {
+      const d = String(cf['createdAt'])
+      derived.dateRange.start = d
+      derived.dateRange.end = d
+    }
+    // tags -> tags array
+    if (has(cf['tags'])) {
+      derived.tags = Array.isArray(cf['tags']) ? cf['tags'] as string[] : [String(cf['tags'])]
+    }
+    // channel -> channels array
+    if (has(cf['channel'])) {
+      derived.channels = Array.isArray(cf['channel']) ? cf['channel'] as string[] : [String(cf['channel'])]
+    }
+
+    const filtersActive = (
+      derived.orderStatus.length > 0 ||
+      !!derived.priceRange.min || !!derived.priceRange.max ||
+      !!derived.dateRange.start || !!derived.dateRange.end ||
+      derived.tags.length > 0 ||
+      derived.channels.length > 0
+    )
+
+    if (filtersActive) {
+      handleAdvancedFiltersAlgoliaSearch(derived)
+    } else {
+      // Clear Algolia mode when no column filters
+      setUseAlgoliaFilters(false)
+      setAlgoliaFilterResults([])
+      setIsAlgoliaFiltering(false)
+    }
+  }, [columnFilters, handleAdvancedFiltersAlgoliaSearch])
+
   // Column Header Filter states - using Zustand store
   const [activeColumnFilter, setActiveColumnFilter] = useState<string | null>(null)
 
