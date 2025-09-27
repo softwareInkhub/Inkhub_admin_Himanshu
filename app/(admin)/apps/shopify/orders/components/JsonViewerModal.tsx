@@ -1,8 +1,7 @@
 'use client'
 
 import React from 'react'
-import dynamic from 'next/dynamic'
-const ReactJson = dynamic(() => import('react-json-view'), { ssr: false })
+import JsonViewer from '@/components/shared/JsonViewer'
 import { X, Clipboard } from 'lucide-react'
 
 interface JsonViewerModalProps {
@@ -53,32 +52,9 @@ export default function JsonViewerModal({ isOpen, title, data, onClose }: JsonVi
 
         {/* Body */}
         <div className="p-3 overflow-auto" style={{ maxHeight: 'calc(85vh - 48px)' }}>
-          <ReactJson
-            src={data || {}}
-            name={false}
+          <JsonViewer
+            data={data || {}}
             collapsed={2}
-            enableClipboard={false}
-            displayDataTypes={false}
-            displayObjectSize={false}
-            theme={{
-              base00: '#ffffff',
-              base01: '#f5f7fb',
-              base02: '#e5e7eb',
-              base03: '#9ca3af',
-              base04: '#111827',
-              base05: '#1f2937',
-              base06: '#374151',
-              base07: '#111827',
-              base08: '#1f2937',
-              base09: '#2563eb',
-              base0A: '#10b981',
-              base0B: '#111827',
-              base0C: '#4b5563',
-              base0D: '#2563eb',
-              base0E: '#9333ea',
-              base0F: '#d97706',
-            }}
-            style={{ fontSize: 12 }}
           />
         </div>
       </div>

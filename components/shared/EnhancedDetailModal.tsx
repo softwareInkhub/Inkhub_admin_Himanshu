@@ -2,8 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { X, Edit, Trash, Save, Upload, Eye, Image as ImageIcon, Braces, Clipboard } from 'lucide-react'
-import dynamic from 'next/dynamic'
-const ReactJson = dynamic(() => import('react-json-view'), { ssr: false })
+import JsonViewer from './JsonViewer'
 import { cn } from '@/lib/utils'
 
 interface EnhancedDetailModalProps {
@@ -698,37 +697,10 @@ export default function EnhancedDetailModal({
                   </button>
                 </div>
                 <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg p-3 bg-gray-50">
-                  {typeof ReactJson !== 'undefined' ? (
-                    <ReactJson
-                      src={currentData}
-                      name={false}
-                      collapsed={2}
-                      displayDataTypes={false}
-                      displayObjectSize={false}
-                      enableClipboard={false}
-                      theme={{
-                        base00: '#ffffff',
-                        base01: '#f5f7fb',
-                        base02: '#e5e7eb',
-                        base03: '#9ca3af',
-                        base04: '#111827',
-                        base05: '#1f2937',
-                        base06: '#374151',
-                        base07: '#111827',
-                        base08: '#1f2937',
-                        base09: '#2563eb',
-                        base0A: '#10b981',
-                        base0B: '#111827',
-                        base0C: '#4b5563',
-                        base0D: '#2563eb',
-                        base0E: '#9333ea',
-                        base0F: '#d97706',
-                      }}
-                      style={{ fontSize: 12 }}
-                    />
-                  ) : (
-                    <pre className="text-xs text-gray-800">{JSON.stringify(currentData, null, 2)}</pre>
-                  )}
+                  <JsonViewer
+                    data={currentData}
+                    collapsed={2}
+                  />
                 </div>
               </div>
             )}
