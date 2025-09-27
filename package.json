@@ -50,6 +50,10 @@
     "typescript": "^5.2.0"
   },
   "engines": {
+<<<<<<< HEAD
    "node": "22.x"
+=======
+    "node": "22.x"
+>>>>>>> inkhub_admin_004
   }
 }
