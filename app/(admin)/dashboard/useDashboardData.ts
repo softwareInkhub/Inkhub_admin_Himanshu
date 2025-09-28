@@ -11,6 +11,8 @@ import { generatePins } from '@/app/(admin)/apps/pinterest/pins/utils'
 import { generateBoards } from '@/app/(admin)/apps/pinterest/boards/utils'
 import { generateDesigns } from '@/app/(admin)/design-library/designs/utils'
 import { getTransformedOrders } from '@/app/(admin)/apps/shopify/orders/services/orderService'
+import { getPinsForPage, getTotalChunks } from '@/app/(admin)/apps/pinterest/pins/services/pinService'
+import { fetchBoards } from '@/app/(admin)/apps/pinterest/boards/services/boardService'
 
 type DashboardData = {
   products: Product[]
@@ -23,6 +25,8 @@ type DashboardData = {
     products: number
     orders: number
     pins: number
+    boards: number
+    designs: number
     sales: number
   }
 }
@@ -99,6 +103,75 @@ async function fetchProductsOrFallback(): Promise<Product[]> {
   return generateProducts(50)
 }
 
+async function fetchRealPinsOrFallback(): Promise<Pin[]> {
+  try {
+    console.log('📌 Dashboard: Fetching real Pinterest pins data...')
+    const totalChunks = await getTotalChunks()
+    const allPins: Pin[] = []
+    
+    // Load all chunks to get real pin count
+    for (let i = 0; i < totalChunks; i++) {
+      try {
+        const { pins } = await getPinsForPage(i + 1)
+        if (pins && pins.length > 0) {
+          // Validate real Pinterest data
+          const validPins = pins.filter(pin => 
+            pin.id && 
+            pin.id.length > 5 && 
+            !pin.id.startsWith('pin-')
+          )
+          allPins.push(...validPins)
+        }
+      } catch (e) {
+        console.warn(`Dashboard: Failed to load pins chunk ${i + 1}:`, e)
+      }
+    }
+    
+    if (allPins.length > 0) {
+      console.log(`✅ Dashboard: Loaded ${allPins.length} real Pinterest pins`)
+      return allPins
+    }
+  } catch (error) {
+    console.warn('Dashboard: Error fetching real Pinterest pins:', error)
+  }
+  
+  // Fallback to generated data only if no real data available
+  console.warn('⚠️ Dashboard: Using fallback generated pins data')
+  return generatePins(0) // Return empty array instead of sample data
+}
+
+async function fetchRealBoardsOrFallback(): Promise<Board[]> {
+  try {
+    console.log('📋 Dashboard: Fetching real Pinterest boards data...')
+    const boards = await fetchBoards()
+    
+    if (boards && boards.length > 0) {
+      console.log(`✅ Dashboard: Loaded ${boards.length} real Pinterest boards`)
+      return boards
+    }
+  } catch (error) {
+    console.warn('Dashboard: Error fetching real Pinterest boards:', error)
+  }
+  
+  // Fallback to empty array if no real data available
+  console.warn('⚠️ Dashboard: No real boards data available')
+  return []
+}
+
+async function fetchRealDesignsOrFallback(): Promise<Design[]> {
+  try {
+    console.log('🎨 Dashboard: Fetching real design library data...')
+    // For now, we'll use generated data since design library doesn't have a real API yet
+    // This can be updated when the design library API is available
+    const designs = generateDesigns(60)
+    console.log(`✅ Dashboard: Loaded ${designs.length} designs (generated for now)`)
+    return designs
+  } catch (error) {
+    console.warn('Dashboard: Error fetching designs:', error)
+    return []
+  }
+}
+
 export function useDashboardData() {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<DashboardData | null>(null)
@@ -107,20 +180,20 @@ export function useDashboardData() {
     let mounted = true
     ;(async () => {
       try {
-        const [products, orders] = await Promise.all([
+        const [products, orders, pins, boards, designs] = await Promise.all([
           fetchProductsOrFallback(),
           getTransformedOrders().catch(() => [] as Order[]),
+          fetchRealPinsOrFallback(),
+          fetchRealBoardsOrFallback(),
+          fetchRealDesignsOrFallback(),
         ])
-
-        // Generated datasets (until backend available)
-        const pins = generatePins(120)
-        const boards = generateBoards(40)
-        const designs = generateDesigns(60)
 
         const totals = {
           products: products.length,
           orders: orders.length,
           pins: pins.length,
+          boards: boards.length,
+          designs: designs.length,
           sales: orders.reduce((sum, o) => sum + (o.total || 0), 0),
         }
 

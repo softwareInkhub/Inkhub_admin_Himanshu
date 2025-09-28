@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAppStore } from '@/lib/store';
 
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in';
@@ -21,7 +22,138 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
   const router = useRouter();
+  const { setCurrentUser } = useAppStore();
 
+  // Helper function to fetch and set user data after successful auth
+  const fetchAndSetUserData = async (token: string) => {
+    try {
+      const response = await fetch(`${BACKEND}/auth/profile`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const userData = {
+          id: data.sub || data.id || 'user-' + Date.now(),
+          name: `${data.given_name || data.first_name || ''} ${data.family_name || data.last_name || ''}`.trim() || 
+                 data.username || data.preferred_username || username || 'User',
+          email: data.email || email || 'user@inkhub.com',
+          role: (data.role === 'admin' || data.role === 'editor' || data.role === 'viewer') 
+            ? data.role 
+            : 'admin' as const,
+          avatar: data.picture,
+          createdAt: data.created_at || data.joinedAt || new Date().toISOString(),
+          preferences: {
+            theme: 'light' as const,
+            notifications: true,
+            language: 'en'
+          },
+          permissions: {
+            shopify: {
+              orders: ['read', 'write', 'admin'],
+              products: ['read', 'write', 'admin']
+            },
+            pinterest: {
+              pins: ['read', 'write', 'admin'],
+              boards: ['read', 'write', 'admin']
+            },
+            designLibrary: {
+              designs: ['read', 'write', 'admin']
+            }
+          },
+          lastLogin: new Date().toISOString(),
+          analytics: {
+            ordersViewed: 0,
+            productsManaged: 0,
+            pinsCreated: 0
+          },
+          designLibrary: {
+            designs: []
+          }
+        };
+        
+        setCurrentUser(userData);
+      } else {
+        // Fallback user data if profile fetch fails
+        const fallbackUser = {
+          id: 'user-' + Date.now(),
+          name: username || 'User',
+          email: email || 'user@inkhub.com',
+          role: 'admin' as const,
+          createdAt: new Date().toISOString(),
+          preferences: {
+            theme: 'light' as const,
+            notifications: true,
+            language: 'en'
+          },
+          permissions: {
+            shopify: {
+              orders: ['read', 'write', 'admin'],
+              products: ['read', 'write', 'admin']
+            },
+            pinterest: {
+              pins: ['read', 'write', 'admin'],
+              boards: ['read', 'write', 'admin']
+            },
+            designLibrary: {
+              designs: ['read', 'write', 'admin']
+            }
+          },
+          lastLogin: new Date().toISOString(),
+          analytics: {
+            ordersViewed: 0,
+            productsManaged: 0,
+            pinsCreated: 0
+          },
+          designLibrary: {
+            designs: []
+          }
+        };
+        setCurrentUser(fallbackUser);
+      }
+    } catch (error) {
+      console.error('Failed to fetch user profile:', error);
+      // Set fallback user data
+      const fallbackUser = {
+        id: 'user-' + Date.now(),
+        name: username || 'User',
+        email: email || 'user@inkhub.com',
+        role: 'admin' as const,
+        createdAt: new Date().toISOString(),
+        preferences: {
+          theme: 'light' as const,
+          notifications: true,
+          language: 'en'
+        },
+        permissions: {
+          shopify: {
+            orders: ['read', 'write', 'admin'],
+            products: ['read', 'write', 'admin']
+          },
+          pinterest: {
+            pins: ['read', 'write', 'admin'],
+            boards: ['read', 'write', 'admin']
+          },
+          designLibrary: {
+            designs: ['read', 'write', 'admin']
+          }
+        },
+        lastLogin: new Date().toISOString(),
+        analytics: {
+          ordersViewed: 0,
+          productsManaged: 0,
+          pinsCreated: 0
+        },
+        designLibrary: {
+          designs: []
+        }
+      };
+      setCurrentUser(fallbackUser);
+    }
+  };
 
   // Check if user is already logged in
   useEffect(() => {
@@ -106,44 +238,102 @@ export default function AuthPage() {
       }
      
       // Exchange code for tokens
-      fetch(`${BACKEND}/auth/token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          code,
-          state: state || savedState || 'password-change-flow' // Use available state or fallback
-        })
-      })
-      .then(res => res.json())
-      .then(tokens => {
-        if (tokens.error) {
-          throw new Error(tokens.error);
+      const handleTokenExchange = async () => {
+        try {
+          const response = await fetch(`${BACKEND}/auth/token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              code,
+              state: state || savedState || 'password-change-flow' // Use available state or fallback
+            })
+          });
+
+          const tokens = await response.json();
+          
+          if (tokens.error) {
+            throw new Error(tokens.error);
+          }
+         
+          // Store tokens
+          localStorage.setItem('id_token', tokens.id_token);
+          localStorage.setItem('access_token', tokens.access_token);
+          localStorage.setItem('refresh_token', tokens.refresh_token);
+          localStorage.setItem('token_expires', (Date.now() + (tokens.expires_in * 1000)).toString());
+         
+          // Extract user data from ID token if available
+          if (tokens.id_token) {
+            try {
+              const payload = JSON.parse(atob(tokens.id_token.split('.')[1]));
+              const userData = {
+                id: payload.sub || 'user-' + Date.now(),
+                name: `${payload.given_name || ''} ${payload.family_name || ''}`.trim() || 
+                       payload.username || payload.preferred_username || payload.email?.split('@')[0] || 'User',
+                email: payload.email || 'user@inkhub.com',
+                role: (payload.role === 'admin' || payload.role === 'editor' || payload.role === 'viewer') 
+                  ? payload.role 
+                  : 'admin' as const,
+                avatar: payload.picture,
+                createdAt: new Date().toISOString(),
+                preferences: {
+                  theme: 'light' as const,
+                  notifications: true,
+                  language: 'en'
+                },
+                permissions: {
+                  shopify: {
+                    orders: ['read', 'write', 'admin'],
+                    products: ['read', 'write', 'admin']
+                  },
+                  pinterest: {
+                    pins: ['read', 'write', 'admin'],
+                    boards: ['read', 'write', 'admin']
+                  },
+                  designLibrary: {
+                    designs: ['read', 'write', 'admin']
+                  }
+                },
+                lastLogin: new Date().toISOString(),
+                analytics: {
+                  ordersViewed: 0,
+                  productsManaged: 0,
+                  pinsCreated: 0
+                },
+                designLibrary: {
+                  designs: []
+                }
+              };
+              
+              setCurrentUser(userData);
+            } catch (e) {
+              // Fallback to profile fetch if token parsing fails
+              await fetchAndSetUserData(tokens.access_token);
+            }
+          } else {
+            // Fetch and set user data from profile endpoint
+            await fetchAndSetUserData(tokens.access_token);
+          }
+         
+          // Clean up
+          sessionStorage.removeItem('oauth_state');
+         
+          // Clear URL parameters
+          window.history.replaceState({}, document.title, window.location.pathname);
+         
+          // Mark session authenticated for SSR redirects
+          document.cookie = `auth=1; path=/; max-age=${60 * 60 * 24 * 7}`;
+          // Redirect to main app
+          router.push('/dashboard');
+        } catch (error) {
+          console.error('Token exchange failed:', error);
+          setMessage('Login failed. Please try again.');
+          sessionStorage.removeItem('oauth_state');
         }
-       
-        // Store tokens
-        localStorage.setItem('id_token', tokens.id_token);
-        localStorage.setItem('access_token', tokens.access_token);
-        localStorage.setItem('refresh_token', tokens.refresh_token);
-        localStorage.setItem('token_expires', (Date.now() + (tokens.expires_in * 1000)).toString());
-       
-        // Clean up
-        sessionStorage.removeItem('oauth_state');
-       
-        // Clear URL parameters
-        window.history.replaceState({}, document.title, window.location.pathname);
-       
-        // Mark session authenticated for SSR redirects
-        document.cookie = `auth=1; path=/; max-age=${60 * 60 * 24 * 7}`;
-        // Redirect to main app
-        router.push('/dashboard');
-      })
-      .catch(error => {
-        console.error('Token exchange failed:', error);
-        setMessage('Login failed. Please try again.');
-        sessionStorage.removeItem('oauth_state');
-      });
+      };
+
+      handleTokenExchange();
     }
   }, [router]);
 
@@ -178,6 +368,9 @@ export default function AuthPage() {
           localStorage.setItem('id_token', data.result.idToken.jwtToken);
           localStorage.setItem('access_token', data.result.accessToken.jwtToken);
           localStorage.setItem('refresh_token', data.result.refreshToken.token);
+          
+          // Fetch and set user data
+          await fetchAndSetUserData(data.result.accessToken.jwtToken);
         }
         // Mark session authenticated for SSR redirects
         document.cookie = `auth=1; path=/; max-age=${60 * 60 * 24 * 7}`;
@@ -265,6 +458,10 @@ export default function AuthPage() {
         localStorage.setItem('id_token', data.result.idToken.jwtToken);
         localStorage.setItem('access_token', data.result.accessToken.jwtToken);
         localStorage.setItem('refresh_token', data.result.refreshToken.token);
+        
+        // Fetch and set user data
+        await fetchAndSetUserData(data.result.accessToken.jwtToken);
+        
         // Mark session authenticated for SSR redirects
         document.cookie = `auth=1; path=/; max-age=${60 * 60 * 24 * 7}`;
         setMessage('Login successful!');

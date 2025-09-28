@@ -38,9 +38,10 @@ interface OrderKPIGridProps {
   orders: Order[]
   onRefresh?: (kpiKey: string) => void
   onConfigure?: (kpiKey: string, config: KPIConfig) => void
+  loading?: boolean
 }
 
-export default function OrderKPIGrid({ kpiMetrics, orders, onRefresh, onConfigure }: OrderKPIGridProps) {
+export default function OrderKPIGrid({ kpiMetrics, orders, onRefresh, onConfigure, loading = false }: OrderKPIGridProps) {
   const [customCards, setCustomCards] = useState<CustomCard[]>([])
   const [showCustomCardModal, setShowCustomCardModal] = useState(false)
   const [showCardManagerModal, setShowCardManagerModal] = useState(false)
@@ -296,6 +297,7 @@ export default function OrderKPIGrid({ kpiMetrics, orders, onRefresh, onConfigur
               config={kpiConfigs[key]}
               onRefresh={() => handleRefresh(key)}
               onConfigure={(config) => handleConfigure(key, config)}
+              loading={loading}
             />
           ))}
         

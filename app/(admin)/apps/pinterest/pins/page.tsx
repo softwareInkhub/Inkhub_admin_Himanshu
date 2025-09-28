@@ -7,8 +7,8 @@ import {
   useDataTable
 } from '@/components/shared'
 import PinsGridCardFilterHeader from './components/PinsGridCardFilterHeader'
+import ExportModal from './components/ExportModal'
 import { Pin } from './types'
-import { generatePins } from './utils'
 import { getPinsForPage, getTotalChunks } from './services/pinService'
 
 // Define table columns for pins
@@ -23,9 +23,12 @@ const pinColumns = [
         <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
           {pin.image ? (
             <img 
-              src={pin.image} 
-              alt={pin.title || 'Pin'}
+              src={String(pin.image)} 
+              alt={String(pin.title || 'Pin')}
               className="w-full h-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none'
+              }}
             />
           ) : (
             <div className="w-full h-full bg-gray-200 flex items-center justify-center">
@@ -34,10 +37,10 @@ const pinColumns = [
           )}
         </div>
         <div className="flex-1 min-w-0 max-w-32">
-          <div className="text-sm font-medium text-gray-900 truncate" title={pin.title || 'Untitled Pin'}>
-            {(pin.title || 'Untitled Pin').length > 20 
-              ? `${(pin.title || 'Untitled Pin').substring(0, 20)}...` 
-              : (pin.title || 'Untitled Pin')}
+          <div className="text-sm font-medium text-gray-900 truncate" title={String(pin.title || 'Untitled Pin')}>
+            {String(pin.title || 'Untitled Pin').length > 20 
+              ? `${String(pin.title || 'Untitled Pin').substring(0, 20)}...` 
+              : String(pin.title || 'Untitled Pin')}
           </div>
         </div>
       </div>
@@ -58,7 +61,7 @@ const pinColumns = [
             return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800", text: status }
         }
       }
-      const badge = getStatusBadge(pin.status || 'active')
+      const badge = getStatusBadge(String(pin.status || 'active'))
       return <span className={badge.className}>{badge.text}</span>
     }
   },
@@ -79,7 +82,7 @@ const pinColumns = [
             return { className: "inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800", text: type }
         }
       }
-      const badge = getTypeBadge(pin.type || 'image')
+      const badge = getTypeBadge(String(pin.type || 'image'))
       return <span className={badge.className}>{badge.text}</span>
     }
   },
@@ -88,7 +91,7 @@ const pinColumns = [
     label: 'BOARD',
     sortable: true,
     render: (value: any, pin: Pin) => (
-      <div className="text-sm text-gray-900">{pin.board || 'No Board'}</div>
+      <div className="text-sm text-gray-900">{String(pin.board || 'No Board')}</div>
     )
   },
   {
@@ -96,7 +99,7 @@ const pinColumns = [
     label: 'OWNER',
     sortable: true,
     render: (value: any, pin: Pin) => (
-      <div className="text-sm text-gray-900">{pin.owner || 'Unknown'}</div>
+      <div className="text-sm text-gray-900">{String(pin.owner || 'Unknown')}</div>
     )
   },
   {
@@ -155,27 +158,30 @@ const pinColumns = [
     key: 'tags',
     label: 'TAGS',
     sortable: false,
-    render: (value: any, pin: Pin) => (
-      <div className="flex flex-wrap gap-1">
-        {pin.tags && pin.tags.length > 0 ? (
-          pin.tags.slice(0, 2).map((tag, index) => (
-            <span
-              key={index}
-              className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800"
-            >
-              {tag}
+    render: (value: any, pin: Pin) => {
+      const tags = Array.isArray(pin.tags) ? pin.tags : []
+      return (
+        <div className="flex flex-wrap gap-1">
+          {tags.length > 0 ? (
+            tags.slice(0, 2).map((tag, index) => (
+              <span
+                key={index}
+                className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800"
+              >
+                {String(tag)}
+              </span>
+            ))
+          ) : (
+            <span className="text-xs text-gray-500">No tags</span>
+          )}
+          {tags.length > 2 && (
+            <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
+              +{tags.length - 2}
             </span>
-          ))
-        ) : (
-          <span className="text-xs text-gray-500">No tags</span>
-        )}
-        {pin.tags && pin.tags.length > 2 && (
-          <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
-            +{pin.tags.length - 2}
-          </span>
-        )}
-      </div>
-    )
+          )}
+        </div>
+      )
+    }
   }
 ]
 
@@ -253,7 +259,9 @@ function PinsClient() {
   const hasAddedTab = useRef(false)
   const [loadingPins, setLoadingPins] = useState(false)
   const [pinsError, setPinsError] = useState<string | null>(null)
-  const [serverTotalPages, setServerTotalPages] = useState<number | null>(null)
+  const [allPins, setAllPins] = useState<Pin[]>([])
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
+  const [showExportModal, setShowExportModal] = useState(false)
 
   // Initialize data table hook
   const {
@@ -314,40 +322,69 @@ function PinsClient() {
     ],
     filterOptions: pinFilters,
     defaultViewMode: 'table',
-    defaultItemsPerPage: 25
+    defaultItemsPerPage: 500
   })
 
-  // Load real data from backend cache in page-sized chunks (1 chunk per page)
+  // Load all pins once on initial load
   useEffect(() => {
+    if (!isInitialLoad) return
+    
     let cancelled = false
-    const load = async () => {
+    const loadAllPins = async () => {
       setLoadingPins(true)
       setPinsError(null)
       try {
-        const { pins } = await getPinsForPage(currentPage)
-        if (!cancelled) setData(pins as any)
+        const totalChunks = await getTotalChunks()
+        const allPinsData: Pin[] = []
+        
+        // Load all chunks to get complete real data only
+        console.log(`📌 Loading ${totalChunks} chunks of real Pinterest pins from server...`)
+        
+        for (let i = 0; i < totalChunks; i++) {
+          try {
+            const { pins } = await getPinsForPage(i + 1)
+            if (pins && pins.length > 0) {
+              // Validate that we have real Pinterest data
+              const validPins = pins.filter(pin => 
+                pin.id && 
+                pin.id.length > 5 && // Real Pinterest IDs are long
+                !pin.id.startsWith('pin-') // Avoid any generated IDs
+              )
+              allPinsData.push(...validPins)
+              console.log(`✅ Loaded ${validPins.length} real pins from chunk ${i + 1}`)
+            }
+          } catch (e) {
+            console.warn(`❌ Failed to load chunk ${i + 1}:`, e)
+          }
+        }
+        
+        if (!cancelled) {
+          if (allPinsData.length > 0) {
+            console.log(`🎉 Successfully loaded ${allPinsData.length} real Pinterest pins from server`)
+            setAllPins(allPinsData)
+          } else {
+            console.warn('⚠️ No real Pinterest pins found in server data')
+            setPinsError('No real Pinterest pins available from server')
+          }
+          setIsInitialLoad(false)
+        }
       } catch (e: any) {
         if (!cancelled) setPinsError(e?.message || 'Failed to load pins')
       } finally {
         if (!cancelled) setLoadingPins(false)
       }
     }
-    load()
+    
+    loadAllPins()
     return () => { cancelled = true }
-  }, [currentPage, setData])
+  }, [isInitialLoad])
 
-  // Load total chunk count once for accurate pagination
+  // Update data table when all pins are loaded or page changes
   useEffect(() => {
-    let cancelled = false
-    const run = async () => {
-      try {
-        const chunks = await getTotalChunks()
-        if (!cancelled) setServerTotalPages(chunks)
-      } catch {}
+    if (allPins.length > 0) {
+      setData(allPins as any)
     }
-    run()
-    return () => { cancelled = true }
-  }, [])
+  }, [allPins, setData])
 
   // Calculate KPI metrics based on filtered data
   const calculatedKPIs = pinKPIs.map(kpi => {
@@ -468,7 +505,7 @@ function PinsClient() {
   // Page configuration
   const pageConfig = {
     title: 'Pinterest Pins',
-    description: 'Manage and analyze your Pinterest pins',
+    description: `Manage and analyze your Pinterest pins (${allPins.length} real pins from server)`,
     icon: '📌',
     endpoint: '/api/pins',
     columns: pinColumns,
@@ -484,7 +521,7 @@ function PinsClient() {
     ],
     actions: {
       create: () => console.log('Create pin'),
-      export: () => console.log('Export pins'),
+      export: () => setShowExportModal(true),
       import: () => console.log('Import pins'),
       print: () => console.log('Print pins'),
       settings: () => console.log('Pin settings')
@@ -503,13 +540,16 @@ function PinsClient() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="text-red-600 text-lg font-semibold mb-2">Error Loading Pins</div>
+          <div className="text-red-600 text-lg font-semibold mb-2">Error Loading Real Pinterest Pins</div>
           <div className="text-gray-600 mb-4">{error || pinsError}</div>
+          <div className="text-sm text-gray-500 mb-4">
+            Only real Pinterest data from server is displayed. No sample data is used.
+          </div>
           <button 
             onClick={() => window.location.reload()}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
           >
-            Retry
+            Retry Loading Real Data
           </button>
         </div>
       </div>
@@ -517,52 +557,62 @@ function PinsClient() {
   }
 
   return (
-    <PageTemplate
-      config={pageConfig}
-      data={currentData}
-      loading={loading || loadingPins}
-      error={error || pinsError}
-      GridHeaderComponent={PinsGridCardFilterHeader}
-      CardHeaderComponent={PinsGridCardFilterHeader}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        searchConditions={searchConditions}
-      setSearchConditions={setSearchConditions}
-      selectedItems={selectedItems}
-      setSelectedItems={setSelectedItems}
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-      currentPage={currentPage}
-      setCurrentPage={setCurrentPage}
-      itemsPerPage={itemsPerPage}
-      setItemsPerPage={setItemsPerPage}
-      sortColumn={sortColumn}
-      setSortColumn={setSortColumn}
-      sortDirection={sortDirection}
-      setSortDirection={setSortDirection}
-      columnFilters={columnFilters}
-      setColumnFilters={setColumnFilters}
-        customFilters={customFilters}
-      setCustomFilters={setCustomFilters}
-      advancedFilters={advancedFilters}
-      setAdvancedFilters={setAdvancedFilters}
-      totalPages={serverTotalPages || totalPages}
-      handleSelectItem={handleSelectItem}
-      handleSelectAll={handleSelectAll}
-      handlePageChange={handlePageChange}
-      handleItemsPerPageChange={handleItemsPerPageChange}
-      handleSort={handleSort}
-      handleSearch={handleSearch}
-      handleAdvancedSearch={handleAdvancedSearch}
-      handleColumnFilter={handleColumnFilter}
-      handleCustomFilter={handleCustomFilter}
-      handleAdvancedFilter={handleAdvancedFilter}
-      clearAllFilters={clearAllFilters}
-      clearSearch={clearSearch}
-      clearColumnFilters={clearColumnFilters}
-      clearCustomFilters={clearCustomFilters}
-      clearAdvancedFilters={clearAdvancedFilters}
-    />
+    <>
+      <PageTemplate
+        config={pageConfig}
+        data={currentData}
+        loading={loading || loadingPins}
+        error={error || pinsError}
+        GridHeaderComponent={PinsGridCardFilterHeader}
+        CardHeaderComponent={PinsGridCardFilterHeader}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          searchConditions={searchConditions}
+        setSearchConditions={setSearchConditions}
+        selectedItems={selectedItems}
+        setSelectedItems={setSelectedItems}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        setItemsPerPage={setItemsPerPage}
+        sortColumn={sortColumn}
+        setSortColumn={setSortColumn}
+        sortDirection={sortDirection}
+        setSortDirection={setSortDirection}
+        columnFilters={columnFilters}
+        setColumnFilters={setColumnFilters}
+          customFilters={customFilters}
+        setCustomFilters={setCustomFilters}
+        advancedFilters={advancedFilters}
+        setAdvancedFilters={setAdvancedFilters}
+        totalPages={totalPages}
+        handleSelectItem={handleSelectItem}
+        handleSelectAll={handleSelectAll}
+        handlePageChange={handlePageChange}
+        handleItemsPerPageChange={handleItemsPerPageChange}
+        handleSort={handleSort}
+        handleSearch={handleSearch}
+        handleAdvancedSearch={handleAdvancedSearch}
+        handleColumnFilter={handleColumnFilter}
+        handleCustomFilter={handleCustomFilter}
+        handleAdvancedFilter={handleAdvancedFilter}
+        clearAllFilters={clearAllFilters}
+        clearSearch={clearSearch}
+        clearColumnFilters={clearColumnFilters}
+        clearCustomFilters={clearCustomFilters}
+        clearAdvancedFilters={clearAdvancedFilters}
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        pins={filteredData}
+        selectedPins={selectedItems}
+      />
+    </>
   )
 }
 

@@ -318,7 +318,7 @@ function BoardsClient() {
     ],
     filterOptions: boardFilters,
     defaultViewMode: 'table',
-    defaultItemsPerPage: 25
+    defaultItemsPerPage: 500
   })
 
   // Update data table when boards data changes

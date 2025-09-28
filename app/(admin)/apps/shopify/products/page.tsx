@@ -570,94 +570,72 @@ function ProductsClientContent({
     weightUnit: String(v?.weight_unit ?? v?.weightUnit ?? 'kg')
   })
 
+  // Optimized product mapping with faster processing
   const mapRecordToProduct = (raw: any, idx: number): Product | null => {
     try {
-      // Skip if no raw data
-      if (!raw || typeof raw !== 'object') {
-        return null
-      }
-    
-    // Handle product image data structure (from cache) - legacy support
-    if (raw?.product_id && raw?.src && !raw?.title) {
-      // This is a product image record, not a product → skip
-      return null
-    }
-    
-      // Extract basic fields with better fallbacks
-      const idValue = raw?.id || raw?.product_id || raw?.gid || `product-${idx}`
-      const title = raw?.title || raw?.name || `Product ${idx + 1}`
+      // Fast validation checks
+      if (!raw || typeof raw !== 'object') return null
       
-      // Skip if we can't get a valid ID or title
-      if (!idValue || !title) {
-        return null
-      }
+      // Skip image records quickly
+      if (raw?.product_id && raw?.src && !raw?.title) return null
       
-      // Handle variants
-    const variantsArray: any[] = Array.isArray(raw?.variants) ? raw.variants : []
-      const totalInventory = variantsArray.reduce((sum, v) => {
-        const qty = Number(v?.inventory_quantity ?? v?.inventoryQuantity ?? 0)
-        return sum + (isNaN(qty) ? 0 : qty)
-      }, 0)
+      // Extract essential fields with minimal processing
+      const idValue = raw.id || raw.product_id || raw.gid || `product-${idx}`
+      const title = raw.title || raw.name || `Product ${idx + 1}`
       
-    const primaryVariant = variantsArray[0] || {}
+      // Fast validation
+      if (!idValue || !title) return null
       
-      // Handle images
-    const imagesArr = Array.isArray(raw?.images) ? raw.images : (raw?.image ? [raw.image] : [])
-    const imageUrls = imagesArr
-        .map((img: any) => {
-          if (typeof img === 'string') return img
-          return img?.src || img?.url || ''
-        })
-      .filter(Boolean)
+      // Simplified variant handling
+      const variants = Array.isArray(raw.variants) ? raw.variants : []
+      const primaryVariant = variants[0] || {}
+      const totalInventory = variants.reduce((sum: number, v: any) => sum + (Number(v?.inventory_quantity) || 0), 0)
+      
+      // Simplified image handling
+      const imageUrls = Array.isArray(raw.images) 
+        ? raw.images.map((img: any) => typeof img === 'string' ? img : (img?.src || img?.url)).filter(Boolean)
+        : (raw.image ? [raw.image] : [])
 
-      // Extract other fields
-      const productType = raw?.product_type || raw?.productType || raw?.category || ''
-      const priceCandidate = primaryVariant?.price || raw?.price || 0
-      const statusRaw = String(raw?.status || 'active').toLowerCase()
-      const status = (statusRaw === 'active' || statusRaw === 'draft' || statusRaw === 'archived') 
-        ? statusRaw as Product['status'] 
-        : 'active'
+      // Fast field extraction
+      const productType = raw.product_type || raw.productType || raw.category || ''
+      const price = Number(primaryVariant.price || raw.price) || 0
+      const statusRaw = String(raw.status || 'active').toLowerCase()
+      const status = (['active', 'draft', 'archived'].includes(statusRaw) ? statusRaw : 'active') as Product['status']
 
-      // Handle tags
-      let tags: string[] = []
-      if (Array.isArray(raw?.tags)) {
-        tags = raw.tags
-      } else if (typeof raw?.tags === 'string') {
-        tags = raw.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
-      }
+      // Simplified tag handling
+      const tags = Array.isArray(raw.tags) 
+        ? raw.tags 
+        : (typeof raw.tags === 'string' ? raw.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [])
 
-      // Handle collections
-      const collections = Array.isArray(raw?.collections) ? raw.collections : []
-
-    return {
+      return {
         id: String(idValue),
         title: String(title),
-        handle: raw?.handle || toSlug(title),
-        vendor: String(raw?.vendor || raw?.brand || ''),
+        handle: raw.handle || toSlug(title),
+        vendor: String(raw.vendor || raw.brand || ''),
         productType: String(productType),
-        price: Number(priceCandidate) || 0,
-      compareAtPrice: primaryVariant?.compare_at_price != null ? Number(primaryVariant.compare_at_price) : undefined,
-      cost: Number(primaryVariant?.cost ?? raw?.cost ?? 0) || 0,
-      inventoryQuantity: Number(raw?.inventory_quantity ?? raw?.inventoryQuantity ?? totalInventory) || 0,
-      status,
-      publishedAt: raw?.published_at ? parseDate(raw?.published_at) : undefined,
-      createdAt: parseDate(raw?.created_at ?? raw?.createdAt),
-      updatedAt: parseDate(raw?.updated_at ?? raw?.updatedAt),
+        price,
+        compareAtPrice: primaryVariant.compare_at_price != null ? Number(primaryVariant.compare_at_price) : undefined,
+        cost: Number(primaryVariant.cost || raw.cost) || 0,
+        inventoryQuantity: Number(raw.inventory_quantity || raw.inventoryQuantity || totalInventory) || 0,
+        status,
+        publishedAt: raw.published_at ? parseDate(raw.published_at) : undefined,
+        createdAt: parseDate(raw.created_at || raw.createdAt),
+        updatedAt: parseDate(raw.updated_at || raw.updatedAt),
         tags,
         images: imageUrls,
-      variants: variantsArray.map(mapVariant),
-        collections,
-      selected: false,
-      salesChannels: Number(raw?.salesChannels ?? 1) || 1,
+        variants: variants.map(mapVariant),
+        collections: Array.isArray(raw.collections) ? raw.collections : [],
+        selected: false,
+        salesChannels: Number(raw.salesChannels) || 1,
         category: String(productType) || ''
       }
     } catch (error) {
-      console.error(`Error mapping product at index ${idx}:`, error, raw)
+      // Silent fail for performance
       return null
     }
   }
 
-  // Fetch real products from cache API
+  // Optimized fetch with faster processing
   const fetchProducts = async (isBackground: boolean = false) => {
     // Prevent duplicate fetches on first mount (Strict Mode double-invoke)
     if (hasFetchedRef.current && !isBackground) {
@@ -677,58 +655,65 @@ function ProductsClientContent({
       for (const key of possibleKeys) {
         try {
           const url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=${key}`
-          console.log('🌐 Trying URL:', url)
           
           const response = await fetch(url, { 
-          signal: AbortSignal.timeout(45000),
-        headers: { Accept: 'application/json', 'Accept-Encoding': 'identity' }
-      })
-      
-          console.log('📡 Response status:', response.status, response.statusText)
+            signal: AbortSignal.timeout(20000), // Reduced timeout for faster failure
+            headers: { Accept: 'application/json', 'Accept-Encoding': 'identity' }
+          })
           
           if (response.ok) {
             const text = await response.text()
             const jsonData = JSON.parse(text)
             
             if (jsonData?.data && Array.isArray(jsonData.data)) {
-              console.log('📦 Raw data from API:', {
-                key,
-                count: jsonData.data.length,
-                firstItem: jsonData.data[0]
+              console.log('📦 Processing', jsonData.data.length, 'raw products...')
+              
+              // Optimized batch processing with early exit for UI responsiveness
+              const batchSize = 100
+              const mappedProducts: Product[] = []
+              
+              for (let i = 0; i < jsonData.data.length; i += batchSize) {
+                const batch = jsonData.data.slice(i, i + batchSize)
+                const batchMapped = batch
+                  .map((raw: any, idx: number) => {
+                    try {
+                      return mapRecordToProduct(raw, i + idx)
+                    } catch (error) {
+                      return null // Skip invalid products silently
+                    }
+                  })
+                  .filter(Boolean) as Product[]
+                
+                mappedProducts.push(...batchMapped)
+                
+                // Yield control to prevent UI blocking
+                if (i % (batchSize * 5) === 0) {
+                  await new Promise(resolve => setTimeout(resolve, 0))
+                }
+              }
+              
+              // Remove duplicates by id (faster Set-based approach)
+              const seenIds = new Set<string>()
+              const uniqueProducts = mappedProducts.filter(product => {
+                if (seenIds.has(product.id)) return false
+                seenIds.add(product.id)
+                return true
               })
               
-              // Map and filter products
-              const mappedProducts = jsonData.data
-                .map((raw: any, idx: number) => {
-                  try {
-                    return mapRecordToProduct(raw, idx)
-                  } catch (error) {
-                    console.warn(`Failed to map product at index ${idx}:`, error)
-                    return null
-                  }
-                })
-                .filter(Boolean) as Product[]
-              
-              // Remove duplicates by id
-              const uniqueProducts = Array.from(
-                new Map(mappedProducts.map(p => [p.id, p])).values()
-              )
-              
-              console.log('✅ Successfully processed products:', {
+              console.log('✅ Processed products:', {
                 key,
                 rawCount: jsonData.data.length,
                 mappedCount: mappedProducts.length,
-                uniqueCount: uniqueProducts.length,
-                sampleProduct: uniqueProducts[0]
+                uniqueCount: uniqueProducts.length
               })
               
               // Set the data
-            setProductData(uniqueProducts)
-            setTotalProducts(uniqueProducts.length)
+              setProductData(uniqueProducts)
+              setTotalProducts(uniqueProducts.length)
               setChunkData({ [key]: uniqueProducts })
               setChunkKeys([key])
-            setIsDataLoaded(true)
-            setLoading(false)
+              setIsDataLoaded(true)
+              setLoading(false)
               setError(null)
               return // Success, exit the function
             }
@@ -742,28 +727,28 @@ function ProductsClientContent({
       // If we get here, all keys failed
       throw new Error('No products data found in any cache key. Please cache the products data first.')
       
-      } catch (e: any) {
-        if (e?.name === 'AbortError') {
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
         console.log('⏹️ Request aborted')
-          return
-        }
-        
-        console.error('❌ Cache fetch error:', e)
-        
-        if (e.message.includes('404') || e.message.includes('Not Found')) {
-          setError('No products data available. Please cache the products data first using the Caching page.')
-        } else {
-          setError(`Failed to load products: ${e.message}`)
-        }
-      } finally {
-        setIsDataLoaded(true)
-        if (!isBackground) setLoading(false)
+        return
       }
+      
+      console.error('❌ Cache fetch error:', e)
+      
+      if (e.message.includes('404') || e.message.includes('Not Found')) {
+        setError('No products data available. Please cache the products data first using the Caching page.')
+      } else {
+        setError(`Failed to load products: ${e.message}`)
+      }
+    } finally {
+      setIsDataLoaded(true)
+      if (!isBackground) setLoading(false)
+    }
   }
 
-  // Fetch real products from cache API using chunk-based approach
+  // Optimized data fetching with immediate UI response
   useEffect(() => {
-    console.log('🚀 Products page mounted, starting data fetch...')
+    console.log('🚀 Products page mounted, starting optimized data fetch...')
     
     // Only fetch if we haven't fetched yet or if data is empty
     if (hasFetchedRef.current && productData.length > 0) {
@@ -771,54 +756,46 @@ function ProductsClientContent({
       return
     }
     
-    // Check if we have cached data first
+    // Show loading immediately but check cache first
+    setLoading(true)
+    setIsDataLoaded(false)
+    
+    // Check if we have cached data first - prioritize speed
     if (typeof window !== 'undefined') {
       const cached = localStorage.getItem('products-cache')
       if (cached) {
-        console.log('💾 Found cached data, checking age...')
         try {
           const parsed = JSON.parse(cached)
           const now = Date.now()
           const cacheAge = now - (parsed.timestamp || 0)
-          const cacheTTL = 30 * 60 * 1000 // 30 minutes to avoid frequent cold loads
+          const cacheTTL = 30 * 60 * 1000 // 30 minutes
           
           if (cacheAge < cacheTTL && parsed.data && Array.isArray(parsed.data) && parsed.data.length > 0) {
-            console.log('✅ Using fresh cached data:', parsed.data.length, 'products')
-            // Use cached data if it's fresh
+            console.log('⚡ Using cached data instantly:', parsed.data.length, 'products')
+            // Use cached data immediately for instant loading
             setProductData(parsed.data)
             setTotalProducts(parsed.data.length)
             setChunkData({ 'cached': parsed.data })
             setChunkKeys(['cached'])
             setIsDataLoaded(true)
-            setLoading(false)
+            setLoading(false) // Stop loading immediately
             hasFetchedRef.current = true
-            // Trigger a background refresh without blocking UI
-            ;(async () => {
-              try { await fetchProducts(true) } catch {}
-            })()
+            
+            // Background refresh without affecting UI
+            setTimeout(() => {
+              fetchProducts(true).catch(() => {}) // Silent background refresh
+            }, 1000)
             return
-          } else {
-            console.log('⏰ Cached data is stale or empty, fetching fresh data...')
           }
         } catch (e) {
-          console.log('❌ Invalid cache, fetching fresh data...')
-          // Invalid cache, continue with fresh fetch
+          console.log('❌ Invalid cache, will fetch fresh data')
         }
-      } else {
-        console.log('📭 No cached data found, fetching fresh data...')
       }
     }
 
-    // Reset state to ensure clean data loading
-    setProductData([])
-    setChunkData({})
-    setChunkKeys([])
-    setTotalProducts(0)
-    setIsDataLoaded(false)
-    setError(null)
+    // If no valid cache, fetch fresh data
+    console.log('🌐 No valid cache, starting fresh API fetch...')
     hasFetchedRef.current = false
-
-    console.log('🌐 Starting fresh API fetch...')
     fetchProducts()
   }, []) // Remove productData.length dependency to prevent infinite loops
 
@@ -832,40 +809,44 @@ function ProductsClientContent({
     })
   }, [addTab])
 
-  // Save data to cache when loaded successfully
+  // Optimized non-blocking cache saving
   useEffect(() => {
     if (isDataLoaded && productData.length > 0 && typeof window !== 'undefined') {
-      // Only cache essential fields to reduce storage size and avoid quota exceeded errors
-      const essentialProducts = productData.map(product => ({
-        id: product.id,
-        title: product.title,
-        status: product.status,
-        price: product.price,
-        inventoryQuantity: product.inventoryQuantity,
-        vendor: product.vendor,
-        productType: product.productType,
-        category: product.category,
-        images: product.images?.slice(0, 1), // Only first image
-        createdAt: product.createdAt,
-        updatedAt: product.updatedAt,
-        tags: product.tags?.slice(0, 5), // Only first 5 tags
-        handle: product.handle
-      }))
-      
-      try {
-        const cacheData = {
-          data: essentialProducts,
-          timestamp: Date.now(),
-          count: essentialProducts.length
+      // Use setTimeout to avoid blocking the UI
+      setTimeout(() => {
+        try {
+          // Cache only essential fields for performance
+          const essentialProducts = productData.map(product => ({
+            id: product.id,
+            title: product.title,
+            status: product.status,
+            price: product.price,
+            inventoryQuantity: product.inventoryQuantity,
+            vendor: product.vendor,
+            productType: product.productType,
+            category: product.category,
+            images: product.images?.[0] ? [product.images[0]] : [], // Only first image
+            createdAt: product.createdAt,
+            updatedAt: product.updatedAt,
+            tags: product.tags?.slice(0, 5) || [], // Only first 5 tags
+            handle: product.handle
+          }))
+          
+          const cacheData = {
+            data: essentialProducts,
+            timestamp: Date.now(),
+            count: essentialProducts.length
+          }
+          
+          localStorage.setItem('products-cache', JSON.stringify(cacheData))
+          console.log('📦 Cached', essentialProducts.length, 'products successfully')
+        } catch (e) {
+          // Silent fail to avoid blocking user experience
+          console.warn('⚠️ Cache storage failed:', e)
         }
-        localStorage.setItem('products-cache', JSON.stringify(cacheData))
-        console.log('📦 Essential product data cached successfully:', essentialProducts.length, 'products')
-      } catch (e) {
-        // Handle quota exceeded or other storage errors silently
-        console.warn('⚠️ Could not cache products data:', e)
-      }
+      }, 100) // Small delay to not block UI
     }
-  }, [isDataLoaded, productData])
+  }, [isDataLoaded, productData.length]) // Only depend on length to avoid frequent re-runs
 
   // Debug: Monitor product data changes (reduced logging for cleaner console)
   useEffect(() => {
@@ -1413,22 +1394,31 @@ function ProductsClientContent({
       }))
     }
 
-    if ((loading || !isDataLoaded) && productData.length === 0) {
+    // Show optimized loading state only when no data at all
+    if (loading && productData.length === 0 && !isDataLoaded) {
       return (
         <div className="min-h-screen bg-gray-50">
-          {/* Header Skeleton */}
-          <div className="bg-white border-b border-gray-200 px-6 py-4">
-            <div className="animate-pulse">
-              <div className="h-8 bg-gray-200 rounded w-32 mb-4"></div>
-              <div className="flex space-x-4">
-                <div className="h-10 bg-gray-200 rounded w-24"></div>
-                <div className="h-10 bg-gray-200 rounded w-24"></div>
-                <div className="h-10 bg-gray-200 rounded w-24"></div>
-            </div>
+          {/* Faster loading indicator */}
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="text-center">
+              <div className="inline-flex items-center space-x-3 px-6 py-4 bg-white rounded-lg shadow-sm border">
+                <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <div>
+                  <div className="text-sm font-medium text-gray-900">Loading Products...</div>
+                  <div className="text-xs text-gray-500 mt-1">This should only take a moment</div>
+                </div>
+              </div>
             </div>
           </div>
+        </div>
+      )
+    }
 
-          {/* KPI Skeleton */}
+    // Show minimal skeleton only for very first load without cache
+    if (!isDataLoaded && productData.length === 0) {
+      return (
+        <div className="min-h-screen bg-gray-50">
+          {/* Minimal KPI Skeleton */}
           <div className="px-6 py-4">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -1436,18 +1426,18 @@ function ProductsClientContent({
                   <div className="animate-pulse">
                     <div className="h-4 bg-gray-200 rounded w-20 mb-2"></div>
                     <div className="h-6 bg-gray-200 rounded w-16"></div>
-              </div>
-          </div>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
 
-          {/* Table Skeleton */}
+          {/* Minimal Table Skeleton */}
           <div className="px-6 py-4">
             <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
               <div className="animate-pulse">
                 <div className="h-12 bg-gray-100"></div>
-                {Array.from({ length: 5 }).map((_, i) => (
+                {Array.from({ length: 3 }).map((_, i) => (
                   <div key={i} className="h-16 border-b border-gray-200 last:border-b-0">
                     <div className="flex items-center space-x-4 p-4">
                       <div className="w-10 h-10 bg-gray-200 rounded"></div>

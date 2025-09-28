@@ -116,6 +116,24 @@ export default function SearchControls({
     } catch {}
   }, [searchHistory])
 
+  // Click outside detection to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      
+      // Check if click is outside the dropdown and its trigger button
+      if (!target.closest('.header-dropdown') && !target.closest('[data-dropdown-trigger="more-actions"]')) {
+        setShowHeaderDropdown(false)
+      }
+    }
+
+    // Only add listener when dropdown is open
+    if (showHeaderDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showHeaderDropdown, setShowHeaderDropdown])
+
   const pushHistory = (text: string, count: number) => {
     if (!text.trim()) return
     const item: SharedSearchSuggestion = { id: `h-${Date.now()}`, text, type: 'history', count }
@@ -285,6 +303,7 @@ export default function SearchControls({
           {/* More Actions Button */}
           <div className="relative">
             <button
+              data-dropdown-trigger="more-actions"
               onClick={() => setShowHeaderDropdown(!showHeaderDropdown)}
               className="px-3 py-2 text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 flex items-center space-x-1 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-purple-400 h-10"
             >
@@ -306,7 +325,10 @@ export default function SearchControls({
                 <div className="p-2">
                   <div className="space-y-1">
                     <button
-                      onClick={onImport}
+                      onClick={() => {
+                        onImport()
+                        setShowHeaderDropdown(false)
+                      }}
                       className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 hover:text-blue-700 flex items-center space-x-2"
                     >
                       <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -315,7 +337,10 @@ export default function SearchControls({
                       <span>Import Items</span>
                     </button>
                     <button
-                      onClick={onPrint}
+                      onClick={() => {
+                        onPrint()
+                        setShowHeaderDropdown(false)
+                      }}
                       className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 hover:text-green-700 flex items-center space-x-2"
                     >
                       <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -324,7 +349,10 @@ export default function SearchControls({
                       <span>Print Items</span>
                     </button>
                     <button
-                      onClick={onSettings}
+                      onClick={() => {
+                        onSettings()
+                        setShowHeaderDropdown(false)
+                      }}
                       className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 hover:text-purple-700 flex items-center space-x-2"
                     >
                       <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

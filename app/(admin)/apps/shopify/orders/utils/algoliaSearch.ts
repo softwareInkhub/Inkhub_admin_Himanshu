@@ -508,13 +508,16 @@ export const searchOrdersWithAdvancedFilters = async (
       return dateB.getTime() - dateA.getTime()
     })
     
-    console.log('✅ Advanced Filters Algolia search completed:', sortedOrders.length, 'filtered results')
-    console.log('🔍 Final filtered orders sample:', sortedOrders.slice(0, 3).map(o => ({ 
-      id: o.id, 
-      orderNumber: o.orderNumber, 
-      customerName: o.customerName,
-      financialStatus: o.financialStatus
-    })))
+    // Reduce logging noise - only log occasionally in development
+    if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+      console.log('✅ Advanced Filters Algolia search completed:', sortedOrders.length, 'filtered results')
+      console.log('🔍 Final filtered orders sample:', sortedOrders.slice(0, 3).map(o => ({ 
+        id: o.id, 
+        orderNumber: o.orderNumber, 
+        customerName: o.customerName,
+        financialStatus: o.financialStatus
+      })))
+    }
     return sortedOrders
     
   } catch (error) {

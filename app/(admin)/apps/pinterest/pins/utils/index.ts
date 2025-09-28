@@ -9,8 +9,12 @@ export const getOptimizedImageUrl = (baseUrl: string, width: number, height: num
   return baseUrl
 }
 
-// Generate sample pins data with more realistic Pinterest data
+// ⚠️ WARNING: This function generates SAMPLE data and should NOT be used in production
+// Only real Pinterest data from the server API should be displayed
+// This is kept for development/testing purposes only
 export const generatePins = (count: number): Pin[] => {
+  console.warn('⚠️ generatePins() called - This creates SAMPLE data, not real Pinterest data!')
+  console.warn('📌 Production should only use real data from: https://brmh.in/cache/data?project=my-app&table=pinterest_inkhub_get_pins')
   const owners = ['alice', 'bob', 'carol', 'dave', 'eve', 'frank', 'grace', 'henry', 'iris', 'jack']
   const boards = ['Inspiration', 'Recipes', 'Travel', 'DIY', 'Fashion', 'Art', 'Tech', 'Home', 'Beauty', 'Fitness']
   const types: Pin['type'][] = ['image', 'video', 'article']

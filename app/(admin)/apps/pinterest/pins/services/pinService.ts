@@ -3,7 +3,7 @@ import { Pin } from '../types'
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
 
 // Pinterest cache table and chunk behavior
-const TABLE = 'pinterest_inkhub_main_get_pins'
+const TABLE = 'pinterest_inkhub_get_pins'
 const CHUNK_TTL_MS = 5 * 60 * 1000 // 5 minutes
 const TOTAL_CHUNKS_TTL_MS = 10 * 60 * 1000 // 10 minutes
 const CHUNK_TIMEOUT_MS = 30000
@@ -21,23 +21,36 @@ function mapRecordToPin(raw: any, idx: number): Pin {
   const imageUrl = images?.['600x']?.url || images?.['1200x']?.url || images?.['400x300']?.url || ''
   const owner = item?.board_owner?.username || ''
 
+  // Handle potential pin_id object
+  let pinId = item?.id || raw?.id || item?.pin_id || raw?.pin_id
+  if (typeof pinId === 'object' && pinId !== null) {
+    pinId = pinId.id || pinId.pin_id || JSON.stringify(pinId)
+  }
+
+  // Ensure all string fields are properly converted
+  const title = item?.title || ''
+  const description = item?.description || item?.note || ''
+  const boardId = item?.board_id || ''
+  const createdAt = item?.created_at || ''
+  const updatedAt = raw?.timestamp || item?.updated_at || ''
+
   return {
-    id: String(item?.id || raw?.id || `pin-${Date.now()}-${idx}`),
-    title: String(item?.title || ''),
-    description: String(item?.description || item?.note || ''),
-    board: String(item?.board_id || ''),
-    owner: String(owner || ''),
-    image: String(imageUrl || ''),
-    createdAt: String(item?.created_at || ''),
-    updatedAt: String(raw?.timestamp || item?.updated_at || ''),
-    tags: Array.isArray(item?.product_tags) ? item.product_tags : [],
-    likes: 0,
-    comments: 0,
-    repins: 0,
-    saves: 0,
-    isStarred: false,
-    type: (media?.media_type as any) || 'image',
-    status: 'active'
+    id: String(pinId || `pin-${Date.now()}-${idx}`),
+    title: String(title),
+    description: String(description),
+    board: String(boardId),
+    owner: String(owner),
+    image: String(imageUrl),
+    createdAt: String(createdAt),
+    updatedAt: String(updatedAt),
+    tags: Array.isArray(item?.product_tags) ? item.product_tags.map((tag: any) => String(tag)) : [],
+    likes: Number(item?.likes || 0),
+    comments: Number(item?.comments || 0),
+    repins: Number(item?.repins || 0),
+    saves: Number(item?.saves || 0),
+    isStarred: Boolean(item?.isStarred || false),
+    type: String(media?.media_type || 'image') as 'image' | 'video' | 'article',
+    status: String(item?.status || 'active') as 'active' | 'archived'
   }
 }
 

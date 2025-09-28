@@ -76,15 +76,19 @@ export default function OrderTable({
   const [jsonOrder, setJsonOrder] = useState<Order | null>(null)
 
   const sortedOrders = useMemo(() => {
-    // Debug logging for OrderTable component
-    console.log('🔍 OrderTable received currentOrders:', {
-      currentOrdersLength: currentOrders.length,
-      sampleOrders: currentOrders.slice(0, 3).map(o => ({ 
-        id: o.id, 
-        orderNumber: o.orderNumber, 
-        customerName: o.customerName 
-      }))
-    })
+    // Reduce debug logging noise - only log occasionally in development
+    const shouldLog = process.env.NODE_ENV === 'development' && Math.random() < 0.05 // 5% chance
+    
+    if (shouldLog) {
+      console.log('🔍 OrderTable received currentOrders:', {
+        currentOrdersLength: currentOrders.length,
+        sampleOrders: currentOrders.slice(0, 3).map(o => ({ 
+          id: o.id, 
+          orderNumber: o.orderNumber, 
+          customerName: o.customerName 
+        }))
+      })
+    }
     
     // If no sort column is specified, default to sorting by date (newest first)
     if (!sortState?.key) {
@@ -93,7 +97,9 @@ export default function OrderTable({
         const dateB = new Date(b.createdAt || b.updatedAt || 0)
         return dateB.getTime() - dateA.getTime() // Newest first (descending)
       })
-      console.log('🔍 OrderTable sorted orders (default sort):', sorted.length)
+      if (shouldLog) {
+        console.log('🔍 OrderTable sorted orders (default sort):', sorted.length)
+      }
       return sorted
     }
 
@@ -115,7 +121,9 @@ export default function OrderTable({
 
       return sortState.dir === 'asc' ? comparison : -comparison
     })
-    console.log('🔍 OrderTable sorted orders (custom sort):', sorted.length)
+    if (shouldLog) {
+      console.log('🔍 OrderTable sorted orders (custom sort):', sorted.length)
+    }
     return sorted
   }, [currentOrders, sortState])
 
@@ -505,7 +513,10 @@ export default function OrderTable({
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {(() => {
-              console.log('🔍 Rendering table rows:', sortedOrders.length, 'orders')
+              // Reduce render logging noise - only log occasionally in development
+              if (process.env.NODE_ENV === 'development' && Math.random() < 0.02) { // 2% chance
+                console.log('🔍 Rendering table rows:', sortedOrders.length, 'orders')
+              }
               return sortedOrders.map((order, index) => (
               <tr
                 key={`${order.id}-${index}`}

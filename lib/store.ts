@@ -26,6 +26,13 @@ export interface User {
   name: string
   email: string
   role: 'admin' | 'editor' | 'viewer'
+  avatar?: string
+  createdAt: string
+  preferences: {
+    theme: 'light' | 'dark'
+    notifications: boolean
+    language: string
+  }
   permissions: {
     shopify: {
       orders: string[]
@@ -39,9 +46,22 @@ export interface User {
       designs: string[]
     }
   }
+  lastLogin: string
+  analytics: {
+    ordersViewed: number
+    productsManaged: number
+    pinsCreated: number
+  }
+  designLibrary: {
+    designs: string[]
+  }
 }
 
 interface AppState {
+  // Hydration state
+  hasHydrated: boolean
+  setHasHydrated: (state: boolean) => void
+  
   // Theme
   theme: 'light' | 'dark'
   setTheme: (theme: 'light' | 'dark') => void
@@ -87,6 +107,10 @@ interface AppState {
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
+      // Hydration state
+      hasHydrated: false,
+      setHasHydrated: (state) => set({ hasHydrated: state }),
+      
       // Theme
       theme: 'light',
       setTheme: (theme) => set({ theme }),
@@ -240,6 +264,12 @@ export const useAppStore = create<AppState>()(
           name: 'Admin User',
           email: 'admin@inkhub.com',
           role: 'admin',
+          createdAt: new Date().toISOString(),
+          preferences: {
+            theme: 'light',
+            notifications: true,
+            language: 'en'
+          },
           permissions: {
             shopify: {
               orders: ['view', 'create', 'edit', 'delete'],
@@ -253,6 +283,15 @@ export const useAppStore = create<AppState>()(
               designs: ['view', 'create', 'edit', 'delete'],
             },
           },
+          lastLogin: new Date().toISOString(),
+          analytics: {
+            ordersViewed: 0,
+            productsManaged: 0,
+            pinsCreated: 0
+          },
+          designLibrary: {
+            designs: []
+          }
         },
       ],
       currentUser: null,
@@ -313,10 +352,14 @@ export const useAppStore = create<AppState>()(
         sidebarCollapsed: state.sidebarCollapsed,
         tabs: state.tabs, // Save all tabs, not just pinned ones
         users: state.users,
+        currentUser: state.currentUser, // Persist current user data
         ordersPage: state.ordersPage,
         ordersScroll: state.ordersScroll,
         productsPage: state.productsPage,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true)
+      },
     }
   )
 ) 

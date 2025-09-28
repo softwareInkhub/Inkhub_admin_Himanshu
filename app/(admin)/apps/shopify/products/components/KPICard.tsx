@@ -20,6 +20,7 @@ interface KPICardProps {
   onRefresh?: () => void
   onConfigure?: (config: KPIConfig) => void
   config?: KPIConfig
+  loading?: boolean
 }
 
 interface KPIConfig {
@@ -41,7 +42,8 @@ export default function KPICard({
   isCurrency = false,
   onRefresh,
   onConfigure,
-  config
+  config,
+  loading = false
 }: KPICardProps) {
   const [showSettings, setShowSettings] = useState(false)
   const [localConfig, setLocalConfig] = useState<KPIConfig>({
@@ -301,7 +303,14 @@ export default function KPICard({
           "text-lg font-bold",
           gradient
         )}>
-          {formatValue(metric?.value || 0, isCurrency)}
+          {loading ? (
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin opacity-60"></div>
+              <span className="text-sm opacity-60">Calculating...</span>
+            </div>
+          ) : (
+            formatValue(metric?.value || 0, isCurrency)
+          )}
         </div>
         
         {/* Alert Indicator */}

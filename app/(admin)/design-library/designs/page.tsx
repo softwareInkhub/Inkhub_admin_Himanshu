@@ -483,7 +483,7 @@ function DesignLibraryPage() {
     ],
     filterOptions: designFilters,
     defaultViewMode: 'table',
-    defaultItemsPerPage: 50
+    defaultItemsPerPage: 500
   })
 
 
@@ -590,18 +590,7 @@ function DesignLibraryPage() {
   if ((isLoadingServerData && serverData.length === 0) || !isClient) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <div className="text-gray-600">
-            {!isClient ? 'Initializing...' : 'Loading design data from server...'}
-          </div>
-          <div className="text-sm text-gray-500 mt-2">
-            {!isClient ? 'Setting up the application' : 'Fetching from https://brmh.in/cache/table'}
-          </div>
-          <div className="text-xs text-gray-400 mt-1">
-            {!isClient ? 'Please wait' : 'This may take a few seconds for large datasets'}
-          </div>
-        </div>
+        <div className="text-gray-500">Loading designs...</div>
       </div>
     )
   }
