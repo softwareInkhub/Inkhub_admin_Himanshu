@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { useHydration } from '@/hooks/useHydration';
+import { SSOUtils } from '@/lib/sso-utils';
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in';
 
@@ -165,7 +166,7 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
       }
     };
 
-    validateAndFetchUser();
+    initializeSSO();
     
     return () => {
       isMounted = false;
