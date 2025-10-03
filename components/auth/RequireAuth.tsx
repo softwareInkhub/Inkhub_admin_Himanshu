@@ -34,136 +34,82 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
     if (hasRunRef.current) return;
     hasRunRef.current = true;
 
-    const validateAndFetchUser = async () => {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-      
-      if (!token) {
-        if (isMounted) {
-          router.replace('/auth');
-          setIsValidating(false);
-        }
-        return;
-      }
-
-      // If we already have a persisted user, no need to set fallback
-      if (currentUser) {
+    const initializeSSO = async () => {
+      // Allow the auth page itself (if it still existed, though it's removed now)
+      if (pathname?.startsWith('/auth')) {
         if (isMounted) setIsValidating(false);
         return;
       }
 
-      // Set fallback user immediately to prevent multiple API calls
-      const fallbackUser = {
-        id: 'admin-user',
-        name: 'Admin User',
-        email: 'admin@inkhub.com',
-        role: 'admin' as const,
-        createdAt: new Date().toISOString(),
-        preferences: {
-          theme: 'light' as const,
-          notifications: true,
-          language: 'en'
-        },
-        permissions: {
-          shopify: {
-            orders: ['read', 'write', 'admin'],
-            products: ['read', 'write', 'admin']
-          },
-          pinterest: {
-            pins: ['read', 'write', 'admin'],
-            boards: ['read', 'write', 'admin']
-          },
-          designLibrary: {
-            designs: ['read', 'write', 'admin']
-          }
-        },
-        lastLogin: new Date().toISOString(),
-        analytics: {
-          ordersViewed: 0,
-          productsManaged: 0,
-          pinsCreated: 0
-        },
-        designLibrary: {
-          designs: []
-        }
-      };
-      
-      if (isMounted) {
-        setCurrentUser(fallbackUser);
-        setIsValidating(false);
+      // Wait for store hydration before making auth decisions
+      if (!isHydrated) {
+        return;
       }
 
-      // Try to fetch real profile data from backend
-      try {
-        const response = await fetch(`${BACKEND}/auth/profile`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        }).catch(() => null); // Silently fail
+      // Sync tokens from cookies to localStorage (for apps that expect localStorage)
+      SSOUtils.syncTokensFromCookies();
 
-        if (response && response.ok) {
-          const data = await response.json();
-          
-          // Update user with real profile data
-          if (isMounted) {
-            const userData = {
-              id: data.sub || data.id || 'user-' + Date.now(),
-              name: `${data.given_name || data.first_name || ''} ${data.family_name || data.last_name || ''}`.trim() || 
-                     data.username || data.preferred_username || 'User',
-              email: data.email || 'user@inkhub.com',
-              role: (data.role === 'admin' || data.role === 'editor' || data.role === 'viewer') 
-                ? data.role 
-                : 'admin' as const,
-              avatar: data.picture,
-              createdAt: data.created_at || data.joinedAt || new Date().toISOString(),
-              preferences: {
-                theme: 'light' as const,
-                notifications: true,
-                language: 'en'
+      // Check if authenticated via cookies or localStorage
+      if (!SSOUtils.isAuthenticated()) {
+        console.log('[RequireAuth] Not authenticated, redirecting to centralized auth.');
+        const nextUrl = encodeURIComponent(window.location.href);
+        window.location.href = `https://auth.brmh.in/login?next=${nextUrl}`;
+        if (isMounted) setIsValidating(false);
+        return;
+      }
+
+      // If authenticated and no current user in store, fetch user profile
+      if (!currentUser) {
+        try {
+          const userProfile = await SSOUtils.fetchUserProfile(BACKEND);
+          if (isMounted && userProfile) {
+            setCurrentUser(userProfile);
+          }
+        } catch (error) {
+          console.error('[RequireAuth] Failed to fetch user profile:', error);
+          // Set fallback user for Inkhub admin
+          const fallbackUser = {
+            id: 'admin-user',
+            name: 'Admin User',
+            email: 'admin@inkhub.com',
+            role: 'admin' as const,
+            createdAt: new Date().toISOString(),
+            preferences: {
+              theme: 'light' as const,
+              notifications: true,
+              language: 'en'
+            },
+            permissions: {
+              shopify: {
+                orders: ['read', 'write', 'admin'],
+                products: ['read', 'write', 'admin']
               },
-              permissions: {
-                shopify: {
-                  orders: ['read', 'write', 'admin'],
-                  products: ['read', 'write', 'admin']
-                },
-                pinterest: {
-                  pins: ['read', 'write', 'admin'],
-                  boards: ['read', 'write', 'admin']
-                },
-                designLibrary: {
-                  designs: ['read', 'write', 'admin']
-                }
-              },
-              lastLogin: data.last_login || new Date().toISOString(),
-              analytics: {
-                ordersViewed: 0,
-                productsManaged: 0,
-                pinsCreated: 0
+              pinterest: {
+                pins: ['read', 'write', 'admin'],
+                boards: ['read', 'write', 'admin']
               },
               designLibrary: {
-                designs: []
+                designs: ['read', 'write', 'admin']
               }
-            };
-            
-            setCurrentUser(userData);
-          }
-        } else if (response && response.status === 401) {
-          // Token invalid, clear it and redirect
+            },
+            lastLogin: new Date().toISOString(),
+            analytics: {
+              ordersViewed: 0,
+              productsManaged: 0,
+              pinsCreated: 0
+            },
+            designLibrary: {
+              designs: []
+            }
+          };
+          
           if (isMounted) {
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('id_token');
-            localStorage.removeItem('refresh_token');
-            localStorage.removeItem('token_expires');
-            document.cookie = 'auth=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-            setCurrentUser(null);
-            router.replace('/auth');
+            setCurrentUser(fallbackUser);
           }
         }
-        // If profile API fails, keep the fallback user
-      } catch (error) {
-        // Keep fallback user if profile fetch fails
-        console.warn('Profile fetch failed, using fallback user:', error);
       }
+
+      if (isMounted) setIsValidating(false);
     };
 
     initializeSSO();

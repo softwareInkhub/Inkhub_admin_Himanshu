@@ -190,6 +190,13 @@ export class SSOUtils {
   /**
    * Sync tokens from cookies to localStorage (for apps that expect localStorage)
    */
+  static syncTokensFromCookies(): void {
+    return this.syncTokensToLocalStorage();
+  }
+
+  /**
+   * Sync tokens from cookies to localStorage (for apps that expect localStorage)
+   */
   static syncTokensToLocalStorage(): void {
     if (typeof window === 'undefined') return;
 
@@ -246,6 +253,48 @@ export class SSOUtils {
     } catch (error) {
       console.error('[SSO] Token refresh failed:', error);
       return false;
+    }
+  }
+
+  /**
+   * Fetch user profile from backend
+   */
+  static async fetchUserProfile(backendUrl?: string): Promise<any> {
+    const baseUrl = backendUrl || this.API_BASE_URL;
+    const tokens = this.getTokens();
+    const accessToken = tokens.accessToken || (typeof localStorage !== 'undefined' ? localStorage.getItem('access_token') : null);
+    
+    if (!accessToken) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      const response = await fetch(`${baseUrl}/auth/profile`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          // Token expired, try to refresh
+          const refreshed = await this.refreshTokens();
+          if (!refreshed) {
+            throw new Error('Authentication expired');
+          }
+          // Retry with new token
+          return this.fetchUserProfile(backendUrl);
+        }
+        throw new Error(`Failed to fetch user profile: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('[SSO] Failed to fetch user profile:', error);
+      throw error;
     }
   }
 
