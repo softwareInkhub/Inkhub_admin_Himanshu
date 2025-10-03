@@ -16,12 +16,6 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
   const isHydrated = useHydration();
 
   useEffect(() => {
-    // Allow the auth page itself
-    if (pathname?.startsWith('/auth')) {
-      setIsValidating(false);
-      return;
-    }
-
     // Wait for store hydration before making auth decisions
     if (!isHydrated) {
       return;
@@ -35,16 +29,6 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
     hasRunRef.current = true;
 
     const initializeSSO = async () => {
-      // Allow the auth page itself (if it still existed, though it's removed now)
-      if (pathname?.startsWith('/auth')) {
-        if (isMounted) setIsValidating(false);
-        return;
-      }
-
-      // Wait for store hydration before making auth decisions
-      if (!isHydrated) {
-        return;
-      }
 
       // Sync tokens from cookies to localStorage (for apps that expect localStorage)
       SSOUtils.syncTokensFromCookies();
@@ -117,10 +101,10 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
     return () => {
       isMounted = false;
     };
-  }, [router, pathname, isHydrated]); // Wait for hydration before running auth logic
+  }, [router, pathname, isHydrated, currentUser, setCurrentUser]); // Wait for hydration before running auth logic
 
   // Show loading state while validating
-  if (isValidating && !pathname?.startsWith('/auth')) {
+  if (isValidating) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-gray-500">Authenticating...</div>
