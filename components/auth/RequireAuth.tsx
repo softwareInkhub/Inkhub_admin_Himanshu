@@ -1,16 +1,12 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { useHydration } from '@/hooks/useHydration';
-import { SSOUtils } from '@/lib/sso-utils';
 
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in';
 
 export default function RequireAuth({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const pathname = usePathname();
   const { currentUser, setCurrentUser } = useAppStore();
   const [isValidating, setIsValidating] = useState(true);
   const isHydrated = useHydration();
@@ -28,29 +24,36 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
     if (hasRunRef.current) return;
     hasRunRef.current = true;
 
-    const initializeSSO = async () => {
-
-      // Sync tokens from cookies to localStorage (for apps that expect localStorage)
-      SSOUtils.syncTokensFromCookies();
-
-      // Check if authenticated via cookies or localStorage
-      if (!SSOUtils.isAuthenticated()) {
-        console.log('[RequireAuth] Not authenticated, redirecting to centralized auth.');
-        const nextUrl = encodeURIComponent(window.location.href);
-        window.location.href = `https://auth.brmh.in/login?next=${nextUrl}`;
-        if (isMounted) setIsValidating(false);
-        return;
-      }
-
+    const initializeUser = async () => {
+      // NOTE: Authentication is already handled by middleware (which can read httpOnly cookies)
+      // This component only needs to fetch/set user profile for the app state
+      
+      // Try to get tokens from localStorage (synced by middleware if available)
+      const accessToken = localStorage.getItem('access_token') || localStorage.getItem('accessToken');
+      
       // If authenticated and no current user in store, fetch user profile
       if (!currentUser) {
         try {
-          const userProfile = await SSOUtils.fetchUserProfile(BACKEND);
-          if (isMounted && userProfile) {
-            setCurrentUser(userProfile);
+          // Try to fetch user profile
+          const response = await fetch(`${BACKEND}/auth/profile`, {
+            headers: {
+              'Authorization': accessToken ? `Bearer ${accessToken}` : '',
+              'Content-Type': 'application/json'
+            },
+            credentials: 'include', // Important: sends httpOnly cookies
+          });
+
+          if (response.ok) {
+            const userProfile = await response.json();
+            if (isMounted && userProfile) {
+              setCurrentUser(userProfile);
+            }
+          } else {
+            // If profile fetch fails, use fallback user
+            throw new Error('Failed to fetch user profile');
           }
         } catch (error) {
-          console.error('[RequireAuth] Failed to fetch user profile:', error);
+          console.warn('[RequireAuth] Using fallback user profile:', error);
           // Set fallback user for Inkhub admin
           const fallbackUser = {
             id: 'admin-user',
@@ -96,18 +99,18 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
       if (isMounted) setIsValidating(false);
     };
 
-    initializeSSO();
+    initializeUser();
     
     return () => {
       isMounted = false;
     };
-  }, [router, pathname, isHydrated, currentUser, setCurrentUser]); // Wait for hydration before running auth logic
+  }, [isHydrated, currentUser, setCurrentUser]);
 
   // Show loading state while validating
   if (isValidating) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500">Authenticating...</div>
+        <div className="text-gray-500">Loading...</div>
       </div>
     );
   }

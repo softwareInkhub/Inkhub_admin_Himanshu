@@ -26,12 +26,16 @@ export class SSOUtils {
 
   /**
    * Check if user is authenticated via cookies (primary method for SSO)
+   * Note: If cookies are httpOnly, we check for the auth_valid flag set by middleware
    */
   static isAuthenticated(): boolean {
     if (typeof document === 'undefined') return false;
     
     const cookies = this.getCookies();
-    return !!(cookies.access_token || cookies.id_token);
+    
+    // Check for httpOnly token existence via auth_valid flag (set by middleware)
+    // or check for directly readable tokens (if not httpOnly)
+    return !!(cookies.auth_valid || cookies.access_token || cookies.id_token);
   }
 
   /**
@@ -178,7 +182,7 @@ export class SSOUtils {
   static clearCookies(): void {
     if (typeof document === 'undefined') return;
 
-    const cookiesToClear = ['access_token', 'id_token', 'refresh_token'];
+    const cookiesToClear = ['access_token', 'id_token', 'refresh_token', 'auth_valid'];
     cookiesToClear.forEach(cookieName => {
       // Clear for current domain
       document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
