@@ -2,6 +2,8 @@ import { NextResponse, NextRequest } from 'next/server'
 
 export function middleware(req: NextRequest) {
   const { pathname, href } = req.nextUrl
+  const hostname = req.nextUrl.hostname
+  const origin = req.nextUrl.origin
 
   // Allow auth page and static assets/api without redirect
   if (
@@ -25,11 +27,14 @@ export function middleware(req: NextRequest) {
     const response = NextResponse.next();
     
     // Set a client-readable flag (not httpOnly) so client-side code knows auth is valid
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
     response.cookies.set('auth_valid', '1', {
       path: '/',
-      domain: '.brmh.in',
-      secure: true,
-      sameSite: 'lax',
+      // Don't set domain on localhost or the cookie will be dropped by the browser
+      domain: isLocalhost ? undefined : '.brmh.in',
+      // Cookies must be secure on HTTPS domains, but not on localhost (HTTP)
+      secure: !isLocalhost,
+      sameSite: isLocalhost ? 'lax' : 'lax',
       maxAge: 60 * 60 * 24 * 7, // 7 days
       httpOnly: false, // Important: client-side can read this
     });
@@ -38,8 +43,10 @@ export function middleware(req: NextRequest) {
   }
 
   // Redirect to centralized auth with return URL
-  const nextUrl = encodeURIComponent(href);
-  console.log('[Inkhub Middleware] No auth token found, redirecting to centralized auth');
+  // Use a dedicated callback on this app so we can capture hash tokens and set cookies for localhost
+  const redirectTarget = `${origin}/auth/callback?redirect=${encodeURIComponent(href)}`;
+  const nextUrl = encodeURIComponent(redirectTarget);
+  console.log('[Inkhub Middleware] No auth token found, redirecting to centralized auth with callback:', redirectTarget);
   return NextResponse.redirect(`https://auth.brmh.in/login?next=${nextUrl}`);
 }
 
