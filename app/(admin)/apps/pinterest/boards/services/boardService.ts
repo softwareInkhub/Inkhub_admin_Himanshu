@@ -40,63 +40,105 @@ const mapApiResponseToBoard = (item: any, index: number): Board => {
   }
 }
 
-// Fetch boards data from API
+// Fetch boards data from API (optimized: cache-first + parallel keys)
 export const fetchBoards = async (): Promise<Board[]> => {
   try {
     const cacheKey = 'pinterest-boards'
+
+    // 1) Cache-first: in-memory
     const cached = boardsCache.get(cacheKey)
-    
-    // Return cached data if still valid
     if (cached && (Date.now() - cached.timestamp) < BOARDS_CONFIG.cacheTimeout) {
-      if (shouldLog()) {
-        console.log('📦 Using cached boards data')
-      }
+      if (shouldLog()) console.log('📦 Using cached boards data (memory)')
       return cached.data
     }
 
-    if (shouldLog()) {
-      console.log('🔄 Fetching Pinterest boards from API...')
+    // 2) Cache-first: localStorage (lightweight)
+    if (typeof window !== 'undefined') {
+      const ls = localStorage.getItem(cacheKey)
+      if (ls) {
+        try {
+          const parsed = JSON.parse(ls)
+          if (parsed?.timestamp && (Date.now() - parsed.timestamp) < BOARDS_CONFIG.cacheTimeout && Array.isArray(parsed.data)) {
+            const lsBoards: Board[] = parsed.data
+            boardsCache.set(cacheKey, { data: lsBoards, timestamp: parsed.timestamp })
+            if (shouldLog()) console.log('⚡ Using cached boards data (localStorage)')
+            // Trigger background refresh without blocking
+            setTimeout(() => { fetchBoards().catch(() => {}) }, 0)
+            return lsBoards
+          }
+        } catch {}
+      }
     }
 
-    const url = `${BACKEND_URL}/cache/data?project=my-app&table=pinterest_inkhub_main_get_boards&key=chunk:0`
-    
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(BOARDS_CONFIG.timeout),
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
+    if (shouldLog()) console.log('🔄 Fetching Pinterest boards from API (parallel keys)...')
+
+    // 3) Discover available keys to avoid 404 noise
+    let keys: string[] = []
+    try {
+      const keysUrl = `${BACKEND_URL}/cache/data?project=my-app&table=pinterest_inkhub_main_get_boards`
+      const keysRes = await fetch(keysUrl, { headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(4000) })
+      if (keysRes.ok) {
+        const keysJson = await keysRes.json()
+        const rawKeys: string[] = Array.isArray(keysJson?.keys) ? keysJson.keys : []
+        // Normalize keys like "my-app:table:chunk:0" → "chunk:0"
+        const normalize = (k: string) => {
+          const parts = String(k).split(':')
+          return parts.length >= 2 ? `${parts[parts.length - 2]}:${parts[parts.length - 1]}` : String(k)
+        }
+        const availableSet = new Set(rawKeys.map(normalize))
+        const available = Array.from(availableSet)
+        const priority = ['all', 'boards', 'chunk:0', 'chunk:1', 'chunk:2', 'chunk:3', 'chunk:4']
+        keys = priority.filter(k => available.includes(k))
+        if (keys.length === 0 && available.length > 0) {
+          keys = [available[0]]
+        }
       }
+    } catch {}
+    // If discovery yielded nothing, fall back to a small set of chunk keys only
+    if (!keys || keys.length === 0) {
+      keys = ['chunk:0', 'chunk:1', 'chunk:2', 'chunk:3', 'chunk:4']
+    }
+
+    const reqs = keys.map((key) => {
+      const url = `${BACKEND_URL}/cache/data?project=my-app&table=pinterest_inkhub_main_get_boards&key=${key}`
+      return fetch(url, {
+        signal: AbortSignal.timeout(BOARDS_CONFIG.timeout),
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
+      }).then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const json = await res.json()
+        if (!json?.data || !Array.isArray(json.data)) throw new Error('Invalid data payload')
+        return { key, data: json.data }
+      })
     })
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
+    const promiseAny = async <T,>(promises: Promise<T>[]): Promise<T> => new Promise((resolve, reject) => {
+      let rejected = 0
+      const n = promises.length
+      if (n === 0) return reject(new Error('No requests'))
+      promises.forEach(p => p.then(resolve).catch(() => { rejected++; if (rejected === n) reject(new Error('All failed')) }))
+    })
 
-    const json = await response.json()
-    
-    if (!json.data || !Array.isArray(json.data)) {
-      throw new Error('Invalid response format: data is not an array')
-    }
+    const { key: winningKey, data } = await promiseAny(reqs)
 
-    // Map API data to Board interface
-    const boards = json.data.map((item: any, index: number) => mapApiResponseToBoard(item, index))
-    
-    // Cache the data
+    const boards = (data as any[]).map((item: any, index: number) => mapApiResponseToBoard(item, index))
+
+    // Save caches
     boardsCache.set(cacheKey, { data: boards, timestamp: Date.now() })
-    
-    if (shouldLog()) {
-      console.log(`✅ Successfully fetched ${boards.length} Pinterest boards`)
+    if (typeof window !== 'undefined') {
+      try { localStorage.setItem(cacheKey, JSON.stringify({ data: boards, timestamp: Date.now(), key: winningKey })) } catch {}
     }
+
+    if (shouldLog()) console.log(`✅ Boards fetched via key "${winningKey}":`, boards.length)
 
     return boards
 
   } catch (error: any) {
     if (shouldLog()) {
-      console.error('❌ Error fetching Pinterest boards:', error.message)
+      console.error('❌ Error fetching Pinterest boards:', error?.message || error)
     }
-    
-    // Return empty array on error
-    return []
+    // Propagate error so UI can show an error state instead of empty page
+    throw error
   }
 }
 

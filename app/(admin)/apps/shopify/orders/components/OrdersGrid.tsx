@@ -29,6 +29,7 @@ interface OrdersGridProps {
   onClearFilter: (column: string, filterType: string) => void;
   getUniqueValues: (field: string) => string[];
   getUniqueTags: () => string[];
+  headerOnly?: boolean;
 }
 
 const OrdersGrid: React.FC<OrdersGridProps> = ({
@@ -45,7 +46,8 @@ const OrdersGrid: React.FC<OrdersGridProps> = ({
   onColumnFilterChange,
   onClearFilter,
   getUniqueValues,
-  getUniqueTags
+  getUniqueTags,
+  headerOnly
 }) => {
   const getGridClasses = (count: number) => {
     const base = 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3';
@@ -180,6 +182,24 @@ const OrdersGrid: React.FC<OrdersGridProps> = ({
             )}
           </div>
         )}
+      </div>
+    )
+  }
+
+  if (headerOnly) {
+    // For grid view, header is minimal – just column labels row
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="px-3 py-2 text-xs text-gray-600 flex items-center gap-4">
+          <span className="w-20">Order</span>
+          <span className="w-24">Customer</span>
+          <span className="w-20">Status</span>
+          <span className="w-16">Total</span>
+          <span className="w-24">Date</span>
+          <span className="w-20">Items</span>
+          <span className="w-24">Payment</span>
+          <span className="w-24">Tags</span>
+        </div>
       </div>
     )
   }

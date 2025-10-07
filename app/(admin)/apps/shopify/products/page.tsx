@@ -648,85 +648,117 @@ function ProductsClientContent({
     
     try {
       const BACKEND_URL = 'https://brmh.in'
-      
-      // Try multiple possible keys for products data
-      const possibleKeys = ['chunk:0', 'all', 'products']
-      
-      for (const key of possibleKeys) {
-        try {
-          const url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=${key}`
-          
-          const response = await fetch(url, { 
-            signal: AbortSignal.timeout(20000), // Reduced timeout for faster failure
-            headers: { Accept: 'application/json', 'Accept-Encoding': 'identity' }
-          })
-          
-          if (response.ok) {
+
+      // Discover available keys to avoid 404s, then request in parallel using a priority list
+      let possibleKeys: string[] = []
+      try {
+        const keysUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products`
+        const keysRes = await fetch(keysUrl, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000) })
+        if (keysRes.ok) {
+          const keysJson = await keysRes.json()
+          const rawKeys: string[] = Array.isArray(keysJson?.keys) ? keysJson.keys : []
+          const normalize = (k: string) => {
+            const parts = String(k).split(':')
+            return parts.length >= 2 ? `${parts[parts.length - 2]}:${parts[parts.length - 1]}` : String(k)
+          }
+          const available = new Set(rawKeys.map(normalize))
+          const priority = ['all', 'products', 'chunk:0', 'chunk:1', 'chunk:2', 'chunk:3', 'chunk:4']
+          possibleKeys = priority.filter(k => available.has(k))
+          if (possibleKeys.length === 0 && available.size > 0) {
+            possibleKeys = Array.from(available)
+          }
+        }
+      } catch {}
+      if (possibleKeys.length === 0) {
+        possibleKeys = ['chunk:0', 'chunk:1', 'chunk:2', 'chunk:3', 'chunk:4']
+      }
+
+      const requests = possibleKeys.map((key) => {
+        const url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=${key}`
+        return fetch(url, {
+          signal: AbortSignal.timeout(12000),
+          headers: { Accept: 'application/json', 'Accept-Encoding': 'identity' }
+        })
+          .then(async (response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
             const text = await response.text()
             const jsonData = JSON.parse(text)
-            
-            if (jsonData?.data && Array.isArray(jsonData.data)) {
-              console.log('📦 Processing', jsonData.data.length, 'raw products...')
-              
-              // Optimized batch processing with early exit for UI responsiveness
-              const batchSize = 100
-              const mappedProducts: Product[] = []
-              
-              for (let i = 0; i < jsonData.data.length; i += batchSize) {
-                const batch = jsonData.data.slice(i, i + batchSize)
-                const batchMapped = batch
-                  .map((raw: any, idx: number) => {
-                    try {
-                      return mapRecordToProduct(raw, i + idx)
-                    } catch (error) {
-                      return null // Skip invalid products silently
-                    }
-                  })
-                  .filter(Boolean) as Product[]
-                
-                mappedProducts.push(...batchMapped)
-                
-                // Yield control to prevent UI blocking
-                if (i % (batchSize * 5) === 0) {
-                  await new Promise(resolve => setTimeout(resolve, 0))
-                }
-              }
-              
-              // Remove duplicates by id (faster Set-based approach)
-              const seenIds = new Set<string>()
-              const uniqueProducts = mappedProducts.filter(product => {
-                if (seenIds.has(product.id)) return false
-                seenIds.add(product.id)
-                return true
-              })
-              
-              console.log('✅ Processed products:', {
-                key,
-                rawCount: jsonData.data.length,
-                mappedCount: mappedProducts.length,
-                uniqueCount: uniqueProducts.length
-              })
-              
-              // Set the data
-              setProductData(uniqueProducts)
-              setTotalProducts(uniqueProducts.length)
-              setChunkData({ [key]: uniqueProducts })
-              setChunkKeys([key])
-              setIsDataLoaded(true)
-              setLoading(false)
-              setError(null)
-              return // Success, exit the function
-            }
+            if (!jsonData?.data || !Array.isArray(jsonData.data)) throw new Error('Invalid payload')
+            return { key, data: jsonData.data as any[] }
+          })
+      })
+
+      // Use the first fulfilled request
+      // Polyfilled Promise.any to support environments without ES2021 lib
+      const promiseAnyPolyfill = async <T,>(promises: Promise<T>[]): Promise<T> => {
+        return new Promise<T>((resolve, reject) => {
+          let rejectedCount = 0
+          const total = promises.length
+          if (total === 0) {
+            reject(new Error('No requests provided'))
+            return
           }
-        } catch (keyError) {
-          console.log(`❌ Failed to fetch with key "${key}":`, keyError)
-          // Continue to next key
+          promises.forEach(p => {
+            p.then(resolve).catch(() => {
+              rejectedCount++
+              if (rejectedCount === total) reject(new Error('All requests failed'))
+            })
+          })
+        })
+      }
+
+      const { key: winningKey, data } = await promiseAnyPolyfill(requests)
+
+      console.log('📦 Processing', data.length, 'raw products...')
+
+      // Optimized batch processing with early exit for UI responsiveness
+      const batchSize = 100
+      const mappedProducts: Product[] = []
+
+      for (let i = 0; i < data.length; i += batchSize) {
+        const batch = data.slice(i, i + batchSize)
+        const batchMapped = batch
+          .map((raw: any, idx: number) => {
+            try {
+              return mapRecordToProduct(raw, i + idx)
+            } catch {
+              return null
+            }
+          })
+          .filter(Boolean) as Product[]
+
+        mappedProducts.push(...batchMapped)
+
+        if (i % (batchSize * 5) === 0) {
+          await new Promise(resolve => setTimeout(resolve, 0))
         }
       }
-      
-      // If we get here, all keys failed
-      throw new Error('No products data found in any cache key. Please cache the products data first.')
-      
+
+      // Remove duplicates by id (faster Set-based approach)
+      const seenIds = new Set<string>()
+      const uniqueProducts = mappedProducts.filter(product => {
+        if (seenIds.has(product.id)) return false
+        seenIds.add(product.id)
+        return true
+      })
+
+      console.log('✅ Processed products:', {
+        key: winningKey,
+        rawCount: data.length,
+        mappedCount: mappedProducts.length,
+        uniqueCount: uniqueProducts.length
+      })
+
+      // Set the data
+      setProductData(uniqueProducts)
+      setTotalProducts(uniqueProducts.length)
+      setChunkData({ [winningKey]: uniqueProducts })
+      setChunkKeys([winningKey])
+      setIsDataLoaded(true)
+      setLoading(false)
+      setError(null)
+      return
+
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         console.log('⏹️ Request aborted')
@@ -1394,7 +1426,7 @@ function ProductsClientContent({
       }))
     }
 
-    // Show optimized loading state only when no data at all
+    // Unified loading state (single consistent UI)
     if (loading && productData.length === 0 && !isDataLoaded) {
       return (
         <div className="min-h-screen bg-gray-50">
@@ -1414,46 +1446,7 @@ function ProductsClientContent({
       )
     }
 
-    // Show minimal skeleton only for very first load without cache
-    if (!isDataLoaded && productData.length === 0) {
-      return (
-        <div className="min-h-screen bg-gray-50">
-          {/* Minimal KPI Skeleton */}
-          <div className="px-6 py-4">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="bg-white border border-gray-200 rounded-lg p-4">
-                  <div className="animate-pulse">
-                    <div className="h-4 bg-gray-200 rounded w-20 mb-2"></div>
-                    <div className="h-6 bg-gray-200 rounded w-16"></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Minimal Table Skeleton */}
-          <div className="px-6 py-4">
-            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-              <div className="animate-pulse">
-                <div className="h-12 bg-gray-100"></div>
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="h-16 border-b border-gray-200 last:border-b-0">
-                    <div className="flex items-center space-x-4 p-4">
-                      <div className="w-10 h-10 bg-gray-200 rounded"></div>
-                      <div className="flex-1">
-                        <div className="h-4 bg-gray-200 rounded w-32 mb-2"></div>
-                        <div className="h-3 bg-gray-200 rounded w-24"></div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )
-    }
+    // Remove secondary variant to avoid different loading UIs
 
     if (error) {
       const isNoDataError = error.includes('No products data available')

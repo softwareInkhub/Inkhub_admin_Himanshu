@@ -250,7 +250,7 @@ function BoardsClient() {
         const boards = await fetchBoards()
         setBoardsData(boards)
       } catch (err: any) {
-        setError(err.message || 'Failed to load boards')
+        setError(err?.message || 'Failed to load boards')
         console.error('Error loading boards:', err)
       } finally {
         setIsLoading(false)
@@ -392,10 +392,21 @@ function BoardsClient() {
     }
   }
 
+  // Unified loading UI (consistent with other pages)
   if (isLoading && boardsData.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500">Loading Pinterest boards...</div>
+      <div className="min-h-screen bg-gray-50">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="inline-flex items-center space-x-3 px-6 py-4 bg-white rounded-lg shadow-sm border">
+              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">Loading Boards...</div>
+                <div className="text-xs text-gray-500 mt-1">This should only take a moment</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -406,6 +417,7 @@ function BoardsClient() {
         <div className="text-center">
           <div className="text-red-600 text-lg font-semibold mb-2">Error Loading Pinterest Boards</div>
           <div className="text-gray-600 mb-4">{error}</div>
+          <div className="text-xs text-gray-500 mb-4">Tip: Ensure caching job ran for table <code>pinterest_inkhub_main_get_boards</code> and at least one of the keys like <code>all</code>, <code>boards</code>, or <code>chunk:0</code> exists.</div>
           <button 
             onClick={() => window.location.reload()}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"

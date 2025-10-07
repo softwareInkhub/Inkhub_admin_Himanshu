@@ -138,7 +138,26 @@ export default function KPICard({
       <div className="relative z-10">
         <div className="flex items-center justify-between mb-0.5">
           <div className="flex items-center space-x-2 flex-1 min-w-0">
-            <span className="text-base flex-shrink-0">{localConfig.customIcon || icon}</span>
+            <div className="w-6 h-6 flex-shrink-0 flex items-center justify-center">
+              {(localConfig.customIcon || icon) && (localConfig.customIcon || icon).endsWith('.svg') ? (
+                <img 
+                  src={localConfig.customIcon || icon} 
+                  alt={label}
+                  className="w-6 h-6 object-contain"
+                  onError={(e) => {
+                    // Fallback to text if image fails to load
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    const fallback = document.createElement('span');
+                    fallback.textContent = '📊';
+                    fallback.className = 'text-base';
+                    target.parentNode?.appendChild(fallback);
+                  }}
+                />
+              ) : (
+                <span className="text-base flex-shrink-0">{localConfig.customIcon || icon}</span>
+              )}
+            </div>
             <span className="text-xs font-medium text-gray-600 truncate">{localConfig.customLabel || label}</span>
           </div>
           <div className="flex items-center space-x-1 flex-shrink-0">

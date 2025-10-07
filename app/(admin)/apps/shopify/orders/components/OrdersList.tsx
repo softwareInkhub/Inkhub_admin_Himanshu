@@ -17,6 +17,7 @@ interface OrdersListProps {
   onClearFilter: (column: string, filterType: string) => void;
   getUniqueValues: (field: string) => string[];
   getUniqueTags: () => string[];
+  headerOnly?: boolean;
 }
 
 const OrdersList: React.FC<OrdersListProps> = ({
@@ -31,7 +32,8 @@ const OrdersList: React.FC<OrdersListProps> = ({
   onColumnFilterChange,
   onClearFilter,
   getUniqueValues,
-  getUniqueTags
+  getUniqueTags,
+  headerOnly
 }) => {
   const ColumnHeader = ({ 
     title, 
@@ -154,6 +156,26 @@ const OrdersList: React.FC<OrdersListProps> = ({
             )}
           </div>
         )}
+      </div>
+    )
+  }
+
+  if (headerOnly) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
+          <div className="grid grid-cols-12 gap-4 text-sm font-medium text-gray-700">
+            <div className="col-span-1">Select</div>
+            <div className="col-span-2">Order</div>
+            <div className="col-span-2">Customer</div>
+            <div className="col-span-1">Status</div>
+            <div className="col-span-1">Total</div>
+            <div className="col-span-1">Date</div>
+            <div className="col-span-1">Items</div>
+            <div className="col-span-1">Payment</div>
+            <div className="col-span-2">Tags</div>
+          </div>
+        </div>
       </div>
     )
   }

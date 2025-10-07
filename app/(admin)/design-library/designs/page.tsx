@@ -365,38 +365,41 @@ function DesignLibraryPage() {
         
         console.log('Fetching design data from server...')
         
-        // Try to fetch all designs in one request first (optimized)
+        // Try multiple keys in parallel for fastest success
         const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
-        const allDesignsUrl = `${BACKEND_URL}/cache/data?project=my-app&table=admin-design-image&key=all`
-        
+        const keys = ['all', 'chunk:0', 'designs']
+        const requests = keys.map((key) => {
+          const url = `${BACKEND_URL}/cache/data?project=my-app&table=admin-design-image&key=${key}`
+          return fetch(url, { signal: AbortSignal.timeout(5000) })
+            .then(async (res) => {
+              if (!res.ok) throw new Error(`HTTP ${res.status}`)
+              const json = await res.json()
+              if (!json?.data || !Array.isArray(json.data)) throw new Error('Invalid payload')
+              return { key, data: json.data }
+            })
+        })
+
+        const promiseAny = async <T,>(promises: Promise<T>[]): Promise<T> => new Promise((resolve, reject) => {
+          let rejected = 0
+          const n = promises.length
+          if (n === 0) return reject(new Error('No requests'))
+          promises.forEach(p => p.then(resolve).catch(() => { rejected++; if (rejected === n) reject(new Error('All failed')) }))
+        })
+
         try {
-          const allDesignsRes = await fetch(allDesignsUrl, { 
-            signal: AbortSignal.timeout(5000) // Increased timeout for better reliability
-          })
-          
-          if (allDesignsRes.ok) {
-            const allDesignsJson = await allDesignsRes.json()
-            if (allDesignsJson?.data && Array.isArray(allDesignsJson.data)) {
-              const designs = allDesignsJson.data.map((serverDesign: any) => 
-                designAPI.transformServerDesign(serverDesign)
-              )
-              
-              setServerData(designs)
-              setDataLoaded(true)
-              
-              // Cache data in sessionStorage
-              if (isClient) {
-                sessionStorage.setItem('designs-cached-data', JSON.stringify(designs))
-                sessionStorage.setItem('designs-data-loaded', 'true')
-              }
-              
-              setIsLoadingServerData(false)
-              console.log(`✅ Loaded ${designs.length} designs from all data`)
-              return
-            }
+          const { key: winner, data } = await promiseAny(requests)
+          const designs = (data as any[]).map((serverDesign: any) => designAPI.transformServerDesign(serverDesign))
+          setServerData(designs)
+          setDataLoaded(true)
+          if (isClient) {
+            sessionStorage.setItem('designs-cached-data', JSON.stringify(designs))
+            sessionStorage.setItem('designs-data-loaded', 'true')
           }
-        } catch (allDesignsError) {
-          console.log('⚠️ All designs fetch failed, falling back to chunks:', allDesignsError)
+          setIsLoadingServerData(false)
+          console.log(`✅ Loaded ${designs.length} designs via key "${winner}"`)
+          return
+        } catch (parallelErr) {
+          console.log('⚠️ Parallel key fetch failed, falling back to chunks:', parallelErr)
         }
 
         // Fallback to chunk-based approach with limited chunks
@@ -586,11 +589,21 @@ function DesignLibraryPage() {
     }
   }), [calculatedKPIs, designFilters])
 
-  // Show loading state while fetching server data
+  // Show loading state while fetching server data (unified spinner UI)
   if ((isLoadingServerData && serverData.length === 0) || !isClient) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500">Loading designs...</div>
+      <div className="min-h-screen bg-gray-50">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="inline-flex items-center space-x-3 px-6 py-4 bg-white rounded-lg shadow-sm border">
+              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">Loading Designs...</div>
+                <div className="text-xs text-gray-500 mt-1">This should only take a moment</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -599,8 +612,18 @@ function DesignLibraryPage() {
 
   if (loading && designData.length === 0 && serverData.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500">Loading designs...</div>
+      <div className="min-h-screen bg-gray-50">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="inline-flex items-center space-x-3 px-6 py-4 bg-white rounded-lg shadow-sm border">
+              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">Loading Designs...</div>
+                <div className="text-xs text-gray-500 mt-1">This should only take a moment</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }

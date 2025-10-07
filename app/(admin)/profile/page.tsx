@@ -99,7 +99,20 @@ export default function ProfilePage() {
       setProfile(profileData)
       setLoading(false)
       
-      // Try to fetch additional profile data from backend
+      // Check if running in development (localhost or NODE_ENV)
+      const isLocalhost = typeof window !== 'undefined' && 
+        (window.location.hostname === 'localhost' || 
+         window.location.hostname === '127.0.0.1' ||
+         window.location.hostname === '');
+      const isDevelopment = process.env.NODE_ENV === 'development' || isLocalhost;
+      
+      // Skip backend profile fetch in development mode
+      if (isDevelopment) {
+        console.log('[Profile] Development/Localhost mode: Skipping backend profile fetch');
+        return
+      }
+      
+      // Try to fetch additional profile data from backend (production only)
       const fetchAdditionalProfileData = async () => {
         try {
           const token = localStorage.getItem('access_token')
@@ -137,8 +150,23 @@ export default function ProfilePage() {
       
       fetchAdditionalProfileData()
     } else {
-      // No current user, redirect to auth
-      router.push('/auth')
+      // No current user - check environment
+      const isLocalhost = typeof window !== 'undefined' && 
+        (window.location.hostname === 'localhost' || 
+         window.location.hostname === '127.0.0.1' ||
+         window.location.hostname === '');
+      const isDevelopment = process.env.NODE_ENV === 'development' || isLocalhost;
+      
+      if (isDevelopment) {
+        // In development, redirect to home (will trigger fallback user)
+        console.log('[Profile] Development/Localhost mode: Redirecting to home');
+        router.push('/')
+      } else {
+        // In production, redirect to auth login
+        console.log('[Profile] Production mode: Redirecting to auth.brmh.in');
+        const currentUrl = encodeURIComponent(window.location.href)
+        window.location.href = `https://auth.brmh.in/login?next=${currentUrl}`
+      }
     }
   }, [currentUser, router])
 
@@ -187,9 +215,40 @@ export default function ProfilePage() {
     setMessage('')
 
     try {
+      // Check if running in development (localhost or NODE_ENV)
+      const isLocalhost = typeof window !== 'undefined' && 
+        (window.location.hostname === 'localhost' || 
+         window.location.hostname === '127.0.0.1' ||
+         window.location.hostname === '');
+      const isDevelopment = process.env.NODE_ENV === 'development' || isLocalhost;
+      
+      // In development mode, just update locally without backend call
+      if (isDevelopment) {
+        const updatedProfile = { ...profile, ...editForm }
+        setProfile(updatedProfile)
+        setIsEditing(false)
+        setMessage('Profile updated successfully! (Development mode - changes are local only)')
+        
+        // Update app store with new profile data
+        setCurrentUser({
+          ...currentUser!,
+          name: `${editForm.firstName || ''} ${editForm.lastName || ''}`.trim() || profile.username,
+          email: editForm.email || profile.email,
+          avatar: avatarPreview || currentUser!.avatar // Update avatar if changed
+        })
+        
+        // Clear avatar preview after successful save
+        setAvatarPreview(null)
+        
+        setTimeout(() => setMessage(''), 3000)
+        setSaving(false)
+        return
+      }
+
       const token = localStorage.getItem('access_token')
       if (!token) {
-        router.push('/auth')
+        setMessage('Not authenticated. Please refresh the page.')
+        setSaving(false)
         return
       }
 

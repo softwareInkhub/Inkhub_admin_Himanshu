@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useCallback, useEffect } from 'react'
+import React, { useState, useRef, useCallback, useEffect, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   X, 
@@ -25,6 +25,7 @@ interface TabBarProps {
 
 export function TabBar({ className }: TabBarProps) {
   const router = useRouter()
+  const [isNavigating, startTransition] = useTransition()
   const { 
     tabs, 
     activeTabId, 
@@ -52,26 +53,19 @@ export function TabBar({ className }: TabBarProps) {
   const tabsContainerRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  // Filter tabs based on search query
-  const filteredTabs = tabs.filter(tab => 
-    tab.title && tab.title.toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  // Sort tabs: Dashboard first, then pinned, then others
-  const sortedTabs = [...filteredTabs].sort((a, b) => {
-    // Dashboard always first
-    if (a.path === '/dashboard') return -1
-    if (b.path === '/dashboard') return 1
-    
-    // Then pinned tabs
-    if (a.pinned && !b.pinned) return -1
-    if (!a.pinned && b.pinned) return 1
-    
-    // Finally by title (with null safety)
-    const titleA = a.title || ''
-    const titleB = b.title || ''
-    return titleA.localeCompare(titleB)
-  })
+  // Filter and sort tabs (memoized to avoid work on every render)
+  const sortedTabs = useMemo(() => {
+    const filtered = tabs.filter(tab => tab.title && tab.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    return [...filtered].sort((a, b) => {
+      if (a.path === '/dashboard') return -1
+      if (b.path === '/dashboard') return 1
+      if (a.pinned && !b.pinned) return -1
+      if (!a.pinned && b.pinned) return 1
+      const titleA = a.title || ''
+      const titleB = b.title || ''
+      return titleA.localeCompare(titleB)
+    })
+  }, [tabs, searchQuery])
 
   // Handle scroll buttons visibility
   const checkScrollButtons = useCallback(() => {
@@ -88,6 +82,16 @@ export function TabBar({ className }: TabBarProps) {
     window.addEventListener('resize', checkScrollButtons)
     return () => window.removeEventListener('resize', checkScrollButtons)
   }, [checkScrollButtons, tabs])
+
+  // Prefetch likely routes to make navigation instant
+  useEffect(() => {
+    try {
+      // Prefetch top visible tabs (limit to avoid overhead)
+      sortedTabs.slice(0, 8).forEach(t => {
+        if (t.path) router.prefetch?.(t.path)
+      })
+    } catch {}
+  }, [sortedTabs, router])
 
   // Scroll handlers
   const scrollLeft = useCallback(() => {
@@ -180,8 +184,10 @@ export function TabBar({ className }: TabBarProps) {
   // Tab click handler with routing
   const handleTabClick = useCallback((tab: any) => {
     setActiveTab(tab.id)
-    router.push(tab.path)
-  }, [setActiveTab, router])
+    startTransition(() => {
+      router.push(tab.path)
+    })
+  }, [setActiveTab, router, startTransition])
 
   // Add new tab handler
   const handleAddTab = useCallback(() => {
@@ -237,6 +243,9 @@ export function TabBar({ className }: TabBarProps) {
                 : 'text-secondary-600 hover:bg-white/90 hover:text-secondary-900 dark:text-secondary-400 dark:hover:bg-secondary-800/90 dark:hover:text-secondary-100'
             )}
             onContextMenu={(e) => handleContextMenu(e, tab.id)}
+            onMouseEnter={() => {
+              try { if (tab.path) router.prefetch?.(tab.path) } catch {}
+            }}
           >
             <button
               onClick={() => handleTabClick(tab)}

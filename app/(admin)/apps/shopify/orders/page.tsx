@@ -345,6 +345,33 @@ function OrdersClientContent({
   const [showEditFieldsModal, setShowEditFieldsModal] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
   const fullScreenScrollRef = useRef<HTMLDivElement>(null)
+  // Table row density toggle
+  const [rowDensity, setRowDensity] = useState<'compact' | 'comfortable'>('compact')
+  // External header filter dropdown state
+  const [headerFilterDropdown, setHeaderFilterDropdown] = useState<{
+    column: string
+    position: { x: number; y: number }
+  } | null>(null)
+
+  const openHeaderFilter = useCallback((column: string, e: React.MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    let x = rect.right + 6
+    let y = rect.bottom + 6
+    // viewport guard (basic)
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 0
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 0
+    const dropdownW = 260
+    const dropdownH = 320
+    if (x + dropdownW > vw) x = rect.left - dropdownW - 6
+    if (y + dropdownH > vh) y = rect.top - dropdownH - 6
+    setActiveColumnFilter(column)
+    setHeaderFilterDropdown({ column, position: { x, y } })
+  }, [setActiveColumnFilter])
+
+  const closeHeaderFilter = useCallback(() => {
+    setHeaderFilterDropdown(null)
+    setActiveColumnFilter(null)
+  }, [setActiveColumnFilter])
 
   // Visible fields state with localStorage persistence
   const [visibleFields, setVisibleFields] = useState<Set<string>>(() => {
@@ -1555,7 +1582,7 @@ function OrdersClientContent({
           change: 6.0,
           trend: 'up' as const
         },
-        icon: '📦',
+        icon: '/orders kpi cards icon/total orders.svg',
         color: 'blue'
       },
       paidOrders: {
@@ -1565,7 +1592,7 @@ function OrdersClientContent({
           change: 11.0,
           trend: 'up' as const
         },
-        icon: '💰',
+        icon: '/orders kpi cards icon/Paid Orders.svg',
         color: 'green'
       },
       pendingOrders: {
@@ -1575,7 +1602,7 @@ function OrdersClientContent({
           change: 0.0,
           trend: 'neutral' as const
         },
-        icon: '🔄',
+        icon: '/orders kpi cards icon/live orders.svg',
         color: 'blue'
       },
       fulfilledOrders: {
@@ -1585,7 +1612,7 @@ function OrdersClientContent({
           change: 7.0,
           trend: 'up' as const
         },
-        icon: '✅',
+        icon: '/orders kpi cards icon/Fulfilled Orders.svg',
         color: 'purple'
       },
       totalValue: {
@@ -1595,7 +1622,7 @@ function OrdersClientContent({
           change: 14.0,
           trend: 'up' as const
         },
-        icon: '💎',
+        icon: '/orders kpi cards icon/Total Value.svg',
         color: 'indigo'
       },
       avgOrderValue: {
@@ -1605,7 +1632,7 @@ function OrdersClientContent({
           change: 3.31,
           trend: 'up' as const
         },
-        icon: '📊',
+        icon: '/orders kpi cards icon/converted_icon_6.svg',
         color: 'orange'
       }
     }
@@ -1793,6 +1820,13 @@ function OrdersClientContent({
       [column]: value
     }
     setColumnFilters(newFilters)
+  }, [setColumnFilters])
+
+  // Remove a specific column filter (for filter chips clear action)
+  const removeColumnFilter = useCallback((column: string) => {
+    const currentFilters = useOrdersPageStore.getState().columnFilters as Record<string, any>
+    const { [column]: _omit, ...rest } = currentFilters || {}
+    setColumnFilters(rest)
   }, [setColumnFilters])
 
   const handleCustomFilter = useCallback((filter: { name: string; field: string; operator: string; value: string }) => {
@@ -2052,18 +2086,7 @@ function OrdersClientContent({
       "min-h-screen bg-gray-50",
       isFullScreen ? "fixed inset-0 z-50 bg-white flex flex-col" : ""
     )}>
-      {isFullScreen && (
-        <div className="sticky top-0 z-20 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
-          <h2 className="text-lg font-semibold text-gray-900">Orders - Full Screen View</h2>
-          <button
-            onClick={() => setIsFullScreen(!isFullScreen)}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
-            title="Exit Full Screen"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-      )}
+      {/* In full-screen mode we no longer render a top header bar; KPI cards appear at the very top */}
       
       {/* Scrollable content area in fullscreen */}
       <div ref={fullScreenScrollRef} className={cn(isFullScreen ? "flex-1 min-h-0 overflow-y-auto" : "")}> 
@@ -2113,7 +2136,6 @@ function OrdersClientContent({
           onFilterClick={setActiveColumnFilter}
          onColumnFilterChange={handleColumnFilter}
           getUniqueValues={getUniqueValues}
-          onExport={() => setShowExportModal(true)}
           onImport={() => setShowImportModal(true)}
           onPrint={() => setShowPrintModal(true)}
           onSettings={() => setShowSettingsModal(true)}
@@ -2129,6 +2151,112 @@ function OrdersClientContent({
           isAlgoliaSearching={isAlgoliaSearching}
           useAlgoliaSearch={useAlgoliaSearch}
         />
+      </div>
+
+      {/* Persistent Actions Row - always visible between search and table */}
+      <div className="px-0 py-1 bg-white border-b border-gray-200">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          {/* Left action group */}
+          <div className="flex items-center justify-start gap-2 flex-wrap">
+          {/* Selection counter */}
+          <div className="mr-2 text-xs sm:text-sm text-gray-600">
+            {selectedRowIds.length}/{totalItemsForPagination} selected
+          </div>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className={cn(
+              "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+              "text-blue-700 border border-blue-400 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100"
+            )}
+            title="Import Orders"
+          >
+            <span className="inline-flex items-center gap-1">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+              <span>Import</span>
+            </span>
+          </button>
+          <button
+            onClick={() => setShowPrintModal(true)}
+            className={cn(
+              "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+              "text-indigo-700 border border-indigo-400 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-indigo-100"
+            )}
+            title="Print Orders"
+          >
+            <span className="inline-flex items-center gap-1">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+              <span>Print</span>
+            </span>
+          </button>
+          {/* Bulk Edit */}
+          <button
+            onClick={() => setShowBulkEditModal(true)}
+            className={cn(
+              "px-3 py-1 text-xs sm:text-sm rounded-md bg-white transition-all duration-200 shadow-sm hover:shadow-md",
+              "text-blue-700 border border-blue-500"
+            )}
+            title="Bulk Edit selected rows"
+          >
+            <span className="inline-flex items-center gap-1">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              <span>Bulk Edit</span>
+            </span>
+          </button>
+          <button
+            onClick={handleEditFields}
+            className={cn(
+              "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+              "text-blue-700 border border-blue-400 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100"
+            )}
+            title="Columns"
+          >
+            <span className="inline-flex items-center gap-1">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              <span>Columns</span>
+            </span>
+          </button>
+          <button
+            onClick={() => setShowExportModal(true)}
+            className={cn(
+              "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+              "text-green-700 border border-green-400 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100"
+            )}
+            title="Export"
+          >
+            <span className="inline-flex items-center gap-1">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              <span>Export</span>
+            </span>
+          </button>
+          {/* Delete */}
+          <button
+            onClick={() => setShowBulkDeleteModal(true)}
+            className={cn(
+              "px-3 py-1 text-xs sm:text-sm rounded-md bg-white transition-all duration-200 shadow-sm hover:shadow-md",
+              "text-red-700 border border-red-500"
+            )}
+            title="Delete selected rows"
+          >
+            <span className="inline-flex items-center gap-1">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              <span>Delete</span>
+            </span>
+          </button>
+          </div>
+          {/* Right side single Settings button */}
+          <div className="flex items-center">
+            <button
+              onClick={() => setShowSettingsModal(true)}
+            className="px-3 py-1 text-xs sm:text-sm text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 bg-white shadow-sm hover:shadow-md"
+              title="Settings"
+            >
+              <span className="inline-flex items-center gap-1">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                <span>Settings</span>
+              </span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Advanced Search Builder Panel */}
@@ -2574,19 +2702,10 @@ function OrdersClientContent({
                 </div>
       )}
 
-      {/* Bulk Actions Bar */}
-      {selectedRowIds.length > 0 && (
-        <BulkActionsBar
-          selectedProducts={selectedRowIds}
-          totalProducts={totalItemsForPagination}
-          onBulkEdit={() => setShowBulkEditModal(true)}
-          onExportSelected={() => setShowExportModal(true)}
-          onBulkDelete={() => setShowBulkDeleteModal(true)}
-        />
-      )}
+
 
       {/* Main Content */}
-      <div className="px-6 pb-6">
+      <div className="px-0 pb-6">
           {/* Data Source Indicator */}
           {error && (
             <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -2599,17 +2718,36 @@ function OrdersClientContent({
       )}
 
           {viewMode === 'table' ? (
-            <div className="space-y-4" style={{ minHeight: 'auto', maxHeight: 'none' }}>
-              {/* Cache Status Indicator */}
-
-              
-           <OrderTable
+            <div className="space-y-2" style={{ minHeight: 'auto', maxHeight: 'none' }}>
+              {/* Separate sticky header container just below tabbar */}
+              <div className="bg-white border border-gray-200 rounded-t-lg sticky top-12 z-30">
+                <OrderTable
+                  currentOrders={currentData}
+                  selectedItems={selectedRowIds}
+                  onSelectItem={handleSelectItem}
+                  onSelectAll={handleSelectAll}
+                  columns={orderColumns}
+                  sortState={sortState}
+                  onRequestSort={handleRequestSort}
+                  compact={rowDensity === 'compact'}
+                  columnWidths={{ serialNumber: 88 }}
+                  activeColumnFilter={activeColumnFilter}
+                  columnFilters={columnFilters}
+                  onFilterClick={setActiveColumnFilter}
+                  onColumnFilterChange={handleColumnFilter}
+                  getUniqueValues={getUniqueValues}
+                  headerOnly
+                  showActions={false}
+                  renderHeader
+                />
+              </div>
+              {/* Body table without header */}
+              <OrderTable
                 currentOrders={currentData}
-             selectedItems={selectedRowIds}
-             onSelectItem={handleSelectItem}
-             onSelectAll={handleSelectAll}
+                selectedItems={selectedRowIds}
+                onSelectItem={handleSelectItem}
+                onSelectAll={handleSelectAll}
                 onRowClick={(order: Order, e: React.MouseEvent) => {
-                  // Guard: ignore checkbox/button clicks
                   if ((e.target as HTMLElement).closest('input,button')) return
                   setPreviewOrder(order)
                   setShowPreviewModal(true)
@@ -2620,7 +2758,7 @@ function OrdersClientContent({
                 searchQuery={searchQuery}
                 isFullScreen={isFullScreen}
                 activeColumnFilter={activeColumnFilter}
-             columnFilters={columnFilters}
+                columnFilters={columnFilters}
                 onFilterClick={setActiveColumnFilter}
                 onColumnFilterChange={handleColumnFilter}
                 getUniqueValues={getUniqueValues}
@@ -2629,9 +2767,13 @@ function OrdersClientContent({
                 isSearching={isAlgoliaSearching}
                 sortState={sortState}
                 onRequestSort={handleRequestSort}
+                compact={rowDensity === 'compact'}
+                showActions={false}
+                columnWidths={{ serialNumber: 88 }}
+                renderHeader={false}
               />
             </div>
-        ) : viewMode === 'grid' ? (
+          ) : viewMode === 'grid' ? (
             <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
               {/* Grid Header */}
               <GridCardFilterHeader

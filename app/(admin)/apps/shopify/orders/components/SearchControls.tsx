@@ -50,7 +50,6 @@ interface SearchControlsProps {
   onColumnFilterChange: (column: string, value: any) => void
   getUniqueValues: (field: string) => string[]
   // Header action props
-  onExport: () => void
   onImport: () => void
   onPrint: () => void
   onSettings: () => void
@@ -101,7 +100,6 @@ export default function SearchControls({
   onColumnFilterChange,
   getUniqueValues,
   // Header action props
-  onExport,
   // Algolia search props
   isAlgoliaSearching = false,
   useAlgoliaSearch = false,
@@ -124,6 +122,8 @@ export default function SearchControls({
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  // Saved searches (chips next to Save)
+  const [savedSearches, setSavedSearches] = useState<Array<{ id: string; name: string; query: string; createdAt: number }>>([])
 
   // Load search history from localStorage
   useEffect(() => {
@@ -135,12 +135,21 @@ export default function SearchControls({
         console.error('Failed to load search history:', error)
       }
     }
+    try {
+      const saved = localStorage.getItem('orders-saved-searches')
+      if (saved) setSavedSearches(JSON.parse(saved))
+    } catch {}
   }, [])
 
   // Save search history to localStorage
   useEffect(() => {
     localStorage.setItem('orders-search-history', JSON.stringify(searchHistory))
   }, [searchHistory])
+  useEffect(() => {
+    try {
+      localStorage.setItem('orders-saved-searches', JSON.stringify(savedSearches))
+    } catch {}
+  }, [savedSearches])
 
   // Generate suggestions when search query changes
   useEffect(() => {
@@ -177,6 +186,19 @@ export default function SearchControls({
   const handleClearHistory = () => {
     setSearchHistory([])
     localStorage.removeItem('orders-search-history')
+  }
+
+  // Saved search actions - create chip immediately and apply as filter when clicked
+  const handleSaveCurrentSearch = () => {
+    const query = (searchQuery || '').trim()
+    if (!query) return
+    const name = query
+    const item = { id: Date.now().toString(), name, query, createdAt: Date.now() }
+    setSavedSearches(prev => {
+      // Avoid duplicates by query
+      if (prev.some(s => s.query === item.query)) return prev
+      return [item, ...prev].slice(0, 50)
+    })
   }
 
   const getCustomFilterOptions = () => {
@@ -273,12 +295,12 @@ export default function SearchControls({
   }
 
   return (
-    <div className="px-3 py-0.5 border-b-0 bg-white shadow-sm">
+    <div className="px-6 py-0.5 border-b-0 bg-white shadow-sm">
       {/* Main Search Bar Layout - Single Horizontal Row */}
       <div className="flex items-center justify-between space-x-2">
         
         {/* LEFT SECTION: Add Filter and Search Bar */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-1 min-w-0">
           
           {/* Custom Filters */}
           {customFilters.map((customFilter) => (
@@ -313,23 +335,17 @@ export default function SearchControls({
             </button>
           ))}
 
-          {/* Search Bar - Always Visible */}
-          <div className="relative">
-            <div className="flex items-center animate-fade-in">
-                <div className="relative flex items-center">
+          {/* Search Bar - Always Visible (constrained width) */}
+          <div className="relative w-full max-w-[560px]">
+            <div className="flex items-center animate-fade-in w-full">
+                <div className="relative flex items-center w-full">
                                      <GoogleStyleSearch
                      value={searchQuery}
                      onChange={setSearchQuery}
                      onSearch={handleSearch}
                      placeholder={searchConditions.length > 0 ? "Advanced search active..." : "Search orders... (e.g., #1001)"}
                      className={cn(
-                       "transition-all duration-200",
-                       searchQuery.length > 60 ? "w-[600px]" :
-                       searchQuery.length > 50 ? "w-[580px]" :
-                       searchQuery.length > 40 ? "w-[560px]" : 
-                       searchQuery.length > 30 ? "w-[540px]" : 
-                       searchQuery.length > 20 ? "w-[520px]" : 
-                       searchQuery.length > 10 ? "w-[500px]" : "w-[480px]",
+                       "w-full transition-all duration-200",
                        // Add visual indicator when search is active
                        searchQuery && "ring-2 ring-blue-200 border-blue-300"
                      )}
@@ -379,92 +395,76 @@ export default function SearchControls({
                      </div>
                    )}
                   
+                  {/* Active column filter chips are rendered to the right next to saved searches for alignment */}
                   {/* Clear Search Button - removed per request */}
                 </div>
               </div>
           </div>
+
+          {/* Inline Cancel / Save controls to the right of Search (always visible) */}
+          <div className="relative flex items-center space-x-2 ml-2">
+            {searchQuery.trim().length > 0 && (
+              <button
+                onClick={() => { onClearSearch() }}
+                className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded-md hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              onClick={handleSaveCurrentSearch}
+              className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={!(searchQuery.trim().length > 0 || searchConditions.length > 0)}
+            >
+              Save
+            </button>
+            {/* Saved search chips + active column filter chips aligned */}
+            <div className="flex items-center flex-wrap gap-1">
+              {savedSearches.slice(0, 5).map(s => (
+                <span key={s.id} className="inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-blue-100"
+                  onClick={() => { setSearchQuery(s.query); handleSearch(s.query) }}
+                  title={`Apply filter: ${s.name}`}
+                >
+                  <span className="font-medium">{s.name}</span>
+                  <button
+                    className="text-blue-500 hover:text-blue-700"
+                    onClick={(e) => { e.stopPropagation(); setSavedSearches(prev => prev.filter(x => x.id !== s.id)) }}
+                    aria-label="Remove saved search"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {columnFilters && Object.entries(columnFilters).map(([key, value]) => {
+                const hasValue = Array.isArray(value) ? value.length > 0 : (value !== undefined && value !== null && String(value).trim() !== '')
+                if (!hasValue) return null
+                const display = Array.isArray(value) ? value.join(', ') : String(value)
+                return (
+                  <span key={`search-chip-${key}`} className="inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-default">
+                    <span className="font-medium capitalize">{key}</span>
+                    <span className="text-blue-800">: {display}</span>
+                    <button onClick={() => onColumnFilterChange(key, Array.isArray(value) ? [] : '')} className="text-blue-500 hover:text-blue-700" aria-label={`Clear ${key} filter`}>
+                      ×
+                    </button>
+                  </span>
+                )
+              })}
+              {columnFilters && Object.entries(columnFilters).some(([_, v]) => Array.isArray(v) ? v.length > 0 : (v !== undefined && v !== null && String(v).trim() !== '')) && (
+                <button
+                  onClick={() => Object.keys(columnFilters).forEach(k => onColumnFilterChange(k, Array.isArray((columnFilters as any)[k]) ? [] : ''))}
+                  className="ml-1 text-xs text-gray-600 hover:text-gray-800 px-2 py-0.5 rounded-md border border-gray-200 hover:bg-gray-50"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* RIGHT SECTION: Export, More Actions, Filter, View, Full Screen */}
-        <div className="flex items-center space-x-2">
-          {/* Export Button */}
-          <button
-            onClick={onExport}
-            className="px-3 py-2 text-gray-700 hover:text-green-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-green-400 h-10"
-          >
-            <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Export</span>
-            </span>
-          </button>
+        {/* RIGHT SECTION: Filter, View, Full Screen */}
+        <div className="flex items-center space-x-2 flex-none">
           
-          {/* More Actions Button */}
-          <div className="relative">
-            <button
-              onClick={() => setShowHeaderDropdown(!showHeaderDropdown)}
-              className="px-3 py-2 text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 flex items-center space-x-1 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-purple-400 h-10"
-            >
-              <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
-                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                </svg>
-                <span>More actions</span>
-              </span>
-              <ChevronDown className={cn(
-                "h-3 w-3 group-hover:rotate-180 transition-transform duration-200",
-                showHeaderDropdown ? "rotate-180" : ""
-              )} />
-            </button>
-            
-            {/* Header Dropdown */}
-            {showHeaderDropdown && (
-              <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-xl z-20 header-dropdown backdrop-blur-sm bg-white/95">
-                <div className="p-2">
-                  <div className="space-y-1">
-                    <button
-                      onClick={onImport}
-                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 hover:text-blue-700 flex items-center space-x-2"
-                    >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                      <span>Import Orders</span>
-                    </button>
-                    <button
-                      onClick={onPrint}
-                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 hover:text-green-700 flex items-center space-x-2"
-                    >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                      </svg>
-                      <span>Print Orders</span>
-                    </button>
-                    <button
-                      onClick={onSettings}
-                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 hover:text-purple-700 flex items-center space-x-2"
-                    >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <span>Settings</span>
-                    </button>
-                    <button
-                      onClick={onEditFields}
-                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-indigo-100 hover:text-indigo-700 flex items-center space-x-2"
-                    >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                      <span>Edit Fields</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          {/* More actions dropdown removed; actions will appear in a persistent row below */}
 
           {/* Advanced Filter Button */}
           <button

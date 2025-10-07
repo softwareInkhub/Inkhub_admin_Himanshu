@@ -17,7 +17,11 @@ export default function AuthCallbackPage() {
     if (typeof window === 'undefined') return { isLocalhost: false, cookieDomain: undefined as string | undefined }
     const host = window.location.hostname
     const isLocal = host === 'localhost' || host === '127.0.0.1'
-    return { isLocalhost: isLocal, cookieDomain: isLocal ? undefined : '.brmh.in' }
+    // Compute a safe cookie domain for whatever host we're running on
+    // - For localhost, omit domain
+    // - For other hosts, set to current host with a leading dot so cookies work across subdomains
+    const domain = isLocal ? undefined : `.${host}`
+    return { isLocalhost: isLocal, cookieDomain: domain }
   }, [])
 
   useEffect(() => {

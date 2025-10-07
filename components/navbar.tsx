@@ -44,14 +44,24 @@ export function Navbar() {
 
   // Handle logout
   const handleLogout = () => {
-    // Clear all authentication tokens
+    // Clear all authentication tokens from localStorage
     localStorage.removeItem('access_token')
     localStorage.removeItem('id_token')
     localStorage.removeItem('refresh_token')
     localStorage.removeItem('token_expires')
+    localStorage.removeItem('accessToken')
     
-    // Clear authentication cookie
-    document.cookie = 'auth=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    // Clear authentication cookies for domain
+    const clearCookie = (name: string) => {
+      document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`
+      document.cookie = `${name}=; path=/; domain=.brmh.in; expires=Thu, 01 Jan 1970 00:00:00 GMT`
+    }
+    
+    clearCookie('auth')
+    clearCookie('auth_valid')
+    clearCookie('access_token')
+    clearCookie('id_token')
+    clearCookie('refresh_token')
     
     // Clear current user from store
     setCurrentUser(null)
@@ -59,8 +69,22 @@ export function Navbar() {
     // Close dropdown
     setShowProfileDropdown(false)
     
-    // Redirect to auth page
-    router.push('/auth')
+    // Check if running in development (localhost or NODE_ENV)
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                        window.location.hostname === '127.0.0.1' ||
+                        window.location.hostname === '';
+    const isDevelopment = process.env.NODE_ENV === 'development' || isLocalhost;
+    
+    // In development mode, redirect to home with fallback user
+    if (isDevelopment) {
+      console.log('[Navbar] Development/Localhost mode: Redirecting to home');
+      window.location.href = '/'
+      return
+    }
+    
+    // In production, redirect to centralized auth login page
+    const currentUrl = encodeURIComponent(window.location.origin)
+    window.location.href = `https://auth.brmh.in/login?next=${currentUrl}`
   }
 
   // Close dropdowns when clicking outside
@@ -120,7 +144,7 @@ export function Navbar() {
             className="group flex items-center space-x-2 rounded-lg p-2 text-blue-600 hover:bg-blue-100 hover:text-blue-700 dark:text-blue-400 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-blue-500/25"
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 to-blue-200 text-sm font-medium text-blue-700 dark:from-blue-900 dark:to-blue-800 dark:text-blue-300 shadow-sm transition-all duration-300 group-hover:scale-110 group-hover:rotate-3">
-              {!isHydrated ? '•' : (currentUser?.name?.charAt(0)?.toUpperCase() || 'U')}
+              {!isHydrated ? '•' : ((currentUser?.name || currentUser?.email || 'U')?.charAt(0)?.toUpperCase())}
             </div>
             <ChevronDown className="h-4 w-4 transition-all duration-300 group-hover:rotate-180" />
           </button>
@@ -131,10 +155,10 @@ export function Navbar() {
                 Signed in as
               </div>
               <div className="px-4 py-1 text-sm font-semibold text-secondary-900 dark:text-secondary-100">
-                {!isHydrated ? '...' : (currentUser?.name || 'Admin User')}
+                {!isHydrated ? '...' : (currentUser?.name || currentUser?.email || 'User')}
               </div>
               <div className="px-4 py-1 text-xs text-secondary-500 dark:text-secondary-400">
-                {!isHydrated ? '...' : (currentUser?.email || 'admin@inkhub.com')}
+                {!isHydrated ? '...' : (currentUser?.email || '')}
               </div>
               <div className="my-3 border-t border-secondary-200 dark:border-secondary-700" />
               <button 

@@ -325,7 +325,7 @@ function PinsClient() {
     defaultItemsPerPage: 500
   })
 
-  // Load all pins once on initial load
+  // Load all pins once on initial load (cache-first + parallel chunks)
   useEffect(() => {
     if (!isInitialLoad) return
     
@@ -334,36 +334,61 @@ function PinsClient() {
       setLoadingPins(true)
       setPinsError(null)
       try {
-        const totalChunks = await getTotalChunks()
-        const allPinsData: Pin[] = []
-        
-        // Load all chunks to get complete real data only
-        console.log(`📌 Loading ${totalChunks} chunks of real Pinterest pins from server...`)
-        
-        for (let i = 0; i < totalChunks; i++) {
-          try {
-            const { pins } = await getPinsForPage(i + 1)
-            if (pins && pins.length > 0) {
-              // Validate that we have real Pinterest data
-              const validPins = pins.filter(pin => 
-                pin.id && 
-                pin.id.length > 5 && // Real Pinterest IDs are long
-                !pin.id.startsWith('pin-') // Avoid any generated IDs
-              )
-              allPinsData.push(...validPins)
-              console.log(`✅ Loaded ${validPins.length} real pins from chunk ${i + 1}`)
-            }
-          } catch (e) {
-            console.warn(`❌ Failed to load chunk ${i + 1}:`, e)
+        // 1) Cache-first: localStorage for instant UI
+        if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem('pinterest-pins-cache')
+          if (cached) {
+            try {
+              const parsed = JSON.parse(cached)
+              const ttl = 10 * 60 * 1000 // 10 minutes
+              if (parsed?.timestamp && (Date.now() - parsed.timestamp) < ttl && Array.isArray(parsed.data) && parsed.data.length > 0) {
+                if (!cancelled) {
+                  setAllPins(parsed.data as Pin[])
+                  setIsInitialLoad(false)
+                }
+                // Background refresh
+                setTimeout(() => { loadAllPins().catch(() => {}) }, 0)
+                return
+              }
+            } catch {}
           }
         }
-        
+
+        const totalChunks = await getTotalChunks()
+        const results: Pin[][] = []
+
+        // 2) Parallel chunk loading with bounded concurrency
+        const concurrency = Math.min(6, Math.max(2, Math.floor(navigator?.hardwareConcurrency || 4)))
+        let next = 0
+        const workers: Promise<void>[] = []
+        const runWorker = async () => {
+          while (next < totalChunks) {
+            const idx = next++
+            try {
+              const { pins } = await getPinsForPage(idx + 1)
+              if (pins && pins.length > 0) {
+                const validPins = pins.filter(pin => pin.id && pin.id.length > 5 && !pin.id.startsWith('pin-'))
+                results[idx] = validPins
+              } else {
+                results[idx] = []
+              }
+            } catch (e) {
+              console.warn(`❌ Failed to load chunk ${idx + 1}:`, e)
+              results[idx] = []
+            }
+          }
+        }
+        for (let i = 0; i < concurrency; i++) workers.push(runWorker())
+        await Promise.all(workers)
+
+        const allPinsData: Pin[] = ([] as Pin[]).concat(...results)
+
         if (!cancelled) {
           if (allPinsData.length > 0) {
-            console.log(`🎉 Successfully loaded ${allPinsData.length} real Pinterest pins from server`)
             setAllPins(allPinsData)
+            // Save lightweight cache
+            try { localStorage.setItem('pinterest-pins-cache', JSON.stringify({ data: allPinsData, timestamp: Date.now() })) } catch {}
           } else {
-            console.warn('⚠️ No real Pinterest pins found in server data')
             setPinsError('No real Pinterest pins available from server')
           }
           setIsInitialLoad(false)
@@ -530,8 +555,18 @@ function PinsClient() {
 
   if ((loading || loadingPins) && pinData.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500">Loading pins...</div>
+      <div className="min-h-screen bg-gray-50">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="inline-flex items-center space-x-3 px-6 py-4 bg-white rounded-lg shadow-sm border">
+              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <div>
+                <div className="text-sm font-medium text-gray-900">Loading Pins...</div>
+                <div className="text-xs text-gray-500 mt-1">This should only take a moment</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }

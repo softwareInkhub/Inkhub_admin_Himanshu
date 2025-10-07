@@ -319,8 +319,19 @@ export const useAppStore = create<AppState>()(
       // Ensure Dashboard tab is always present
       ensureDashboardTab: () => {
         const state = get()
-        const dashboardTab = state.tabs.find(tab => tab.path === '/dashboard')
-        
+        // If multiple dashboard tabs slipped in previously, collapse to one
+        const dashboardTabs = state.tabs.filter(t => t.path === '/dashboard')
+        if (dashboardTabs.length > 1) {
+          const keep = dashboardTabs[0]
+          const cleaned = [keep, ...state.tabs.filter(t => t.path !== '/dashboard')]
+          set({
+            tabs: cleaned.map(t => t.path === '/dashboard' ? { ...t, title: 'Dashboard', pinned: false, closable: false } : t),
+            activeTabId: state.activeTabId && cleaned.find(t => t.id === state.activeTabId) ? state.activeTabId : keep.id,
+          })
+          return
+        }
+
+        const dashboardTab = dashboardTabs[0]
         if (!dashboardTab) {
           const timestamp = Date.now()
           const randomSuffix = Math.random().toString(36).substring(2, 8)

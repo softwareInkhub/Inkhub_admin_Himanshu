@@ -24,12 +24,34 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
     if (hasRunRef.current) return;
     hasRunRef.current = true;
 
+    const getCookie = (name: string) => {
+      if (typeof document === 'undefined') return undefined as string | undefined
+      const match = document.cookie.match(new RegExp('(^|; )' + name.replace(/([.$?*|{}()\[\]\\\/\+^])/g, '\\$1') + '=([^;]*)'))
+      return match ? decodeURIComponent(match[2]) : undefined
+    }
+
+    const decodeJwt = (token?: string | null) => {
+      try {
+        if (!token) return undefined as any
+        const [, payload] = token.split('.')
+        const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
+        return JSON.parse(json)
+      } catch { return undefined as any }
+    }
+
     const initializeUser = async () => {
       // NOTE: Authentication is already handled by middleware (which can read httpOnly cookies)
       // This component only needs to fetch/set user profile for the app state
       
-      // Try to get tokens from localStorage (synced by middleware if available)
-      const accessToken = localStorage.getItem('access_token') || localStorage.getItem('accessToken');
+      // Try to get tokens from localStorage or cookies (middleware/callback may have set both)
+      const accessToken = localStorage.getItem('access_token') || localStorage.getItem('accessToken') || getCookie('access_token');
+      const idToken = localStorage.getItem('id_token') || getCookie('id_token');
+
+      // Sync cookies -> localStorage so client APIs can use them easily (always overwrite to avoid stale values)
+      const cAccess = getCookie('access_token')
+      const cId = getCookie('id_token')
+      if (cAccess) localStorage.setItem('access_token', cAccess)
+      if (cId) localStorage.setItem('id_token', cId)
       
       // If authenticated and no current user in store, fetch user profile
       if (!currentUser) {
@@ -49,51 +71,40 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
               setCurrentUser(userProfile);
             }
           } else {
-            // If profile fetch fails, use fallback user
-            throw new Error('Failed to fetch user profile');
+            // If profile fetch fails, but we have an id token, decode it as a quick fallback
+            const claims = decodeJwt(idToken)
+            if (claims && isMounted) {
+              setCurrentUser({
+                id: claims.sub || 'user',
+                name: claims.name || claims.given_name || claims.email || 'User',
+                email: claims.email,
+                role: 'admin',
+              } as any)
+            } else {
+              throw new Error('Failed to fetch user profile')
+            }
           }
         } catch (error) {
-          console.warn('[RequireAuth] Using fallback user profile:', error);
-          // Set fallback user for Inkhub admin
-          const fallbackUser = {
-            id: 'admin-user',
-            name: 'Admin User',
-            email: 'admin@inkhub.com',
-            role: 'admin' as const,
-            createdAt: new Date().toISOString(),
-            preferences: {
-              theme: 'light' as const,
-              notifications: true,
-              language: 'en'
-            },
-            permissions: {
-              shopify: {
-                orders: ['read', 'write', 'admin'],
-                products: ['read', 'write', 'admin']
-              },
-              pinterest: {
-                pins: ['read', 'write', 'admin'],
-                boards: ['read', 'write', 'admin']
-              },
-              designLibrary: {
-                designs: ['read', 'write', 'admin']
-              }
-            },
-            lastLogin: new Date().toISOString(),
-            analytics: {
-              ordersViewed: 0,
-              productsManaged: 0,
-              pinsCreated: 0
-            },
-            designLibrary: {
-              designs: []
-            }
-          };
-          
-          if (isMounted) {
-            setCurrentUser(fallbackUser);
+          // Only fall back to dev dummy user when no tokens available and in development
+          const isDev = process.env.NODE_ENV === 'development'
+          const hasAnyToken = Boolean(accessToken || idToken)
+          if (isMounted && isDev && !hasAnyToken) {
+            console.warn('[RequireAuth] Development mode with no tokens - using fallback user')
+            setCurrentUser({ id: 'dev', name: 'Developer', email: 'dev@example.com', role: 'admin' } as any)
+          } else {
+            console.warn('[RequireAuth] Unable to resolve user profile:', error)
           }
         }
+
+      // If still no user and no tokens, enforce login (production)
+      const hasUser = Boolean(useAppStore.getState().currentUser)
+      const hasToken = Boolean(accessToken || idToken)
+      const isDev = process.env.NODE_ENV === 'development'
+      if (!hasUser && !hasToken && !isDev) {
+        const nextUrl = encodeURIComponent(window.location.href)
+        window.location.href = `https://auth.brmh.in/login?next=${nextUrl}`
+        return
+      }
       }
 
       if (isMounted) setIsValidating(false);

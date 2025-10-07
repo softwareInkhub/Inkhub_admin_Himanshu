@@ -375,6 +375,12 @@ export const debouncedAlgoliaSearch = debounce(
 export const searchOrdersWithAdvancedFilters = async (
   filters: {
     orderStatus?: string[]
+    financialStatus?: string[]
+    paymentStatus?: string[]
+    deliveryStatus?: string[]
+    deliveryMethod?: string[]
+    customerText?: string
+    orderNumberText?: string
     priceRange?: { min?: string; max?: string }
     dateRange?: { start?: string; end?: string }
     tags?: string[]
@@ -401,6 +407,26 @@ export const searchOrdersWithAdvancedFilters = async (
     const statusTerms = filters.orderStatus.map(status => status.toLowerCase()).join(' OR ')
     searchTerms.push(statusTerms)
   }
+
+  if (filters.financialStatus && filters.financialStatus.length > 0) {
+    const f = filters.financialStatus.map(s => s.toLowerCase()).join(' OR ')
+    searchTerms.push(f)
+  }
+
+  if (filters.paymentStatus && filters.paymentStatus.length > 0) {
+    const p = filters.paymentStatus.map(s => s.toLowerCase()).join(' OR ')
+    searchTerms.push(p)
+  }
+
+  if (filters.deliveryStatus && filters.deliveryStatus.length > 0) {
+    const d = filters.deliveryStatus.map(s => s.toLowerCase()).join(' OR ')
+    searchTerms.push(d)
+  }
+
+  if (filters.deliveryMethod && filters.deliveryMethod.length > 0) {
+    const d = filters.deliveryMethod.map(s => s.toLowerCase()).join(' OR ')
+    searchTerms.push(d)
+  }
   
   // Add tag filters (case-insensitive)
   if (filters.tags && filters.tags.length > 0) {
@@ -412,6 +438,14 @@ export const searchOrdersWithAdvancedFilters = async (
   if (filters.channels && filters.channels.length > 0) {
     const channelTerms = filters.channels.map(channel => channel.toLowerCase()).join(' OR ')
     searchTerms.push(channelTerms)
+  }
+
+  // Add text filters
+  if (filters.customerText && filters.customerText.trim()) {
+    searchTerms.push(filters.customerText.trim().toLowerCase())
+  }
+  if (filters.orderNumberText && filters.orderNumberText.trim()) {
+    searchTerms.push(filters.orderNumberText.trim().toLowerCase())
   }
   
   // If no specific filters, return all data

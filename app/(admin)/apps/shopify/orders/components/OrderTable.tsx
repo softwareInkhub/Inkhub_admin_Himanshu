@@ -38,6 +38,17 @@ interface OrderTableProps {
   sortState?: { key: string | null; dir: 'asc' | 'desc' | null }
   onRequestSort?: (key: any) => void
   compact?: boolean
+  // Optional props (safe no-ops by default) to align with caller usage
+  showActions?: boolean
+  showHeader?: boolean
+  seamlessTop?: boolean
+  externalFilterDropdown?: any
+  onExternalFilterClose?: () => void
+  onExternalFilterChange?: (column: string, value: any) => void
+  columnWidths?: Record<string, number>
+  // New layout flags
+  headerOnly?: boolean // render only column header in a separate container
+  renderHeader?: boolean // default true; set false to render body without header
 }
 
 export default function OrderTable({
@@ -61,7 +72,11 @@ export default function OrderTable({
   isSearching = false,
   sortState,
   onRequestSort,
-  compact = true
+  compact = true,
+  showActions = true,
+  columnWidths,
+  headerOnly = false,
+  renderHeader = true
 }: OrderTableProps) {
   // Use parent's sorting state instead of internal state
   // const [sortColumn, setSortColumn] = useState<string | null>(null)
@@ -416,6 +431,115 @@ export default function OrderTable({
     )
   }
 
+  const renderColGroup = () => (
+    columnWidths ? (
+      <colgroup>
+        <col style={{ width: 44 }} />
+        {columns.map((c) => (
+          <col key={`col-${c.key}`} style={c.key in (columnWidths || {}) ? { width: columnWidths![c.key] } : undefined} />
+        ))}
+        {showActions && <col />}
+      </colgroup>
+    ) : null
+  )
+
+  const tableHeader = (
+    <thead className="bg-gray-50 border-b border-gray-200">
+      <tr>
+        <th className="px-4 py-2 text-left">
+          <input
+            type="checkbox"
+            checked={allSelected}
+            ref={(ref) => {
+              if (ref) ref.indeterminate = someSelected
+            }}
+            onChange={onSelectAll}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+        </th>
+        {columns.map((column) => (
+          <th
+            key={column.key}
+            className={cn("text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 relative",
+              compact ? 'py-1 px-2' : 'py-2 px-3'
+            )}
+          >
+            <div className="flex items-center justify-between">
+              <span>{column.label}</span>
+              <div className="flex items-center space-x-1">
+                {column.key !== 'tags' && column.key !== 'deliveryMethod' && column.sortable && (
+                  <button
+                    onClick={() => onRequestSort?.(column.key as any)}
+                    className={cn(
+                      "ml-1 p-1 rounded-md transition-all duration-200 hover:bg-gray-100",
+                      sortState?.key === column.key ? "text-gray-900" : "text-gray-500 hover:text-gray-700"
+                    )}
+                    aria-label={`Sort by ${column.label}`}
+                  >
+                    <div className="flex flex-col items-center justify-center leading-none">
+                      <ChevronUp className={cn("h-3.5 w-3.5", sortState?.key === column.key && sortState?.dir === 'asc' ? "text-gray-900" : "text-gray-300")}/>
+                      <ChevronDown className={cn("h-3.5 w-3.5 -mt-0.5", sortState?.key === column.key && sortState?.dir === 'desc' ? "text-gray-900" : "text-gray-300")}/>
+                    </div>
+                  </button>
+                )}
+                <button
+                  onClick={(e) => handleFilterClick(column.key, e)}
+                  className={cn(
+                    "p-1 rounded-md transition-all duration-200 hover:scale-105",
+                    (activeColumnFilter === column.key || filterDropdown?.column === column.key)
+                      ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200"
+                      : (columnFilters && ((Array.isArray(columnFilters[column.key]) && (columnFilters[column.key] as any[]).length > 0) || (!Array.isArray(columnFilters[column.key]) && String(columnFilters[column.key] || '').trim() !== '')))
+                        ? "text-blue-600 bg-blue-50 border border-blue-200"
+                        : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+                  )}
+                  title={`Filter ${column.label}`}
+                >
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </th>
+        ))}
+        {showActions && (
+          <th className={cn("text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+            compact ? 'py-1 px-2' : 'py-2 px-3'
+          )}>
+            Actions
+          </th>
+        )}
+      </tr>
+    </thead>
+  )
+
+  if (headerOnly) {
+    return (
+      <div className={`bg-white rounded-lg border border-gray-200 shadow-sm`}>
+        <div className="overflow-x-auto">
+          <table className="w-full table-fixed">
+            {renderColGroup()}
+            {tableHeader}
+          </table>
+        </div>
+        {/* Filter Dropdown for header-only mode */}
+        {filterDropdown && (
+          <OrderFilterDropdown
+            column={filterDropdown.column}
+            title={columns.find(col => col.key === filterDropdown.column)?.label || filterDropdown.column}
+            filterType={getFilterConfig(filterDropdown.column).filterType}
+            options={getFilterConfig(filterDropdown.column).options}
+            value={columnFilters[filterDropdown.column]}
+            onChange={(value) => handleFilterChange(filterDropdown.column, value)}
+            onClose={handleFilterClose}
+            position={filterDropdown.position}
+            getUniqueValues={getUniqueValues}
+          />
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className={`bg-white rounded-lg border border-gray-200 shadow-sm`} style={{ maxHeight: 'none', overflow: 'visible' }}>
       {/* Search Status Indicator */}
@@ -447,70 +571,9 @@ export default function OrderTable({
         </div>
       )}
       <div className="overflow-x-auto">
-        <table className="w-full" key={`orders-table-${sortedOrders.length}`}>
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="px-4 py-2 text-left">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  ref={(ref) => {
-                    if (ref) ref.indeterminate = someSelected
-                  }}
-                  onChange={onSelectAll}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-              </th>
-              {columns.map((column) => (
-                <th
-                  key={column.key}
-                  className={cn("text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 relative",
-                    compact ? 'py-1 px-2' : 'py-2 px-3'
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <span>{column.label}</span>
-                    <div className="flex items-center space-x-1">
-                      {column.key !== 'tags' && column.key !== 'deliveryMethod' && column.sortable && (
-                        <button
-                          onClick={() => onRequestSort?.(column.key as any)}
-                          className={cn(
-                            "ml-1 p-1 rounded-md transition-all duration-200 hover:bg-gray-100",
-                            sortState?.key === column.key ? "text-gray-900" : "text-gray-500 hover:text-gray-700"
-                          )}
-                          aria-label={`Sort by ${column.label}`}
-                        >
-                          <div className="flex flex-col items-center justify-center leading-none">
-                            <ChevronUp className={cn("h-3.5 w-3.5", sortState?.key === column.key && sortState?.dir === 'asc' ? "text-gray-900" : "text-gray-300")}/>
-                            <ChevronDown className={cn("h-3.5 w-3.5 -mt-0.5", sortState?.key === column.key && sortState?.dir === 'desc' ? "text-gray-900" : "text-gray-300")}/>
-                          </div>
-                        </button>
-                      )}
-                      <button
-                        onClick={(e) => handleFilterClick(column.key, e)}
-                        className={`p-1 rounded-md transition-all duration-200 hover:scale-105 ${
-                          (activeColumnFilter === column.key || filterDropdown?.column === column.key)
-                            ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" 
-                            : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
-                        }`}
-                        title={`Filter ${column.label}`}
-                      >
-                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                </th>
-              ))}
-              {/* Actions column header */}
-              <th className={cn("text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                compact ? 'py-1 px-2' : 'py-2 px-3'
-              )}>
-                Actions
-              </th>
-            </tr>
-          </thead>
+        <table className="w-full table-fixed" key={`orders-table-${sortedOrders.length}`}>
+          {renderColGroup()}
+          {renderHeader ? tableHeader : null}
           <tbody className="bg-white divide-y divide-gray-200">
             {(() => {
               // Reduce render logging noise - only log occasionally in development
@@ -547,19 +610,21 @@ export default function OrderTable({
                     {column.render ? column.render(order, index) : String(order[column.key as keyof Order] || '')}
                   </td>
                 ))}
-                {/* Actions cell */}
-                <td className={cn("text-sm text-gray-900",
-                  compact ? 'py-1.5 px-2' : 'py-2 px-3'
-                )}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setJsonOrder(order); setJsonOpen(true) }}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 hover:border-blue-300 transition-colors"
-                    title="View JSON"
-                  >
-                    <Braces className="h-4 w-4" />
-                    View JSON
-                  </button>
-                </td>
+                {/* Actions cell (optional) */}
+                {showActions && (
+                  <td className={cn("text-sm text-gray-900",
+                    compact ? 'py-1.5 px-2' : 'py-2 px-3'
+                  )}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setJsonOrder(order); setJsonOpen(true) }}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 hover:border-blue-300 transition-colors"
+                      title="View JSON"
+                    >
+                      <Braces className="h-4 w-4" />
+                      View JSON
+                    </button>
+                  </td>
+                )}
               </tr>
             ))
             })()}
