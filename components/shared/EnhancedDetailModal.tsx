@@ -35,6 +35,42 @@ export default function EnhancedDetailModal({
   const [showJson, setShowJson] = useState(false)
   const [copied, setCopied] = useState(false)
 
+  // Optimize image URL for better loading performance
+  const getOptimizedImageUrl = (url: string) => {
+    if (!url) return url
+    
+    // For S3 URLs, add aggressive optimization parameters for modal display
+    if (url.includes('s3.amazonaws.com')) {
+      const separator = url.includes('?') ? '&' : '?'
+      // Use aggressive optimization: smaller size, higher compression, force WebP
+      // Modal doesn't need huge images - 400x300 is sufficient for display
+      return `${url}${separator}w=400&h=300&fit=crop&auto=webp&q=60&f=webp`
+    }
+    
+    return url
+  }
+
+  // Preload image when modal opens for faster display
+  useEffect(() => {
+    if (isOpen && item) {
+      const config = getItemTypeConfig()
+      const imageUrl = config.imageField === 'images' && Array.isArray(item[config.imageField]) 
+        ? item[config.imageField][0] 
+        : item[config.imageField]
+      
+      if (imageUrl && imageUrl.includes('s3.amazonaws.com')) {
+        const optimizedUrl = getOptimizedImageUrl(imageUrl)
+        
+        // Preload the image
+        const img = new Image()
+        img.src = optimizedUrl
+        img.loading = 'eager'
+        
+        console.log('🚀 Modal: Preloading image for faster display')
+      }
+    }
+  }, [isOpen, item])
+
   const copyJsonToClipboard = async () => {
     try {
       const text = JSON.stringify(isEditing ? editedData : item, null, 2)
@@ -187,19 +223,6 @@ export default function EnhancedDetailModal({
   const handleImageLoadStart = () => {
     setImageLoading(true)
     setImageError(false)
-  }
-
-  // Optimize image URL for better loading performance
-  const getOptimizedImageUrl = (url: string) => {
-    if (!url) return url
-    
-    // For S3 URLs, add optimization parameters
-    if (url.includes('s3.amazonaws.com')) {
-      const separator = url.includes('?') ? '&' : '?'
-      return `${url}${separator}w=800&h=600&fit=crop&auto=format&q=80`
-    }
-    
-    return url
   }
 
   const getItemTypeConfig = () => {
@@ -426,22 +449,22 @@ export default function EnhancedDetailModal({
                       <>
                         {/* Loading State */}
                         {imageLoading && (
-                          <div className="w-full h-full flex items-center justify-center">
+                          <div className="w-full h-full flex items-center justify-center bg-gray-100">
                             <div className="text-center">
-                              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                              <p className="text-gray-500 text-sm">Loading image...</p>
+                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                              <p className="text-gray-500 text-xs">Loading...</p>
                             </div>
                           </div>
                         )}
                         
                         {/* Error State */}
                         {imageError && (
-                          <div className="w-full h-full flex items-center justify-center">
+                          <div className="w-full h-full flex items-center justify-center bg-gray-100">
                             <div className="text-center">
-                              <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <ImageIcon className="h-12 w-12 text-gray-400" />
+                              <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-2">
+                                <ImageIcon className="h-8 w-8 text-gray-400" />
                               </div>
-                              <p className="text-gray-500 text-sm">Failed to load image</p>
+                              <p className="text-gray-500 text-xs">Failed to load</p>
                               <button 
                                 onClick={() => {
                                   setImageError(false)
@@ -480,7 +503,8 @@ export default function EnhancedDetailModal({
                               src={getOptimizedImageUrl(imageUrl)}
                               alt={currentData.title || currentData.name || 'Item'}
                               className="w-full h-full object-cover"
-                              loading="lazy"
+                              loading="eager"
+                              decoding="async"
                               onLoad={handleImageLoad}
                               onError={handleImageError}
                               onLoadStart={handleImageLoadStart}

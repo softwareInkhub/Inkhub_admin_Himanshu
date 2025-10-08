@@ -197,12 +197,21 @@ export const fetchChunk = async (chunkNumber: number, maxRetries: number = 3): P
           await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))) // Reduced delay
         }
       } catch (error: any) {
-        console.error(`❌ Chunk ${chunkNumber} fetch error (attempt ${retryCount + 1}):`, error.message)
-        
+        const message = String(error?.message || '')
+        const isAbort = error?.name === 'AbortError' || /aborted/i.test(message)
+        if (isAbort) {
+          // Gracefully ignore aborted requests to reduce console noise
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(`⏭️ Chunk ${chunkNumber} aborted (timeout) - skipping this attempt`)
+          }
+          return []
+        }
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`⚠️ Chunk ${chunkNumber} fetch error (attempt ${retryCount + 1}):`, message)
+        }
         if (retryCount === maxRetries - 1) {
           throw error
         }
-        
         retryCount++
         await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))) // Reduced delay
       }

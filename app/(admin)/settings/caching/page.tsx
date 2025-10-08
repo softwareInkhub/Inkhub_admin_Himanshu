@@ -179,6 +179,35 @@ export default function SystemEngineDashboard() {
       closable: true,
     });
   }, []);
+  
+  // Hydrate UI from existing local snapshots so the page doesn't look reset on revisit
+  useEffect(() => {
+    (async () => {
+      try {
+        console.log('[Caching] Hydrating resource cards from local snapshots...')
+        const updated = await Promise.all(resources.map(async (r) => {
+          try {
+            const snap = await loadSnapshot(r.id)
+            if (snap && Array.isArray(snap.data) && snap.data.length > 0) {
+              return {
+                ...r,
+                status: 'completed' as const,
+                progress: 100,
+                itemsLoaded: snap.data.length,
+                cacheHealth: 'healthy' as const,
+                savedSnapshot: true,
+                lastUpdated: new Date(snap.savedAt).toISOString(),
+              }
+            }
+          } catch {}
+          return r
+        }))
+        setResources(updated)
+      } catch {}
+    })()
+  // Run once on mount; we only want to hydrate initial UI state
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [loadingStates, setLoadingStates] = useState<{ [key: string]: boolean }>({});
 
   // Calculate overall progress
@@ -276,8 +305,10 @@ export default function SystemEngineDashboard() {
 
       // Try local snapshot first unless bypassed
       if (!options?.bypassSnapshot && useLocalSnapshotFirst) {
+        console.log(`[Caching] ${resource.name} - Checking for local snapshot...`)
         const snap = await loadSnapshot(resourceId)
         if (snap && Array.isArray(snap.data) && snap.data.length > 0) {
+          console.log(`[Caching] ${resource.name} - Found local snapshot with ${snap.data.length} items, using cached data`)
           setResources(prev => prev.map(r =>
             r.id === resourceId
               ? {
@@ -294,13 +325,29 @@ export default function SystemEngineDashboard() {
           setLoadingStates(prev => ({ ...prev, [resourceId]: false }))
           const c = controllersRef.current[resourceId]; if (c) delete controllersRef.current[resourceId]
           return
+        } else {
+          console.log(`[Caching] ${resource.name} - No local snapshot found, fetching fresh data from server`)
         }
       }
 
       // 1) Get available keys for the table
+      console.log(`[Caching] Starting resource: ${resource.name} (${resourceId}) with table: ${table}`);
       const keysUrl = `${BACKEND_URL}/cache/data?project=${PROJECT}&table=${encodeURIComponent(table)}`;
+      console.log(`[Caching] Fetching keys from: ${keysUrl}`);
+      
       const keysJson = await fetchJson(keysUrl, controller);
-      const keysList: string[] = (keysJson?.keys as string[]) || (keysJson?.data as string[]) || [];
+      const rawKeys: string[] = (keysJson?.keys as string[]) || (keysJson?.data as string[]) || [];
+
+      // Normalize keys like "my-app:admin-design-image:chunk:0" -> "chunk:0"
+      const normalizeKey = (k: string): string => {
+        const parts = String(k).split(':');
+        const idx = parts.findIndex(p => p === 'chunk');
+        if (idx >= 0 && idx < parts.length - 1) return `chunk:${parts[idx + 1]}`;
+        return parts[parts.length - 1] || String(k);
+      };
+      const keysList: string[] = rawKeys.map(normalizeKey);
+      console.log(`[Caching] ${resource.name} - Raw keys:`, rawKeys);
+      console.log(`[Caching] ${resource.name} - Normalized keys:`, keysList);
 
       // Prefer 'all' aggregate if available
       if (keysList.includes('all')) {
@@ -330,51 +377,58 @@ export default function SystemEngineDashboard() {
         // If 'all' exists but empty, treat as no data and fall through to chunk logic to double-check
       }
 
-      const chunkKeys = keysList.filter(k => /^chunk:?\d+$/i.test(String(k)) || /^chunk:\d+$/i.test(String(k)));
+      const chunkKeys = keysList.filter(k => /^chunk:\d+$/i.test(String(k)));
+      // Sort chunk keys by numeric index for predictable progress
+      chunkKeys.sort((a,b) => (parseInt(a.split(':')[1]||'0') - parseInt(b.split(':')[1]||'0')));
+      
+      console.log(`[Caching] ${resource.name} - Found ${chunkKeys.length} chunk keys:`, chunkKeys);
 
       // fallback: if keys API didn't return chunks, attempt conservative probe of only chunk:0
       let keysToFetch = chunkKeys;
       if (keysToFetch.length === 0) {
+        console.log(`[Caching] ${resource.name} - No chunk keys found, trying chunk:0 as fallback`);
         keysToFetch = ['chunk:0'];
       }
 
       let totalItems = 0;
+      // Aggregate all fetched rows so we can persist one snapshot per resource
+      const aggregatedRows: any[] = []
       const totalChunks = keysToFetch.length;
       let skippedChunks = 0
-      for (let i = 0; i < keysToFetch.length; i++) {
-        const key = keysToFetch[i];
-        const url = `${BACKEND_URL}/cache/data?project=${PROJECT}&table=${encodeURIComponent(table)}&key=${encodeURIComponent(key)}`;
-        try {
-          const json = await fetchJson(url, controller);
-          const rows = Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []);
-          totalItems += rows.length;
-          // If this is orders table with chunk:X keys, persist per-chunk snapshot
-          if (/^chunk:\d+$/i.test(String(key)) && table === 'shopify-inkhub-get-orders') {
-            const num = parseInt(String(key).split(':')[1])
-            if (!isNaN(num)) saveOrderChunkSnapshot(num, rows)
-          }
-        } catch (err: any) {
-          // If a chunk is missing, consider as end of data for probe mode
-          if (keysList.length === 0 && /404|Request failed/.test(String(err?.message))) {
-            // stop probing further and try 'all' as a final fallback
-            try {
-              const allUrl = `${BACKEND_URL}/cache/data?project=${PROJECT}&table=${encodeURIComponent(table)}&key=all`;
-              const allJson = await fetchJson(allUrl, controller);
-              const allRows = Array.isArray(allJson?.data) ? allJson.data : (Array.isArray(allJson) ? allJson : []);
-              totalItems += allRows.length;
-            } catch {}
-            break;
-          }
-          // For transient network issues (like CONTENT_LENGTH_MISMATCH), skip this chunk and continue
-          const msg = String(err?.message || '')
-          if (/CONTENT_LENGTH_MISMATCH|JSON_PARSE_ERROR|Failed to fetch|timeout|NetworkError|TypeError/i.test(msg)) {
-            skippedChunks++
+
+      // Bounded concurrency to speed up large tables (e.g., Orders with 100+ chunks)
+      const concurrency = table === 'shopify-inkhub-get-orders' ? 8 : 4
+      for (let i = 0; i < keysToFetch.length; i += concurrency) {
+        const batch = keysToFetch.slice(i, i + concurrency)
+        const results = await Promise.allSettled(batch.map(async (key) => {
+          const url = `${BACKEND_URL}/cache/data?project=${PROJECT}&table=${encodeURIComponent(table)}&key=${encodeURIComponent(key)}`
+          const json = await fetchJson(url, controller)
+          const rows = Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : [])
+          return { key, rows }
+        }))
+
+        for (const res of results) {
+          if (res.status === 'fulfilled') {
+            const { key, rows } = res.value as any
+            totalItems += rows.length
+            if (rows && rows.length) aggregatedRows.push(...rows)
+            if (/^chunk:\d+$/i.test(String(key)) && table === 'shopify-inkhub-get-orders') {
+              const num = parseInt(String(key).split(':')[1])
+              if (!isNaN(num)) saveOrderChunkSnapshot(num, rows)
+            }
           } else {
-            throw err
+            const msg = String(res.reason?.message || '')
+            if (/CONTENT_LENGTH_MISMATCH|JSON_PARSE_ERROR|Failed to fetch|timeout|NetworkError|TypeError/i.test(msg)) {
+              skippedChunks++
+            } else {
+              // Non-retriable; rethrow to surface error state
+              throw res.reason
+            }
           }
         }
 
-        const progress = totalChunks > 0 ? Math.min(100, Math.round(((i + 1) / totalChunks) * 100)) : Math.min(100, (i + 1) * 10);
+        const completed = Math.min(keysToFetch.length, i + batch.length)
+        const progress = totalChunks > 0 ? Math.min(100, Math.round((completed / totalChunks) * 100)) : 100
         setResources(prev => prev.map(r => 
           r.id === resourceId 
             ? { 
@@ -388,7 +442,12 @@ export default function SystemEngineDashboard() {
         ));
       }
 
+      console.log(`[Caching] ${resource.name} - Completed fetching: ${totalItems} total items from ${totalChunks} chunks (${skippedChunks} skipped)`)
+      
       if (totalItems > 0) {
+        // Persist a unified snapshot for this resource (works for Designs, Products, Pins, Boards, etc.)
+        console.log(`[Caching] ${resource.name} - Saving snapshot with ${aggregatedRows.length} items`)
+        try { await saveSnapshot(resourceId, table, aggregatedRows) } catch {}
         setResources(prev => prev.map(r => 
           r.id === resourceId 
             ? { 
@@ -402,6 +461,7 @@ export default function SystemEngineDashboard() {
               }
             : r
         ));
+        console.log(`[Caching] ${resource.name} - Successfully completed with ${totalItems} items`)
       } else {
         throw new Error(`No cache data found for table ${table}`)
       }
@@ -557,6 +617,23 @@ export default function SystemEngineDashboard() {
                 {useLocalSnapshotFirst ? 'ON' : 'OFF'}
               </button>
             </div>
+            <button
+              onClick={() => startResource('design-library')}
+              className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              disabled={loadingStates['design-library']}
+            >
+              <Palette className="h-4 w-4" />
+              Cache Designs
+            </button>
+            <button
+              onClick={() => startResource('design-library', { bypassSnapshot: true })}
+              className="flex items-center gap-2 px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+              disabled={loadingStates['design-library']}
+              title="Force refresh - bypass local cache"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Force Refresh
+            </button>
             <button
               onClick={startAll}
               className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"

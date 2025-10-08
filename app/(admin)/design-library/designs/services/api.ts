@@ -1,5 +1,4 @@
 import { Design, KPIMetrics } from '../types';
-import { generateDesigns } from '../utils';
 
 export interface ServerDesign {
   // Server-specific fields
@@ -73,6 +72,26 @@ class DesignAPI {
   private project = 'my-app';
   private table = 'admin-design-image';
 
+  // Ensure all UI views use compressed images by default
+  // We aggressively optimize S3 images to WebP with reasonable thumbnail sizes
+  private optimizeImageUrl(url?: string, preset: 'card' | 'grid' | 'thumb' = 'card'): string | undefined {
+    if (!url) return url;
+    try {
+      // Only optimize S3 links
+      if (url.includes('s3.amazonaws.com')) {
+        const hasQuery = url.includes('?');
+        const sep = hasQuery ? '&' : '?';
+        // Choose size by preset; these are safe defaults for table/card/grid
+        const size = preset === 'thumb' ? 'w=80&h=80' : preset === 'grid' ? 'w=400&h=300' : 'w=300&h=300';
+        // Force WebP with good compression
+        return `${url}${sep}${size}&fit=crop&auto=webp&q=60&f=webp`;
+      }
+      return url;
+    } catch {
+      return url;
+    }
+  }
+
   async getCacheInfo(): Promise<CacheResponse> {
     try {
       const response = await fetch(`${this.baseURL}/table`, {
@@ -100,6 +119,7 @@ class DesignAPI {
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: AbortSignal.timeout(15000), // 15 second timeout
       });
 
       if (!response.ok) {
@@ -115,7 +135,7 @@ class DesignAPI {
         total: Array.isArray(data) ? data.length : 0,
       };
     } catch (error) {
-      console.error(`Error fetching design chunk ${chunkIndex}:`, error);
+      console.warn(`⚠️ Chunk ${chunkIndex} fetch error:`, error);
       return {
         data: [],
         chunk: chunkIndex,
@@ -126,19 +146,51 @@ class DesignAPI {
 
   async getAllDesigns(): Promise<ServerDesign[]> {
     try {
-      // Based on your server response, we have 6 chunks (0-5)
-      const totalChunks = 6;
+      // Try to discover available chunks first
+      let totalChunks = 7; // Default fallback (based on actual server data)
       
-      // Fetch all chunks in parallel
-      const chunkPromises = Array.from({ length: totalChunks }, (_, index) => 
-        this.getDesignChunk(index)
-      );
-
-      const chunkResults = await Promise.all(chunkPromises);
+      try {
+        const keysUrl = `${this.baseURL}/data?project=${this.project}&table=${this.table}`;
+        const keysRes = await fetch(keysUrl, { 
+          headers: { 'Accept': 'application/json' }, 
+          signal: AbortSignal.timeout(10000) // Increased to 10 seconds
+        });
+        if (keysRes.ok) {
+          const keysJson = await keysRes.json();
+          const availableKeys: string[] = Array.isArray(keysJson?.keys) ? keysJson.keys : [];
+          const normalizedKeys = availableKeys.map(k => k.split(':').pop() || k);
+          const chunkKeys = normalizedKeys.filter(k => k.startsWith('chunk:'));
+          if (chunkKeys.length > 0) {
+            totalChunks = Math.max(...chunkKeys.map(k => parseInt(k.split(':')[1]) || 0)) + 1;
+            console.log(`📊 Discovered ${totalChunks} design chunks available`);
+          }
+        }
+      } catch (e) {
+        // Silently handle timeout errors
+        if (e instanceof Error && e.name !== 'AbortError') {
+          console.log('ℹ️ Using default chunk count');
+        }
+      }
       
-      // Combine all chunks
-      const allDesigns = chunkResults.flatMap(result => result.data);
+      // Fetch chunks with bounded concurrency to avoid overwhelming the server
+      const concurrencyLimit = 3; // Limit concurrent requests
+      const allDesigns: ServerDesign[] = [];
       
+      console.log(`🎨 Loading ${totalChunks} design chunks with ${concurrencyLimit} concurrent requests...`);
+      
+      for (let i = 0; i < totalChunks; i += concurrencyLimit) {
+        const batch = Array.from({ length: Math.min(concurrencyLimit, totalChunks - i) }, (_, j) => 
+          this.getDesignChunk(i + j)
+        );
+        
+        const batchResults = await Promise.all(batch);
+        const batchData = batchResults.flatMap(result => result.data);
+        allDesigns.push(...batchData);
+        
+        console.log(`✅ Loaded batch ${Math.floor(i/concurrencyLimit) + 1}: ${batchData.length} designs`);
+      }
+      
+      console.log(`🎨 Total designs loaded: ${allDesigns.length}`);
       return allDesigns;
     } catch (error) {
       console.error('Error fetching all designs:', error);
@@ -154,8 +206,8 @@ class DesignAPI {
     totalPages: number;
   }> {
     try {
-      // Based on your server response, we have 6 chunks (0-5)
-      const totalChunks = 6;
+      // Based on your server response, we have 7 chunks (0-6)
+      const totalChunks = 7;
       const totalPages = totalChunks;
       
       // Validate page number
@@ -172,6 +224,7 @@ class DesignAPI {
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: AbortSignal.timeout(15000), // 15 second timeout
       });
 
       if (!chunkResponse.ok) {
@@ -180,8 +233,6 @@ class DesignAPI {
 
       const chunkResult = await chunkResponse.json();
       const chunkData = chunkResult.data || [];
-
-
 
       return {
         data: chunkData,
@@ -212,7 +263,9 @@ class DesignAPI {
       category: serverDesign.designType || 'digital',
       price: parseFloat(serverDesign.designPrice) || 0,
       size: serverDesign.designSize || '1920x1080',
-      image: serverDesign.designImageUrl || serverDesign.image || `https://picsum.photos/seed/${serverDesign.uid}/400/300`,
+      // Always provide a compressed image URL by default so card/grid views are fast
+      image: this.optimizeImageUrl(serverDesign.designImageUrl || serverDesign.image, 'card')
+        || `https://picsum.photos/seed/${serverDesign.uid}/400/300`,
       createdAt: serverDesign.designCreatedAt || serverDesign.createdAt || new Date().toISOString(),
       updatedAt: serverDesign.designUpdateAt || serverDesign.updatedAt || new Date().toISOString(),
       tags: serverDesign.designTags || serverDesign._tags || serverDesign.tags || ['design', '2024'],
@@ -233,22 +286,25 @@ class DesignAPI {
     return transformed;
   }
 
-  // Fallback method to get mock data if server is not available
+  // Fetch real data from server - NO MOCK DATA FALLBACK
   async getDesignsWithFallback(): Promise<Design[]> {
     try {
-      console.log('Attempting to fetch real data from server...');
+      console.log('🎨 Attempting to fetch real design data from server...');
       const serverDesigns = await this.getAllDesigns();
+      
+      if (serverDesigns.length === 0) {
+        console.warn('⚠️ No designs returned from server');
+        return []; // Return empty array instead of mock data
+      }
+      
       const transformedDesigns = serverDesigns.map(serverDesign => 
         this.transformServerDesign(serverDesign)
       );
-      console.log(`Successfully fetched ${transformedDesigns.length} designs from server`);
+      console.log(`✅ Successfully fetched ${transformedDesigns.length} designs from server`);
       return transformedDesigns;
     } catch (error) {
-      console.warn('Failed to fetch from server, using mock data:', error);
-      console.log('Generating mock design data...');
-      const mockDesigns = generateDesigns(50);
-      console.log(`Generated ${mockDesigns.length} mock designs`);
-      return mockDesigns;
+      console.error('❌ Failed to fetch designs from server:', error);
+      return []; // Return empty array instead of mock data
     }
   }
 }

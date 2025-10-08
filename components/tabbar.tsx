@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useCallback, useEffect, useMemo, useTransition } from 'react'
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   X, 
@@ -25,7 +25,6 @@ interface TabBarProps {
 
 export function TabBar({ className }: TabBarProps) {
   const router = useRouter()
-  const [isNavigating, startTransition] = useTransition()
   const { 
     tabs, 
     activeTabId, 
@@ -169,9 +168,11 @@ export function TabBar({ className }: TabBarProps) {
         const nextTab = remainingTabs[0]
         setActiveTab(nextTab.id)
         router.push(nextTab.path)
+        console.log('✅ Navigated to next tab:', nextTab.title, nextTab.path)
       } else {
         // If no tabs left, go to dashboard
         router.push('/dashboard')
+        console.log('✅ Navigated to dashboard (no tabs left)')
       }
     }
   }, [removeTab, closeContextMenu, tabs, activeTabId, setActiveTab, router])
@@ -181,13 +182,18 @@ export function TabBar({ className }: TabBarProps) {
     closeContextMenu()
   }, [toggleTabPin, closeContextMenu])
 
-  // Tab click handler with routing
+  // Tab click handler with routing - make it instant
   const handleTabClick = useCallback((tab: any) => {
+    console.log('🔄 Tab clicked:', tab.title, 'Path:', tab.path)
+    
+    // Set active tab first for immediate UI feedback
     setActiveTab(tab.id)
-    startTransition(() => {
-      router.push(tab.path)
-    })
-  }, [setActiveTab, router, startTransition])
+    
+    // Navigate immediately without transition delay
+    router.push(tab.path)
+    
+    console.log('✅ Navigation initiated to:', tab.path)
+  }, [setActiveTab, router])
 
   // Add new tab handler
   const handleAddTab = useCallback(() => {
@@ -203,9 +209,11 @@ export function TabBar({ className }: TabBarProps) {
     if (existingTab) {
       setActiveTab(existingTab.id)
       router.push(existingTab.path)
+      console.log('✅ Navigated to existing new tab:', existingTab.path)
     } else {
       addTab(newTab)
       router.push(newTab.path)
+      console.log('✅ Created and navigated to new tab:', newTab.path)
     }
   }, [tabs, setActiveTab, router, addTab])
 

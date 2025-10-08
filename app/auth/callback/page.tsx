@@ -17,10 +17,22 @@ export default function AuthCallbackPage() {
     if (typeof window === 'undefined') return { isLocalhost: false, cookieDomain: undefined as string | undefined }
     const host = window.location.hostname
     const isLocal = host === 'localhost' || host === '127.0.0.1'
-    // Compute a safe cookie domain for whatever host we're running on
-    // - For localhost, omit domain
-    // - For other hosts, set to current host with a leading dot so cookies work across subdomains
-    const domain = isLocal ? undefined : `.${host}`
+    
+    // Compute a base domain for cookies on real hosts so they work across subdomains
+    // Example: admin.brmh.in -> .brmh.in
+    const computeBaseDomain = (h: string): string | undefined => {
+      if (!h) return undefined
+      // IP addresses: do not set a cookie domain
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(h)) return undefined
+      if (h === 'localhost') return undefined
+      const parts = h.split('.')
+      if (parts.length >= 2) {
+        const base = parts.slice(-2).join('.')
+        return `.${base}`
+      }
+      return `.${h}`
+    }
+    const domain = isLocal ? undefined : computeBaseDomain(host)
     return { isLocalhost: isLocal, cookieDomain: domain }
   }, [])
 
@@ -34,6 +46,22 @@ export default function AuthCallbackPage() {
       const idToken = params.get('id_token')
       const refreshToken = params.get('refresh_token')
       const redirect = new URLSearchParams(window.location.search).get('redirect') || '/'
+      
+      // If we're on auth.brmh.in and no specific redirect, go to admin.brmh.in
+      let finalRedirect = redirect
+      if (window.location.hostname === 'auth.brmh.in' && redirect === '/') {
+        finalRedirect = 'https://admin.brmh.in/'
+      }
+
+      console.log('[Auth Callback] Setting cookies:', {
+        hasAccessToken: !!accessToken,
+        hasIdToken: !!idToken,
+        hasRefreshToken: !!refreshToken,
+        cookieDomain,
+        isLocalhost,
+        hostname: window.location.hostname,
+        finalRedirect
+      });
 
       if (accessToken) setCookie('access_token', accessToken, { days: 1, path: '/', sameSite: 'lax', secure: !isLocalhost, domain: cookieDomain })
       if (idToken) setCookie('id_token', idToken, { days: 1, path: '/', sameSite: 'lax', secure: !isLocalhost, domain: cookieDomain })
@@ -43,7 +71,7 @@ export default function AuthCallbackPage() {
       setCookie('auth_valid', '1', { days: 7, path: '/', sameSite: 'lax', secure: !isLocalhost, domain: cookieDomain })
 
       // Clean hash and redirect to original page
-      window.location.replace(redirect)
+      window.location.replace(finalRedirect)
     } catch (e) {
       console.error('[Auth Callback] Failed to process tokens:', e)
       // Fallback to home

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { 
   LayoutDashboard, 
   Grid, 
@@ -115,9 +115,10 @@ interface SidebarItemProps {
   level: number
   isCollapsed: boolean
   onActivate: () => void
+  onNavigate: (path: string, title: string) => void
 }
 
-function SidebarItemComponent({ item, level, isCollapsed, onActivate }: SidebarItemProps) {
+function SidebarItemComponent({ item, level, isCollapsed, onActivate, onNavigate }: SidebarItemProps) {
   const pathname = usePathname()
   const [isExpanded, setIsExpanded] = useState(() => {
     // Auto-expand if current path matches this item or its children
@@ -140,11 +141,24 @@ function SidebarItemComponent({ item, level, isCollapsed, onActivate }: SidebarI
       pathname === grandChild.path || pathname.startsWith(grandChild.path + '/')
     ))
   )
+  
+  // Check if this item corresponds to the currently active tab
+  const { activeTabId, tabs } = useAppStore()
+  const currentTab = tabs.find(tab => tab.id === activeTabId)
+  const isTabActive = currentTab?.path === item.path
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    
     if (hasChildren) {
+      // For parent items, just toggle expansion
       setIsExpanded(!isExpanded)
+    } else {
+      // For leaf items, navigate and create tab
+      console.log('🔄 Sidebar clicked:', item.title, 'Path:', item.path)
+      onNavigate(item.path, item.title)
     }
+    
     // If sidebar is collapsed, expand it on any item click
     if (isCollapsed) {
       onActivate()
@@ -162,7 +176,7 @@ function SidebarItemComponent({ item, level, isCollapsed, onActivate }: SidebarI
           'sidebar-item group hover-lift transition-all duration-300 ease-out',
           'hover:shadow-lg hover:shadow-black/5 dark:hover:shadow-white/5',
           'transform hover:-translate-y-0.5',
-          (isActive || isChildActive) && 'active shadow-soft',
+          (isActive || isChildActive || isTabActive) && 'active shadow-soft',
           level > 0 && 'ml-4',
           level > 1 && 'ml-8',
           isCollapsed && 'justify-center'
@@ -172,7 +186,7 @@ function SidebarItemComponent({ item, level, isCollapsed, onActivate }: SidebarI
           "flex items-center justify-center transition-all duration-300",
           "group-hover:scale-110 group-hover:rotate-3",
           item.iconColor || "text-secondary-600",
-          (isActive || isChildActive) && "text-white scale-110"
+          (isActive || isChildActive || isTabActive) && "text-white scale-110"
         )}>
           <item.icon className="h-4 w-4 transition-all duration-300" />
         </div>
@@ -206,6 +220,7 @@ function SidebarItemComponent({ item, level, isCollapsed, onActivate }: SidebarI
               level={level + 1}
               isCollapsed={isCollapsed}
               onActivate={onActivate}
+              onNavigate={onNavigate}
             />
           ))}
         </div>
@@ -215,7 +230,8 @@ function SidebarItemComponent({ item, level, isCollapsed, onActivate }: SidebarI
 }
 
 export function Sidebar() {
-  const { sidebarCollapsed, toggleSidebar } = useAppStore()
+  const router = useRouter()
+  const { sidebarCollapsed, toggleSidebar, addTab, setActiveTab } = useAppStore()
 
   // Expand sidebar only when currently collapsed
   const expandIfCollapsed = () => {
@@ -223,6 +239,31 @@ export function Sidebar() {
       toggleSidebar()
     }
   }
+
+  // Handle navigation with tab creation
+  const handleNavigate = useCallback((path: string, title: string) => {
+    console.log('🔄 Sidebar navigation:', title, 'Path:', path)
+    
+    // Check if tab already exists
+    const existingTab = useAppStore.getState().tabs.find(tab => tab.path === path)
+    
+    if (existingTab) {
+      // If tab exists, just set it as active and navigate
+      setActiveTab(existingTab.id)
+      router.push(path)
+      console.log('✅ Navigated to existing tab:', title, path)
+    } else {
+      // Create new tab and navigate
+      addTab({
+        title: title,
+        path: path,
+        pinned: false,
+        closable: true
+      })
+      router.push(path)
+      console.log('✅ Created new tab and navigated:', title, path)
+    }
+  }, [addTab, setActiveTab, router])
 
   return (
     <div className={cn(
@@ -258,6 +299,7 @@ export function Sidebar() {
               level={0}
               isCollapsed={sidebarCollapsed}
               onActivate={expandIfCollapsed}
+              onNavigate={handleNavigate}
             />
           ))}
         </nav>

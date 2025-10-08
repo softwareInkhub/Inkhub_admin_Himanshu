@@ -201,7 +201,16 @@ export const useAppStore = create<AppState>()(
           }
         })
       },
-      setActiveTab: (id) => set({ activeTabId: id }),
+      setActiveTab: (id) => {
+        console.log('🔧 Store: Setting active tab ID:', id)
+        const tab = get().tabs.find(t => t.id === id)
+        if (tab) {
+          console.log('🔧 Store: Active tab details:', { title: tab.title, path: tab.path })
+        } else {
+          console.warn('⚠️ Store: Tab not found for ID:', id)
+        }
+        set({ activeTabId: id })
+      },
       toggleTabPin: (id) => {
         const tab = get().tabs.find(t => t.id === id)
         

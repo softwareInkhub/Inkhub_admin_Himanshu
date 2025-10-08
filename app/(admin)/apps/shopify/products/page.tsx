@@ -647,44 +647,76 @@ function ProductsClientContent({
     setError(null)
     
     try {
-      const BACKEND_URL = 'https://brmh.in'
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
 
       // Discover available keys to avoid 404s, then request in parallel using a priority list
       let possibleKeys: string[] = []
       try {
         const keysUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products`
+        console.log('🔍 Discovering available cache keys from:', keysUrl)
         const keysRes = await fetch(keysUrl, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(6000) })
         if (keysRes.ok) {
           const keysJson = await keysRes.json()
           const rawKeys: string[] = Array.isArray(keysJson?.keys) ? keysJson.keys : []
+          console.log('📋 Raw keys from server:', rawKeys)
+          
           const normalize = (k: string) => {
             const parts = String(k).split(':')
-            return parts.length >= 2 ? `${parts[parts.length - 2]}:${parts[parts.length - 1]}` : String(k)
+            // Just use the last part for matching (e.g., "my-app:table:chunk:0" -> "chunk:0")
+            if (parts.length >= 2 && parts[parts.length - 2] === 'chunk') {
+              return `chunk:${parts[parts.length - 1]}`
+            }
+            return parts[parts.length - 1] || String(k)
           }
           const available = new Set(rawKeys.map(normalize))
+          console.log('🎯 Normalized available keys:', Array.from(available))
+          
           const priority = ['all', 'products', 'chunk:0', 'chunk:1', 'chunk:2', 'chunk:3', 'chunk:4']
           possibleKeys = priority.filter(k => available.has(k))
+          console.log('✅ Matched priority keys:', possibleKeys)
+          
           if (possibleKeys.length === 0 && available.size > 0) {
-            possibleKeys = Array.from(available)
+            possibleKeys = Array.from(available).slice(0, 5)
+            console.log('⚠️ No priority match, using first 5 available:', possibleKeys)
           }
+        } else {
+          console.warn('⚠️ Keys discovery failed with status:', keysRes.status)
         }
-      } catch {}
-      if (possibleKeys.length === 0) {
-        possibleKeys = ['chunk:0', 'chunk:1', 'chunk:2', 'chunk:3', 'chunk:4']
+      } catch (e) {
+        console.warn('⚠️ Keys discovery error:', e)
       }
+      
+      if (possibleKeys.length === 0) {
+        console.warn('⚠️ No keys discovered, using default fallback keys')
+        possibleKeys = ['chunk:0']
+      }
+      
+      console.log('🚀 Will attempt to fetch keys:', possibleKeys)
 
       const requests = possibleKeys.map((key) => {
         const url = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-products&key=${key}`
+        console.log(`📥 Fetching key "${key}" from:`, url)
         return fetch(url, {
           signal: AbortSignal.timeout(12000),
           headers: { Accept: 'application/json', 'Accept-Encoding': 'identity' }
         })
           .then(async (response) => {
-            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            if (!response.ok) {
+              console.warn(`❌ Key "${key}" failed with status ${response.status}`)
+              throw new Error(`HTTP ${response.status} for key ${key}`)
+            }
             const text = await response.text()
             const jsonData = JSON.parse(text)
-            if (!jsonData?.data || !Array.isArray(jsonData.data)) throw new Error('Invalid payload')
+            if (!jsonData?.data || !Array.isArray(jsonData.data)) {
+              console.warn(`❌ Key "${key}" returned invalid data structure`)
+              throw new Error(`Invalid payload for key ${key}`)
+            }
+            console.log(`✅ Key "${key}" succeeded with ${jsonData.data.length} items`)
             return { key, data: jsonData.data as any[] }
+          })
+          .catch(error => {
+            console.warn(`❌ Key "${key}" error:`, error.message)
+            throw error
           })
       })
 
@@ -767,8 +799,13 @@ function ProductsClientContent({
       
       console.error('❌ Cache fetch error:', e)
       
-      if (e.message.includes('404') || e.message.includes('Not Found')) {
+      // Check if it's a network/DNS error
+      if (e.message.includes('Failed to fetch') || e.message.includes('ERR_NAME_NOT_RESOLVED') || e.message.includes('NetworkError')) {
+        setError('Unable to connect to backend server. Please check your internet connection or contact support.')
+      } else if (e.message.includes('404') || e.message.includes('Not Found')) {
         setError('No products data available. Please cache the products data first using the Caching page.')
+      } else if (e.message.includes('All requests failed')) {
+        setError('Unable to load products data. All cache keys failed. Please check the Caching page and ensure products are cached.')
       } else {
         setError(`Failed to load products: ${e.message}`)
       }

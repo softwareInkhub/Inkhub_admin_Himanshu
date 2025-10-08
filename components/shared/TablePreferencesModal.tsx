@@ -53,7 +53,7 @@ export default function TablePreferencesModal({
           {/* Page size */}
           <div className="md:col-span-1">
             <div className="text-sm font-semibold text-gray-800 mb-2">Page size</div>
-            {[10, 25, 50, 100, 200, 300].map((n) => (
+            {[10, 25, 50, 100, 200, 300, 500].map((n) => (
               <label key={n} className="flex items-center space-x-2 text-sm text-gray-700 py-1">
                 <input
                   type="radio"

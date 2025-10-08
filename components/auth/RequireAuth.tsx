@@ -43,13 +43,23 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
       // NOTE: Authentication is already handled by middleware (which can read httpOnly cookies)
       // This component only needs to fetch/set user profile for the app state
       
-      // Try to get tokens from localStorage or cookies (middleware/callback may have set both)
-      const accessToken = localStorage.getItem('access_token') || localStorage.getItem('accessToken') || getCookie('access_token');
-      const idToken = localStorage.getItem('id_token') || getCookie('id_token');
-
-      // Sync cookies -> localStorage so client APIs can use them easily (always overwrite to avoid stale values)
+      // Prioritize cookies over localStorage (cookies are set by auth callback with proper domain)
       const cAccess = getCookie('access_token')
       const cId = getCookie('id_token')
+      const accessToken = cAccess || localStorage.getItem('access_token') || localStorage.getItem('accessToken');
+      const idToken = cId || localStorage.getItem('id_token');
+      
+      console.log('[RequireAuth] Token check:', {
+        hasCookieAccess: !!cAccess,
+        hasCookieId: !!cId,
+        hasLocalAccess: !!localStorage.getItem('access_token'),
+        hasLocalId: !!localStorage.getItem('id_token'),
+        finalAccess: !!accessToken,
+        finalId: !!idToken,
+        hostname: window.location.hostname
+      });
+
+      // Sync cookies -> localStorage so client APIs can use them easily (always overwrite to avoid stale values)
       if (cAccess) localStorage.setItem('access_token', cAccess)
       if (cId) localStorage.setItem('id_token', cId)
       

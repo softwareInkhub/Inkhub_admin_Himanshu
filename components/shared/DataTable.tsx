@@ -173,9 +173,11 @@ export default function DataTable<T extends BaseEntity>({
           </thead>
 
           <tbody className="bg-white">
-            {sortedData.map((item, index) => (
+            {sortedData.map((item, index) => {
+              const rowKey = String((item as any)?.id ?? (item as any)?.uid ?? `${startIndex + index}`)
+              return (
               <tr
-                key={item.id}
+                key={rowKey}
                 className={cn(
                   "hover:bg-gray-50 transition-colors cursor-pointer",
                   index < sortedData.length - 1 ? "border-b border-gray-200" : ""
@@ -215,7 +217,7 @@ export default function DataTable<T extends BaseEntity>({
                   </td>
                 ))}
               </tr>
-            ))}
+              )})}
           </tbody>
         </table>
       </div>
@@ -238,6 +240,7 @@ export default function DataTable<T extends BaseEntity>({
                 <option value={100}>100</option>
                 <option value={200}>200</option>
                 <option value={300}>300</option>
+                <option value={500}>500</option>
               </select>
               <span className="text-sm text-gray-700">per page</span>
             </div>

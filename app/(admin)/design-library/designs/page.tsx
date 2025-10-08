@@ -9,6 +9,7 @@ import {
 import DesignsGridCardFilterHeader from './components/DesignsGridCardFilterHeader'
 import { Design } from './types'
 import { designAPI } from './services/api'
+import { loadSnapshot } from '@/lib/snapshots'
 
 
 // Define table columns for designs
@@ -22,10 +23,11 @@ const designColumns = [
       const getOptimizedImageUrl = (url: string) => {
         if (!url) return url
         
-        // For S3 URLs, add optimization parameters for thumbnail
+        // For S3 URLs, add aggressive optimization parameters for thumbnail
         if (url.includes('s3.amazonaws.com')) {
           const separator = url.includes('?') ? '&' : '?'
-          return `${url}${separator}w=100&h=100&fit=crop&auto=format&q=70`
+          // Use more aggressive optimization: smaller size, higher compression, force WebP
+          return `${url}${separator}w=80&h=80&fit=crop&auto=webp&q=60&f=webp`
         }
         
         return url
@@ -35,23 +37,49 @@ const designColumns = [
         <div className="flex items-center space-x-3">
           <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100 relative">
             {design.image ? (
-              <img 
-                src={getOptimizedImageUrl(design.image)}
-                alt={design.name || 'Design'}
-                className="w-full h-full object-cover"
-                loading="lazy"
-                onError={(e) => {
-                  // Fallback to placeholder on error
-                  const target = e.target as HTMLImageElement
-                  target.style.display = 'none'
-                  target.nextElementSibling?.classList.remove('hidden')
-                }}
-              />
-            ) : null}
-            {/* Fallback placeholder */}
-            <div className={`w-full h-full bg-gray-200 flex items-center justify-center ${design.image ? 'hidden' : ''}`}>
-              <span className="text-xs text-gray-500">No image</span>
-            </div>
+              <>
+                {/* Loading placeholder */}
+                <div className="absolute inset-0 bg-gray-200 animate-pulse flex items-center justify-center">
+                  <div className="w-4 h-4 bg-gray-300 rounded-full"></div>
+                </div>
+                
+                <img 
+                  src={getOptimizedImageUrl(design.image)}
+                  alt={design.name || 'Design'}
+                  className="w-full h-full object-cover relative z-10"
+                  loading="lazy"
+                  decoding="async"
+                  onLoad={(e) => {
+                    // Hide loading placeholder when image loads
+                    const target = e.target as HTMLImageElement
+                    const placeholder = target.previousElementSibling as HTMLElement
+                    if (placeholder) {
+                      placeholder.style.display = 'none'
+                    }
+                  }}
+                  onError={(e) => {
+                    // Hide image and show error placeholder
+                    const target = e.target as HTMLImageElement
+                    const placeholder = target.previousElementSibling as HTMLElement
+                    if (placeholder) {
+                      placeholder.style.display = 'none'
+                    }
+                    target.style.display = 'none'
+                    target.nextElementSibling?.classList.remove('hidden')
+                  }}
+                />
+                
+                {/* Error placeholder */}
+                <div className="hidden w-full h-full bg-gray-200 items-center justify-center">
+                  <span className="text-xs text-gray-500">Error</span>
+                </div>
+              </>
+            ) : (
+              /* No image placeholder */
+              <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                <span className="text-xs text-gray-500">No image</span>
+              </div>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium text-gray-900 truncate">
@@ -301,62 +329,130 @@ function DesignLibraryPage() {
   const [isLoadingServerData, setIsLoadingServerData] = useState(true)
   const [dataLoaded, setDataLoaded] = useState(false)
   const [isClient, setIsClient] = useState(false)
+  const [cacheChecked, setCacheChecked] = useState(false)
+  const [dataSource, setDataSource] = useState<'cache' | 'server' | 'unknown'>('unknown')
   const hasFetchedRef = useRef(false)
+  
+  // Normalize raw server rows (from snapshots) into UI-friendly Design objects
+  const normalizeDesigns = useCallback((rows: any[]): Design[] => {
+    if (!Array.isArray(rows)) return []
+    return rows.map((row: any) => {
+      // If already looks normalized (has common client fields), return as-is
+      if (row && (row.image || row.name || row.title)) {
+        return row as Design
+      }
+      // Otherwise transform from server shape
+      return designAPI.transformServerDesign(row)
+    })
+  }, [])
+  
+  // Function to force refresh data from server
+  const forceRefresh = useCallback(async () => {
+    console.log('🔄 Force refreshing design data from server...')
+    hasFetchedRef.current = false
+    setDataLoaded(false)
+    setServerData([])
+    setDataSource('unknown')
+    setIsLoadingServerData(true)
+    
+    // Clear any existing cache
+    if (isClient) {
+      sessionStorage.removeItem('designs-cached-data')
+      sessionStorage.removeItem('designs-data-loaded')
+    }
+    
+    // The useEffect will automatically trigger fresh fetch
+  }, [isClient])
+
+  // Image preloading optimization
+  const preloadImages = useCallback((designs: Design[]) => {
+    if (!designs || designs.length === 0) return
+    
+    // Preload first 20 images for immediate visibility
+    const imagesToPreload = designs.slice(0, 20).filter(d => d.image)
+    
+    imagesToPreload.forEach(design => {
+      if (design.image && design.image.includes('s3.amazonaws.com')) {
+        const optimizedUrl = `${design.image}?w=80&h=80&fit=crop&auto=webp&q=60&f=webp`
+        
+        // Create image element for preloading
+        const img = new Image()
+        img.src = optimizedUrl
+        img.loading = 'eager' // Force eager loading for preload
+      }
+    })
+    
+    console.log(`🚀 Preloaded ${imagesToPreload.length} design images for faster rendering`)
+  }, [])
 
   // Set client flag to prevent hydration issues
   useEffect(() => {
     setIsClient(true)
   }, [])
 
-  // Load cached data from sessionStorage after client-side hydration
+  // Load cached data from snapshots (preferred) or sessionStorage after client-side hydration
   useEffect(() => {
     if (!isClient) return
     
-    const cached = sessionStorage.getItem('designs-cached-data')
-    const dataLoaded = sessionStorage.getItem('designs-data-loaded') === 'true'
-    
-    if (cached && dataLoaded) {
+    const loadCachedData = async () => {
       try {
-        const parsedData = JSON.parse(cached)
-        setServerData(parsedData)
-        setDataLoaded(true)
-        setIsLoadingServerData(false)
-        return
-      } catch (e) {
-        console.log('Failed to parse cached designs data')
+        // First try to load from snapshot cache (from Caching page)
+        console.log('🔍 Checking for cached design data...')
+        const snapshot = await loadSnapshot('design-library')
+        
+        if (snapshot && Array.isArray(snapshot.data) && snapshot.data.length > 0) {
+          console.log(`✅ Found snapshot cache with ${snapshot.data.length} designs`)
+          const normalized = normalizeDesigns(snapshot.data)
+          setServerData(normalized)
+          setDataLoaded(true)
+          setIsLoadingServerData(false)
+          setDataSource('cache')
+          preloadImages(normalized)
+          setCacheChecked(true)
+          return
+        }
+        
+        // Fallback to sessionStorage cache
+        const cached = sessionStorage.getItem('designs-cached-data')
+        const dataLoaded = sessionStorage.getItem('designs-data-loaded') === 'true'
+        
+        if (cached && dataLoaded) {
+          try {
+            const parsedData = JSON.parse(cached)
+            console.log(`✅ Found sessionStorage cache with ${parsedData.length} designs`)
+            const normalized = normalizeDesigns(parsedData)
+            setServerData(normalized)
+            setDataLoaded(true)
+            setIsLoadingServerData(false)
+            setDataSource('cache')
+            preloadImages(normalized)
+            setCacheChecked(true)
+            return
+          } catch (e) {
+            console.log('Failed to parse cached designs data')
+          }
+        }
+        
+        console.log('ℹ️ No cached data found, will fetch from server')
+      } catch (error) {
+        console.log('Error loading cached data:', error)
+      } finally {
+        // Mark cache check complete so fetch effect may proceed if needed
+        setCacheChecked(true)
       }
     }
-  }, [isClient])
+    
+    loadCachedData()
+  }, [isClient, preloadImages, normalizeDesigns])
 
   // Optimized data fetching with better performance and caching
   useEffect(() => {
-    // Only fetch if we're on client and don't have data
-    if (!isClient || serverData.length > 0 || dataLoaded || hasFetchedRef.current) {
+    // Only fetch after cache check completes, and only if no cached data present
+    if (!isClient || !cacheChecked || serverData.length > 0 || dataLoaded || hasFetchedRef.current) {
       return
     }
     
-    // Check if we already have data in sessionStorage
-    if (isClient) {
-      const cached = sessionStorage.getItem('designs-cached-data')
-      const dataLoaded = sessionStorage.getItem('designs-data-loaded') === 'true'
-      
-      if (cached && dataLoaded) {
-        try {
-          const parsedData = JSON.parse(cached)
-          if (parsedData.length > 0) {
-            setServerData(parsedData)
-            setDataLoaded(true)
-            setIsLoadingServerData(false)
-            hasFetchedRef.current = true
-            console.log('✅ Using cached designs data')
-            return
-          }
-        } catch (e) {
-          console.log('Failed to parse cached designs data')
-        }
-      }
-    }
-    
+    console.log('🔄 No cached data found, fetching fresh design data from all chunks...')
     hasFetchedRef.current = true
     
     const fetchServerData = async () => {
@@ -367,54 +463,186 @@ function DesignLibraryPage() {
         
         // Try multiple keys in parallel for fastest success
         const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
-        const keys = ['all', 'chunk:0', 'designs']
-        const requests = keys.map((key) => {
-          const url = `${BACKEND_URL}/cache/data?project=my-app&table=admin-design-image&key=${key}`
-          return fetch(url, { signal: AbortSignal.timeout(5000) })
-            .then(async (res) => {
-              if (!res.ok) throw new Error(`HTTP ${res.status}`)
-              const json = await res.json()
-              if (!json?.data || !Array.isArray(json.data)) throw new Error('Invalid payload')
-              return { key, data: json.data }
-            })
-        })
+        // Default to all 7 chunks based on server data
+        let keysToFetch = ['chunk:0', 'chunk:1', 'chunk:2', 'chunk:3', 'chunk:4', 'chunk:5', 'chunk:6']
 
-        const promiseAny = async <T,>(promises: Promise<T>[]): Promise<T> => new Promise((resolve, reject) => {
-          let rejected = 0
-          const n = promises.length
-          if (n === 0) return reject(new Error('No requests'))
-          promises.forEach(p => p.then(resolve).catch(() => { rejected++; if (rejected === n) reject(new Error('All failed')) }))
+        try {
+          const keysUrl = `${BACKEND_URL}/cache/data?project=my-app&table=admin-design-image`
+          console.log('🔍 Discovering design cache keys from:', keysUrl)
+          const keysRes = await fetch(keysUrl, { 
+            headers: { 'Accept': 'application/json' }, 
+            signal: AbortSignal.timeout(10000) // Increased to 10 seconds
+          })
+          if (keysRes.ok) {
+            const keysJson = await keysRes.json()
+            const availableKeys: string[] = Array.isArray(keysJson?.keys) ? keysJson.keys : []
+            console.log('📋 Raw design keys from server:', availableKeys)
+            
+            // Normalize keys: extract "chunk:0" from "my-app:admin-design-image:chunk:0"
+            const normalizedAvailableKeys = availableKeys.map(k => {
+              const parts = String(k).split(':')
+              // If it looks like "prefix:prefix:chunk:0", extract "chunk:0"
+              if (parts.length >= 2 && parts[parts.length - 2] === 'chunk') {
+                return `chunk:${parts[parts.length - 1]}`
+              }
+              // Otherwise just return the last part
+              return parts[parts.length - 1] || String(k)
+            })
+            console.log('🎯 Normalized design keys:', normalizedAvailableKeys)
+            
+            // Filter to only chunk keys that exist on server
+            const chunkKeys = normalizedAvailableKeys.filter(k => /^chunk:\d+$/i.test(k))
+            console.log('✅ Available chunk keys from server:', chunkKeys)
+            
+            if (chunkKeys.length > 0) {
+              // Sort chunk keys by numeric index for predictable order
+              chunkKeys.sort((a,b) => (parseInt(a.split(':')[1]||'0') - parseInt(b.split(':')[1]||'0')))
+              keysToFetch = chunkKeys
+              console.log('✅ Using all available chunk keys:', keysToFetch)
+            } else {
+              // Fallback to default chunks if none found
+              keysToFetch = ['chunk:0', 'chunk:1', 'chunk:2', 'chunk:3', 'chunk:4', 'chunk:5', 'chunk:6']
+              console.log('⚠️ No chunk keys found, using default chunks:', keysToFetch)
+            }
+          } else {
+            console.log(`ℹ️ Keys discovery returned status ${keysRes.status}, will use default keys`)
+          }
+        } catch (e) {
+          // Silently handle timeout/network errors and use default keys
+          if (e instanceof Error && e.name === 'AbortError') {
+            console.log('ℹ️ Keys discovery timed out, using default chunk keys')
+          } else {
+            console.log('ℹ️ Keys discovery unavailable, using default chunk keys')
+          }
+        }
+
+        console.log('🚀 Will attempt to fetch design keys:', keysToFetch)
+        
+        const fetchPromises = keysToFetch.map(key => {
+          const url = `${BACKEND_URL}/cache/data?project=my-app&table=admin-design-image&key=${key}`
+          console.log(`📥 Fetching design key "${key}" from:`, url)
+          return fetch(url, {
+            signal: AbortSignal.timeout(15000) // Increased to 15 seconds
+          }).then(async res => {
+            if (!res.ok) {
+              throw new Error(`HTTP ${res.status} for key ${key}`)
+            }
+            const json = await res.json()
+            if (!json?.data || !Array.isArray(json.data)) {
+              throw new Error(`Invalid data for key ${key}`)
+            }
+            console.log(`✅ Design key "${key}" succeeded with ${json.data.length} items`)
+            return { key, data: json.data }
+          }).catch(error => {
+            // Return empty data instead of throwing, so Promise.all doesn't fail
+            console.log(`ℹ️ Key "${key}" unavailable, skipping`)
+            return { key, data: [] }
+          })
         })
 
         try {
-          const { key: winner, data } = await promiseAny(requests)
-          const designs = (data as any[]).map((serverDesign: any) => designAPI.transformServerDesign(serverDesign))
-          setServerData(designs)
-          setDataLoaded(true)
-          if (isClient) {
-            sessionStorage.setItem('designs-cached-data', JSON.stringify(designs))
-            sessionStorage.setItem('designs-data-loaded', 'true')
+          // Use Promise.all to fetch ALL chunks, not just the first one
+          const allResults = await Promise.all(fetchPromises)
+          
+          // Combine all chunk data
+          const allDesigns: any[] = []
+          allResults.forEach(result => {
+            if (result.data.length > 0) {
+              const transformedChunk = result.data.map((serverDesign: any) => designAPI.transformServerDesign(serverDesign))
+              allDesigns.push(...transformedChunk)
+              console.log(`✅ Added ${transformedChunk.length} designs from key "${result.key}"`)
+            }
+          })
+          
+          if (allDesigns.length > 0) {
+            setServerData(allDesigns)
+            setDataLoaded(true)
+            setDataSource('server')
+            if (isClient) {
+              sessionStorage.setItem('designs-cached-data', JSON.stringify(allDesigns))
+              sessionStorage.setItem('designs-data-loaded', 'true')
+              // Preload images for faster rendering
+              preloadImages(allDesigns)
+            }
+            setIsLoadingServerData(false)
+            console.log(`✅ Successfully loaded ${allDesigns.length} total designs from ${allResults.filter(r => r.data.length > 0).length} chunks`)
+            return
           }
-          setIsLoadingServerData(false)
-          console.log(`✅ Loaded ${designs.length} designs via key "${winner}"`)
-          return
         } catch (parallelErr) {
-          console.log('⚠️ Parallel key fetch failed, falling back to chunks:', parallelErr)
+          console.log('⚠️ Parallel key fetch failed, falling back to chunk-based approach:', parallelErr)
+          
+          // Fallback: try to fetch all chunks individually
+          try {
+            console.log('🔄 Attempting to fetch all chunks individually...')
+            const allDesigns: any[] = []
+            
+            for (let i = 0; i < 7; i++) {
+              try {
+                const chunkUrl = `${BACKEND_URL}/cache/data?project=my-app&table=admin-design-image&key=chunk:${i}`
+                console.log(`📥 Fetching chunk ${i} from:`, chunkUrl)
+                const chunkRes = await fetch(chunkUrl, { signal: AbortSignal.timeout(15000) }) // Increased to 15 seconds
+                
+                if (chunkRes.ok) {
+                  const chunkJson = await chunkRes.json()
+                  if (chunkJson?.data && Array.isArray(chunkJson.data)) {
+                    const chunkDesigns = chunkJson.data.map((serverDesign: any) => designAPI.transformServerDesign(serverDesign))
+                    allDesigns.push(...chunkDesigns)
+                    console.log(`✅ Chunk ${i} loaded: ${chunkDesigns.length} designs`)
+                  }
+                } else {
+                  console.log(`ℹ️ Chunk ${i} returned status ${chunkRes.status}`)
+                }
+              } catch (chunkErr) {
+                // Only log non-timeout errors
+                if (chunkErr instanceof Error && chunkErr.name !== 'AbortError') {
+                  console.log(`ℹ️ Chunk ${i} unavailable`)
+                }
+              }
+            }
+            
+            if (allDesigns.length > 0) {
+              setServerData(allDesigns)
+              setDataLoaded(true)
+              setDataSource('server')
+              if (isClient) {
+                sessionStorage.setItem('designs-cached-data', JSON.stringify(allDesigns))
+                sessionStorage.setItem('designs-data-loaded', 'true')
+                // Preload images for faster rendering
+                preloadImages(allDesigns)
+              }
+              setIsLoadingServerData(false)
+              console.log(`✅ Fallback successful: Loaded ${allDesigns.length} designs from all chunks`)
+              return
+            }
+          } catch (fallbackErr) {
+            console.error('❌ Fallback chunk fetching also failed:', fallbackErr)
+          }
         }
 
-        // Fallback to chunk-based approach with limited chunks
+        // Final fallback: fetch all chunks using the API method
+        console.log('🔄 Using final fallback method to fetch all chunks...')
         const designs = await designAPI.getDesignsWithFallback()
+        
+        if (designs.length === 0) {
+          console.error('❌ No designs loaded from any method')
+          setServerData([])
+          setDataLoaded(true)
+          return
+        }
         
         setServerData(designs)
         setDataLoaded(true)
+        setDataSource('server')
         
         // Cache data in sessionStorage
         if (isClient) {
           sessionStorage.setItem('designs-cached-data', JSON.stringify(designs))
           sessionStorage.setItem('designs-data-loaded', 'true')
+          // Preload images for faster rendering
+          preloadImages(designs)
         }
         
-        console.log(`✅ Loaded ${designs.length} designs from fallback`)
+        console.log(`✅ Final fallback successful: Loaded ${designs.length} designs`)
       } catch (error) {
         console.error('❌ Error fetching server data:', error)
         setServerData([])
@@ -425,7 +653,7 @@ function DesignLibraryPage() {
     }
 
     fetchServerData()
-  }, [isClient, serverData.length, dataLoaded])
+  }, [isClient, serverData.length, dataLoaded, cacheChecked, preloadImages])
 
   // Initialize data table hook with server data
   const {
@@ -491,12 +719,13 @@ function DesignLibraryPage() {
 
 
 
-  // Update data table when server data changes - only if not already set
+  // Update data table when server data changes - always sync to ensure cache loads properly
   useEffect(() => {
-    if (serverData.length > 0 && designData.length === 0) {
+    if (serverData.length > 0) {
+      console.log(`📊 Syncing ${serverData.length} designs to data table (current: ${designData.length})`)
       setData(serverData)
     }
-  }, [serverData, setData, designData.length])
+  }, [serverData, setData])
 
   // Handle pagination changes without re-fetching data
   useEffect(() => {
@@ -548,7 +777,7 @@ function DesignLibraryPage() {
           return kpi
       }
     })
-  }, [allDesigns, filteredData, designKPIs])
+  }, [allDesigns, filteredData])
 
   // Tab management
   useEffect(() => {
@@ -566,7 +795,11 @@ function DesignLibraryPage() {
   // Page configuration - memoized to prevent unnecessary re-renders
   const pageConfig = useMemo(() => ({
     title: 'Design Library',
-    description: 'Manage and organize your design assets from real server data',
+    description: dataSource === 'cache' 
+      ? `Manage and organize your design assets (${serverData.length} designs loaded from cache)`
+      : dataSource === 'server'
+      ? `Manage and organize your design assets (${serverData.length} designs loaded from server)`
+      : 'Manage and organize your design assets',
     icon: '🎨',
     endpoint: '/api/designs',
     columns: designColumns,
@@ -585,9 +818,10 @@ function DesignLibraryPage() {
       export: () => console.log('Export designs'),
       import: () => console.log('Import designs'),
       print: () => console.log('Print designs'),
-      settings: () => console.log('Design settings')
+      settings: () => console.log('Design settings'),
+      refresh: forceRefresh
     }
-  }), [calculatedKPIs, designFilters])
+  }), [calculatedKPIs, dataSource, serverData.length, forceRefresh])
 
   // Show loading state while fetching server data (unified spinner UI)
   if ((isLoadingServerData && serverData.length === 0) || !isClient) {
@@ -639,6 +873,32 @@ function DesignLibraryPage() {
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
           >
             Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Show empty state if no data after loading
+  if (!isLoadingServerData && dataLoaded && serverData.length === 0 && designData.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="text-6xl mb-4">🎨</div>
+          <div className="text-xl font-semibold text-gray-900 mb-2">No Designs Found</div>
+          <div className="text-gray-600 mb-6">
+            Unable to load design data from the server. Please check your connection and try again.
+          </div>
+          <button 
+            onClick={() => {
+              hasFetchedRef.current = false
+              setDataLoaded(false)
+              setIsLoadingServerData(true)
+              window.location.reload()
+            }}
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+          >
+            Retry Loading
           </button>
         </div>
       </div>
