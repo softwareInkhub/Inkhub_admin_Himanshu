@@ -49,6 +49,8 @@ interface OrderTableProps {
   // New layout flags
   headerOnly?: boolean // render only column header in a separate container
   renderHeader?: boolean // default true; set false to render body without header
+  // Optional: synchronize horizontal scrolling between multiple tables (header/body)
+  scrollGroupId?: string
 }
 
 export default function OrderTable({
@@ -76,8 +78,34 @@ export default function OrderTable({
   showActions = true,
   columnWidths,
   headerOnly = false,
-  renderHeader = true
+  renderHeader = true,
+  scrollGroupId
 }: OrderTableProps) {
+  // Refs for horizontal scroll synchronization
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+
+  // Sync horizontal scroll across instances sharing the same group id
+  useEffect(() => {
+    if (!scrollGroupId) return
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.setAttribute('data-scroll-group', scrollGroupId)
+
+    const onScroll = () => {
+      const others = document.querySelectorAll<HTMLDivElement>(`div[data-scroll-group="${scrollGroupId}"]`)
+      others.forEach((node) => {
+        if (node === el) return
+        if (node.scrollLeft !== el.scrollLeft) {
+          node.scrollLeft = el.scrollLeft
+        }
+      })
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+    }
+  }, [scrollGroupId])
+
   // Use parent's sorting state instead of internal state
   // const [sortColumn, setSortColumn] = useState<string | null>(null)
   // const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
@@ -255,7 +283,7 @@ export default function OrderTable({
     )
   }
 
-  if (currentOrders.length === 0) {
+  if (!headerOnly && currentOrders.length === 0) {
     return (
       <div className={`bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col`}>
         {/* Search Status Indicator */}
@@ -291,6 +319,7 @@ export default function OrderTable({
         <div className="flex-1 overflow-hidden">
           <div className="overflow-x-auto h-full">
             <table className="w-full">
+              {renderHeader && (
               <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
                 <tr>
                   <th className="px-4 py-2 text-left bg-gray-50">
@@ -366,6 +395,7 @@ export default function OrderTable({
                   ))}
                 </tr>
               </thead>
+              )}
               <tbody>
                 <tr>
                   <td colSpan={columns.length + 1} className="px-4 py-12 text-center">
@@ -444,9 +474,9 @@ export default function OrderTable({
   )
 
   const tableHeader = (
-    <thead className="bg-gray-50 border-b border-gray-200">
+    <thead className="sticky top-0 z-20">
       <tr>
-        <th className="px-4 py-2 text-left">
+        <th className="bg-white sticky top-0 z-20 px-4 py-2 text-left border-b border-gray-200">
           <input
             type="checkbox"
             checked={allSelected}
@@ -460,7 +490,7 @@ export default function OrderTable({
         {columns.map((column) => (
           <th
             key={column.key}
-            className={cn("text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 relative",
+            className={cn("bg-white sticky top-0 z-20 text-left text-xs font-medium text-gray-600 border-b border-gray-200 border-r whitespace-nowrap min-w-[160px]",
               compact ? 'py-1 px-2' : 'py-2 px-3'
             )}
           >
@@ -516,8 +546,8 @@ export default function OrderTable({
   if (headerOnly) {
     return (
       <div className={`bg-white rounded-lg border border-gray-200 shadow-sm`}>
-        <div className="overflow-x-auto">
-          <table className="w-full table-fixed">
+        <div className="overflow-x-auto" ref={scrollContainerRef}>
+          <table className="min-w-max table-fixed">
             {renderColGroup()}
             {tableHeader}
           </table>
@@ -571,7 +601,8 @@ export default function OrderTable({
         </div>
       )}
       <div className="overflow-x-auto">
-        <table className="w-full table-fixed" key={`orders-table-${sortedOrders.length}`}>
+        <div ref={scrollContainerRef} className="overflow-x-auto">
+          <table className={`${columns.length >= 10 ? 'min-w-max' : 'w-full'} table-fixed`} key={`orders-table-${sortedOrders.length}`}>
           {renderColGroup()}
           {renderHeader ? tableHeader : null}
           <tbody className="bg-white divide-y divide-gray-200">
@@ -604,7 +635,7 @@ export default function OrderTable({
                   />
                 </td>
                 {columns.map((column) => (
-                  <td key={column.key} className={cn("text-sm text-gray-900 border-r border-gray-200",
+                  <td key={column.key} className={cn("text-sm text-gray-900 border-r border-gray-200 whitespace-nowrap min-w-[160px]",
                     compact ? 'py-1.5 px-2' : 'py-2 px-3'
                   )}>
                     {column.render ? column.render(order, index) : String(order[column.key as keyof Order] || '')}
@@ -629,7 +660,8 @@ export default function OrderTable({
             ))
             })()}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
       
       {/* Filter Dropdown */}

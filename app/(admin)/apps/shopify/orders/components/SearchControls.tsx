@@ -53,9 +53,26 @@ interface SearchControlsProps {
   onImport: () => void
   onPrint: () => void
   onSettings: () => void
-  onEditFields: () => void
+  onEditFields?: () => void
   showHeaderDropdown: boolean
   setShowHeaderDropdown: (show: boolean) => void
+  // Saved Search Views integration
+  onSaveToSearchViews?: () => void
+  savedSearches?: Array<{
+    id: string
+    viewName: string
+    searchQuery: string
+    searchConditions: any[]
+    columnFilters: any
+    customFilters: any[]
+    sortColumn: string
+    sortDirection: string
+    viewMode: string
+    itemsPerPage: number
+    updatedAt: string
+  }>
+  onApplySavedSearch?: (savedSearch: any) => void
+  onDeleteSavedSearch?: (id: string) => void
   // View and control props
   viewMode: 'table' | 'grid' | 'card'
   setViewMode: (mode: 'table' | 'grid' | 'card') => void
@@ -109,6 +126,11 @@ export default function SearchControls({
   onEditFields,
   showHeaderDropdown,
   setShowHeaderDropdown,
+  // Saved Search Views integration
+  onSaveToSearchViews,
+  savedSearches = [],
+  onApplySavedSearch,
+  onDeleteSavedSearch,
   // View and control props
   viewMode,
   setViewMode,
@@ -122,8 +144,6 @@ export default function SearchControls({
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  // Saved searches (chips next to Save)
-  const [savedSearches, setSavedSearches] = useState<Array<{ id: string; name: string; query: string; createdAt: number }>>([])
 
   // Load search history from localStorage
   useEffect(() => {
@@ -135,21 +155,12 @@ export default function SearchControls({
         console.error('Failed to load search history:', error)
       }
     }
-    try {
-      const saved = localStorage.getItem('orders-saved-searches')
-      if (saved) setSavedSearches(JSON.parse(saved))
-    } catch {}
   }, [])
 
   // Save search history to localStorage
   useEffect(() => {
     localStorage.setItem('orders-search-history', JSON.stringify(searchHistory))
   }, [searchHistory])
-  useEffect(() => {
-    try {
-      localStorage.setItem('orders-saved-searches', JSON.stringify(savedSearches))
-    } catch {}
-  }, [savedSearches])
 
   // Generate suggestions when search query changes
   useEffect(() => {
@@ -188,17 +199,16 @@ export default function SearchControls({
     localStorage.removeItem('orders-search-history')
   }
 
-  // Saved search actions - create chip immediately and apply as filter when clicked
+  // Save current search to Saved Search Views system
   const handleSaveCurrentSearch = () => {
     const query = (searchQuery || '').trim()
     if (!query) return
-    const name = query
-    const item = { id: Date.now().toString(), name, query, createdAt: Date.now() }
-    setSavedSearches(prev => {
-      // Avoid duplicates by query
-      if (prev.some(s => s.query === item.query)) return prev
-      return [item, ...prev].slice(0, 50)
-    })
+    
+    // Save to Saved Search Views system
+    if (onSaveToSearchViews) {
+      console.log('💾 SearchControls: Triggering save to Search Views for query:', query);
+      onSaveToSearchViews();
+    }
   }
 
   const getCustomFilterOptions = () => {
@@ -418,23 +428,35 @@ export default function SearchControls({
             >
               Save
             </button>
-            {/* Saved search chips + active column filter chips aligned */}
-            <div className="flex items-center flex-wrap gap-1">
-              {savedSearches.slice(0, 5).map(s => (
-                <span key={s.id} className="inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-blue-100"
-                  onClick={() => { setSearchQuery(s.query); handleSearch(s.query) }}
-                  title={`Apply filter: ${s.name}`}
-                >
-                  <span className="font-medium">{s.name}</span>
-                  <button
-                    className="text-blue-500 hover:text-blue-700"
-                    onClick={(e) => { e.stopPropagation(); setSavedSearches(prev => prev.filter(x => x.id !== s.id)) }}
-                    aria-label="Remove saved search"
+            {/* Saved Search Chips */}
+            {savedSearches && savedSearches.length > 0 && (
+              <div className="ml-2 max-w-[50vw] overflow-x-auto">
+                <div className="flex items-center gap-1 flex-nowrap whitespace-nowrap pr-2">
+                  {savedSearches.map((savedSearch) => (
+                  <span 
+                    key={savedSearch.id} 
+                    className="inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-blue-100"
+                    onClick={() => onApplySavedSearch?.(savedSearch)}
+                    title={`Apply saved search: ${savedSearch.viewName}`}
                   >
-                    ×
-                  </button>
-                </span>
-              ))}
+                    <span className="font-medium">{savedSearch.viewName}</span>
+                    <button
+                      className="text-blue-500 hover:text-blue-700 ml-1"
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        onDeleteSavedSearch?.(savedSearch.id) 
+                      }}
+                      aria-label={`Remove saved search ${savedSearch.viewName}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Active column filter chips */}
+            <div className="flex items-center flex-wrap gap-1">
               {columnFilters && Object.entries(columnFilters).map(([key, value]) => {
                 const hasValue = Array.isArray(value) ? value.length > 0 : (value !== undefined && value !== null && String(value).trim() !== '')
                 if (!hasValue) return null

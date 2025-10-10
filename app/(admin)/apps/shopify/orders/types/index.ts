@@ -1,5 +1,6 @@
 export interface Order {
   id: string
+  name?: string
   orderNumber: string
   customerName: string
   customerEmail: string

@@ -63,7 +63,7 @@ export default function Pagination({
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <div className="text-sm text-gray-700">
-            Showing {startItem} to {endItem} of {totalItems} products
+            Showing {startItem} to {endItem} of {totalItems} orders
           </div>
           <div className="flex items-center space-x-2">
             <span className="text-sm text-gray-700">Show:</span>

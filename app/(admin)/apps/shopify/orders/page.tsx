@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useAppStore } from '@/lib/store'
+import { useDashboardSync } from '@/lib/dashboardSync'
 import { useOrdersPageStore } from '@/lib/stores/orders-page-store'
 import { UrlStateProvider } from '@/components/UrlStateProvider'
 import { cn } from '@/lib/utils'
-import { X } from 'lucide-react'
+import { X, Columns } from 'lucide-react'
 import { debounce } from '../products/utils/advancedSearch'
 import { debouncedAlgoliaSearch, searchOrdersWithAdvancedFilters } from './utils/algoliaSearch'
 import { parseAdvancedSearchQuery, applyAdvancedSearch } from './utils/advancedSearch'
@@ -31,6 +32,12 @@ import {
   getUniqueChannelsFromOrders
 } from './utils'
 import { getOrdersForPage, getTotalChunks } from './services/orderService'
+
+// JSON Column Customization
+import { useJsonColumns } from './hooks/useJsonColumns'
+import ColumnManager from './components/ColumnManager'
+import ColumnsQuickToggle from './components/ColumnsQuickToggle'
+import { generateEnhancedCellRenderer } from './utils/columnGenerator'
 
 interface OrdersClientProps {
   initialData?: {
@@ -63,6 +70,7 @@ function OrdersClientContent({
   setParams: (patch: Record<string, string | number | undefined>) => void; 
 }) {
   const { addTab, tabs, activeTabId } = useAppStore()
+  const { notifyDashboard } = useDashboardSync()
   const isActive = useMemo(() => {
     const active = tabs.find(t => t.id === activeTabId)
     return active?.path === '/apps/shopify/orders'
@@ -154,6 +162,27 @@ function OrdersClientContent({
   // Search suggestions state
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
+  // Skip one Algolia cycle after applying a saved view for instant local results
+  const skipNextAlgoliaRef = useRef(false)
+
+  // JSON Column Customization
+  const {
+    selectedFields,
+    showJsonKeys,
+    customLabels,
+    columns: jsonColumns,
+    toggleField,
+    saveColumnConfig,
+    resetToDefault: resetJsonColumns,
+    setShowJsonKeys,
+    isLoading: isLoadingColumns,
+    showColumnManager,
+    openColumnManager,
+    closeColumnManager
+  } = useJsonColumns({ 
+    userId: useAppStore.getState().currentUser?.id || 'anonymous',
+    searchQuery: debouncedSearchQuery 
+  })
 
   // Advanced Filter states
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false)
@@ -342,9 +371,71 @@ function OrdersClientContent({
   const [showImportModal, setShowImportModal] = useState(false)
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
-  const [showEditFieldsModal, setShowEditFieldsModal] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
   const fullScreenScrollRef = useRef<HTMLDivElement>(null)
+  
+  // Saved searches state
+  const [savedSearches, setSavedSearches] = useState<any[]>([])
+  const [showSaveModal, setShowSaveModal] = useState(false)
+  const [viewName, setViewName] = useState('')
+  
+  // Load saved searches on component mount (persist across refresh/navigation)
+  useEffect(() => {
+    const STORAGE_KEY = 'orders-saved-views:shopify-inkhub-get-orders'
+    const loadSavedSearches = async () => {
+      try {
+        // Hydrate instantly from localStorage if present
+        if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem(STORAGE_KEY)
+          if (cached) {
+            try {
+              const parsed = JSON.parse(cached)
+              if (Array.isArray(parsed)) setSavedSearches(parsed)
+            } catch {}
+          }
+        }
+
+        // Fetch from API and merge/dedupe by viewName (prefer latest updatedAt)
+        const response = await fetch('/api/crud?tableName=shopify-inkhub-get-orders&operation=listViews', { method: 'GET' })
+        if (response.ok) {
+          const data = await response.json()
+          const apiViews: any[] = Array.isArray(data.views) ? data.views : []
+          setSavedSearches(prev => {
+            const byName = new Map<string, any>()
+            ;[...prev, ...apiViews].forEach(v => {
+              const key = (v.viewName || v.name || '').toString()
+              if (!key) return
+              const existing = byName.get(key)
+              if (!existing) byName.set(key, v)
+              else {
+                const exTime = new Date(existing.updatedAt || 0).getTime()
+                const vTime = new Date(v.updatedAt || 0).getTime()
+                byName.set(key, vTime >= exTime ? v : existing)
+              }
+            })
+            const merged = Array.from(byName.values())
+            try { if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)) } catch {}
+            return merged
+          })
+        }
+      } catch (error) {
+        console.error('Failed to load saved searches:', error)
+      }
+    }
+    loadSavedSearches()
+  }, [])
+  
+  // Callback to trigger save modal
+  const handleSaveToSearchViews = useCallback(() => {
+    console.log('💾 Orders page: Opening save modal');
+    setShowSaveModal(true)
+    // Auto-fill the view name with the current search query
+    if (searchQuery.trim()) {
+      setViewName(searchQuery.trim())
+    }
+  }, [searchQuery]);
+  
+  
   // Table row density toggle
   const [rowDensity, setRowDensity] = useState<'compact' | 'comfortable'>('compact')
   // External header filter dropdown state
@@ -353,25 +444,63 @@ function OrdersClientContent({
     position: { x: number; y: number }
   } | null>(null)
 
+  // Compute a robust dropdown position that keeps the popover on-screen
+  const computeFilterDropdownPosition = useCallback((anchor: DOMRect) => {
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0
+    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0
+    const dropdownWidth = 260
+    const dropdownHeight = 320
+    const gutter = 6
+
+    // Preferred placement: bottom-right of anchor
+    let x = anchor.right + gutter
+    let y = anchor.bottom + gutter
+
+    // If overflowing right, place to the left
+    if (x + dropdownWidth > viewportWidth) {
+      x = anchor.left - dropdownWidth - gutter
+    }
+    // If still overflowing or too close, clamp to viewport with small margin
+    x = Math.max(gutter, Math.min(x, viewportWidth - dropdownWidth - gutter))
+
+    // If overflowing bottom, place above
+    if (y + dropdownHeight > viewportHeight) {
+      y = anchor.top - dropdownHeight - gutter
+    }
+    // Clamp vertically as well
+    y = Math.max(gutter, Math.min(y, viewportHeight - dropdownHeight - gutter))
+
+    return { x, y }
+  }, [])
+
   const openHeaderFilter = useCallback((column: string, e: React.MouseEvent) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    let x = rect.right + 6
-    let y = rect.bottom + 6
-    // viewport guard (basic)
-    const vw = typeof window !== 'undefined' ? window.innerWidth : 0
-    const vh = typeof window !== 'undefined' ? window.innerHeight : 0
-    const dropdownW = 260
-    const dropdownH = 320
-    if (x + dropdownW > vw) x = rect.left - dropdownW - 6
-    if (y + dropdownH > vh) y = rect.top - dropdownH - 6
+    const position = computeFilterDropdownPosition(rect)
     setActiveColumnFilter(column)
-    setHeaderFilterDropdown({ column, position: { x, y } })
-  }, [setActiveColumnFilter])
+    setHeaderFilterDropdown({ column, position })
+  }, [setActiveColumnFilter, computeFilterDropdownPosition])
 
   const closeHeaderFilter = useCallback(() => {
     setHeaderFilterDropdown(null)
     setActiveColumnFilter(null)
   }, [setActiveColumnFilter])
+
+  // Auto-close header filter dropdown on scroll/resize/Escape for better UX
+  useEffect(() => {
+    if (!headerFilterDropdown) return
+    const handleAnyScroll = () => closeHeaderFilter()
+    const handleResize = () => closeHeaderFilter()
+    const handleKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') closeHeaderFilter() }
+    // Use capture phase to catch scrolls inside containers
+    window.addEventListener('scroll', handleAnyScroll, true)
+    window.addEventListener('resize', handleResize)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      window.removeEventListener('scroll', handleAnyScroll, true)
+      window.removeEventListener('resize', handleResize)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [headerFilterDropdown, closeHeaderFilter])
 
   // Visible fields state with localStorage persistence
   const [visibleFields, setVisibleFields] = useState<Set<string>>(() => {
@@ -431,11 +560,6 @@ function OrdersClientContent({
     setTempVisibleFields(new Set(visibleFields))
   }, [visibleFields])
 
-  // Handle edit fields modal
-  const handleEditFields = () => {
-    setTempVisibleFields(visibleFields) // Initialize temp with current values
-    setShowEditFieldsModal(true)
-  }
 
   // Handle field toggle in modal
   const handleFieldToggle = (fieldKey: string) => {
@@ -450,21 +574,71 @@ function OrdersClientContent({
     })
   }
 
-  // Handle cancel edit fields
-  const handleCancelEditFields = () => {
-    setTempVisibleFields(visibleFields) // Reset to original values
-    setShowEditFieldsModal(false)
-  }
 
   // Handle save visible fields
   const handleSaveVisibleFields = () => {
     setVisibleFields(tempVisibleFields)
-    setShowEditFieldsModal(false)
   }
   
   // Pagination states - using Zustand store
   const [currentPage, setCurrentPage] = useState(pageIndex + 1) // Convert 0-based to 1-based
   const [itemsPerPage, setItemsPerPage] = useState(pageSize)
+  
+  // Handle applying a saved search
+  const handleApplySavedSearch = useCallback((savedSearch: any) => {
+    console.log('💾 Applying saved search:', savedSearch.viewName);
+    // 1) Apply locally for instant UI
+    setSearchQuery(savedSearch.searchQuery);
+    setSearchConditions(savedSearch.searchConditions || []);
+    setColumnFilters(savedSearch.columnFilters || {});
+    setCustomFilters(savedSearch.customFilters || []);
+    setSorting(savedSearch.sortColumn ? [{ id: savedSearch.sortColumn, desc: savedSearch.sortDirection === 'desc' }] : []);
+    setViewMode(savedSearch.viewMode || 'table');
+    setItemsPerPage(savedSearch.itemsPerPage || 50);
+    // 2) Kick off cross-chunk Algolia search in background to upgrade results to full set
+    setUseAlgoliaSearch(true)
+    setIsAlgoliaSearching(true)
+    try {
+      debouncedAlgoliaSearch(
+        savedSearch.searchQuery,
+        orderData,
+        (orders) => {
+          setAlgoliaSearchResults(orders)
+          setIsAlgoliaSearching(false)
+        },
+        (loading) => setIsAlgoliaSearching(loading),
+        500
+      )
+    } catch {}
+  }, [setSearchQuery, setSearchConditions, setColumnFilters, setCustomFilters, setSorting, setViewMode, setItemsPerPage]);
+  
+  // Handle deleting a saved search
+  const handleDeleteSavedSearch = useCallback(async (id: string) => {
+    try {
+      const savedSearch = savedSearches.find(s => s.id === id)
+      if (!savedSearch) return
+      
+      const response = await fetch('/api/crud', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          tableName: 'shopify-inkhub-get-orders', 
+          operation: 'deleteView',
+          viewName: savedSearch.viewName 
+        })
+      })
+      if (response.ok) {
+        setSavedSearches(prev => {
+          const next = prev.filter(s => s.id !== id)
+          try { if (typeof window !== 'undefined') localStorage.setItem('orders-saved-views:shopify-inkhub-get-orders', JSON.stringify(next)) } catch {}
+          console.log('💾 Deleted saved search:', savedSearch.viewName);
+          return next
+        })
+      }
+    } catch (error) {
+      console.error('Failed to delete saved search:', error)
+    }
+  }, [savedSearches]);
   
   // Cache state and StrictMode guard (logic-only, no UI changes)
   const [cacheKey, setCacheKey] = useState<string>('')
@@ -632,6 +806,9 @@ function OrdersClientContent({
             setCacheKey(currentCacheKey)
             setIsCacheValid(true)
             setCacheTimestamp(parsed.timestamp)
+            
+            // Notify dashboard that orders data has been loaded from cache
+            notifyDashboard('orders')
             setLoading(false)
             
             // Background refresh if cache is older than 5 minutes
@@ -697,6 +874,9 @@ function OrdersClientContent({
         // The actual total will be more accurate when comprehensive KPIs are calculated
         setTotalOrders(result.totalChunks * 500) // Approximate total based on chunks
         setIsDataLoaded(true)
+        
+        // Notify dashboard that orders data has been updated
+        notifyDashboard('orders')
         
         // Cache the data for future instant loading
         if (result.orders.length > 0) {
@@ -1786,6 +1966,13 @@ function OrdersClientContent({
   useEffect(() => {
     console.log('🔍 Debounced search query changed:', debouncedSearchQuery)
     
+    if (skipNextAlgoliaRef.current) {
+      skipNextAlgoliaRef.current = false
+      setUseAlgoliaSearch(false)
+      setIsAlgoliaSearching(false)
+      return
+    }
+    
     if (debouncedSearchQuery && debouncedSearchQuery.trim()) {
       // Only trigger search, don't set searchQuery here to avoid loops
       handleSearch(debouncedSearchQuery)
@@ -1861,17 +2048,25 @@ function OrdersClientContent({
     setActiveFilter('')
   }, [setGlobalFilter, setColumnFilters])
 
-  // Define all possible table columns for orders
+  // Generate table columns from JSON customization
+  const serialNumberColumn = {
+    key: 'serialNumber',
+    label: 'S.NO',
+    sortable: true,
+    render: (order: Order, index?: number) => {
+      const serialNumber = startIndex + (index || 0) + 1
+      return <span className="text-sm font-medium text-gray-900">#{serialNumber}</span>
+    }
+  }
+
+  // Use JSON-generated columns, prepend serial number
   const allOrderColumns = [
-    {
-      key: 'serialNumber',
-      label: 'S.NO',
-      sortable: true,
-      render: (order: Order, index?: number) => {
-        const serialNumber = startIndex + (index || 0) + 1
-        return <span className="text-sm font-medium text-gray-900">#{serialNumber}</span>
-      }
-    },
+    serialNumberColumn,
+    ...jsonColumns
+  ]
+
+  // Legacy static columns (kept for backwards compatibility, but not used)
+  const legacyOrderColumns = [
     {
       key: 'orderNumber',
       label: 'Order',
@@ -2017,8 +2212,8 @@ function OrdersClientContent({
     }
   ]
 
-  // Filter columns based on visible fields
-  const orderColumns = allOrderColumns.filter(column => visibleFields.has(column.key))
+  // Filter columns based on visible fields - now using JSON columns
+  const orderColumns = allOrderColumns
 
   if (loading && orderData.length === 0) {
     return (
@@ -2139,7 +2334,6 @@ function OrdersClientContent({
           onImport={() => setShowImportModal(true)}
           onPrint={() => setShowPrintModal(true)}
           onSettings={() => setShowSettingsModal(true)}
-          onEditFields={handleEditFields}
           showHeaderDropdown={showHeaderDropdown}
           setShowHeaderDropdown={setShowHeaderDropdown}
           viewMode={viewMode}
@@ -2150,8 +2344,12 @@ function OrdersClientContent({
           onToggleFullScreen={() => setIsFullScreen(!isFullScreen)}
           isAlgoliaSearching={isAlgoliaSearching}
           useAlgoliaSearch={useAlgoliaSearch}
-        />
-      </div>
+          onSaveToSearchViews={handleSaveToSearchViews}
+          savedSearches={savedSearches}
+          onApplySavedSearch={handleApplySavedSearch}
+          onDeleteSavedSearch={handleDeleteSavedSearch}
+       />
+       </div>
 
       {/* Persistent Actions Row - always visible between search and table */}
       <div className="px-0 py-1 bg-white border-b border-gray-200">
@@ -2203,20 +2401,8 @@ function OrdersClientContent({
             </span>
           </button>
           <button
-            onClick={handleEditFields}
-            className={cn(
-              "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
-              "text-blue-700 border border-blue-400 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100"
-            )}
-            title="Columns"
-          >
-            <span className="inline-flex items-center gap-1">
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-              <span>Columns</span>
-            </span>
-          </button>
-          <button
-            onClick={() => setShowExportModal(true)}
+
+onClick={() => setShowExportModal(true)}
             className={cn(
               "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
               "text-green-700 border border-green-400 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100"
@@ -2242,11 +2428,44 @@ function OrdersClientContent({
               <span>Delete</span>
             </span>
           </button>
+
+          {/* NEW: Column Customization Button */}
+          <button
+            onClick={openColumnManager}
+            className={cn(
+              "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+              "text-purple-700 border border-purple-400 hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100"
+            )}
+            title="Customize Columns"
+          >
+            <span className="inline-flex items-center gap-1">
+              <Columns className="h-4 w-4" />
+              <span>Columns</span>
+            </span>
+          </button>
           </div>
-          {/* Right side single Settings button */}
-          <div className="flex items-center">
+
+          {/* Right side controls */}
+          <div className="flex items-center gap-2">
+            {/* NEW: Quick Column Toggle */}
+            <ColumnsQuickToggle
+              selectedFields={selectedFields}
+              onToggleField={toggleField}
+              onOpenManager={openColumnManager}
+              onResetDefault={resetJsonColumns}
+              className="hidden md:block"
+            />
+
+            {/* JSON paths toggle removed by request */}
+
+            {/* Reset button moved inside Columns dropdown */}
+
+            {/* Existing Settings button */}
             <button
-              onClick={() => setShowSettingsModal(true)}
+              onClick={() => {
+                setTempVisibleFields(visibleFields) // Initialize temp fields with current values
+                setShowSettingsModal(true)
+              }}
             className="px-3 py-1 text-xs sm:text-sm text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 bg-white shadow-sm hover:shadow-md"
               title="Settings"
             >
@@ -2718,30 +2937,8 @@ function OrdersClientContent({
       )}
 
           {viewMode === 'table' ? (
-            <div className="space-y-2" style={{ minHeight: 'auto', maxHeight: 'none' }}>
-              {/* Separate sticky header container just below tabbar */}
-              <div className="bg-white border border-gray-200 rounded-t-lg sticky top-12 z-30">
-                <OrderTable
-                  currentOrders={currentData}
-                  selectedItems={selectedRowIds}
-                  onSelectItem={handleSelectItem}
-                  onSelectAll={handleSelectAll}
-                  columns={orderColumns}
-                  sortState={sortState}
-                  onRequestSort={handleRequestSort}
-                  compact={rowDensity === 'compact'}
-                  columnWidths={{ serialNumber: 88 }}
-                  activeColumnFilter={activeColumnFilter}
-                  columnFilters={columnFilters}
-                  onFilterClick={setActiveColumnFilter}
-                  onColumnFilterChange={handleColumnFilter}
-                  getUniqueValues={getUniqueValues}
-                  headerOnly
-                  showActions={false}
-                  renderHeader
-                />
-              </div>
-              {/* Body table without header */}
+            <div className="space-y-2">
+              {/* Single table with sticky header to keep header/data perfectly aligned */}
               <OrderTable
                 currentOrders={currentData}
                 selectedItems={selectedRowIds}
@@ -2752,7 +2949,33 @@ function OrdersClientContent({
                   setPreviewOrder(order)
                   setShowPreviewModal(true)
                 }}
-                columns={orderColumns}
+                columns={(function(){
+                  // Reorder columns to match the requested sequence
+                  const priority: Record<string, number> = {
+                    // 1. S.NO is added separately as serialNumberColumn
+                    name: 1, // 2. order (order name)
+                    'customer.firstName': 2, // 3. customer first name
+                    fulfillmentStatus: 3, // 4. fulfillment status
+                    currentTotalPrice: 4, // 5. current total price
+                    createdAt: 5, // 6. created date
+                    updatedAt: 6, // 7. updated date
+                    deliveryStatus: 7, // 8. delivery status
+                    tags: 8, // 9. tags
+                    sourceName: 9, // 10. channels
+                    financialStatus: 10, // 11. payment status
+                    email: 11 // 12. email
+                  }
+
+                  const orderedJson = [...jsonColumns].sort((a, b) => {
+                    const pa = priority[a.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
+                    const pb = priority[b.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
+                    if (pa === pb) return 0
+                    return pa - pb
+                  })
+
+                  const allOrderColumns = [serialNumberColumn, ...orderedJson]
+                  return allOrderColumns
+                })()}
                 loading={loading}
                 error={error}
                 searchQuery={searchQuery}
@@ -2770,7 +2993,7 @@ function OrdersClientContent({
                 compact={rowDensity === 'compact'}
                 showActions={false}
                 columnWidths={{ serialNumber: 88 }}
-                renderHeader={false}
+                renderHeader
               />
             </div>
           ) : viewMode === 'grid' ? (
@@ -3119,7 +3342,7 @@ function OrdersClientContent({
                     <div>
                       <label className="block text-xs text-gray-600 mb-1">Items per page</label>
                       <select value={settings.itemsPerPage} onChange={(e) => setSettings(prev => ({ ...prev, itemsPerPage: Number(e.target.value) }))} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm">
-                        {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                        {[10, 25, 50, 100, 200, 300, 400, 500].map(n => <option key={n} value={n}>{n}</option>)}
                       </select>
                     </div>
                   </div>
@@ -3174,14 +3397,61 @@ function OrdersClientContent({
                     </div>
                   </div>
                 </div>
+
+                {/* Field Visibility Settings */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900 mb-3">Visible Columns</h4>
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <p className="text-xs text-gray-600 mb-3">
+                      Choose which columns to display in the orders table and grid view.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3 max-h-60 overflow-y-auto">
+                      {allOrderColumns.map((column) => (
+                        <label key={column.key} className="flex items-center space-x-2">
+                          <input 
+                            type="checkbox" 
+                            checked={tempVisibleFields.has(column.key)}
+                            onChange={() => handleFieldToggle(column.key)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                          />
+                          <span className="text-sm">{column.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-200">
+                      <button
+                        onClick={() => {
+                          const allFields = new Set(allOrderColumns.map(col => col.key))
+                          setTempVisibleFields(allFields)
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-800 underline"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={() => {
+                          setTempVisibleFields(new Set(['serialNumber', 'orderNumber', 'customerName', 'total', 'createdAt']))
+                        }}
+                        className="text-xs text-gray-600 hover:text-gray-800 underline"
+                      >
+                        Reset to Default
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
-                <button onClick={() => setShowSettingsModal(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
+                <button onClick={() => {
+                  setTempVisibleFields(visibleFields) // Reset temp fields
+                  setShowSettingsModal(false)
+                }} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">Cancel</button>
                 <button onClick={() => {
                   if (settings.defaultViewMode !== viewMode) setViewMode(settings.defaultViewMode)
                   if (settings.itemsPerPage !== itemsPerPage) setItemsPerPage(settings.itemsPerPage)
                   if (settings.showAdvancedFilters !== showAdvancedFilter) setShowAdvancedFilter(settings.showAdvancedFilters)
+                  // Apply field visibility changes
+                  handleSaveVisibleFields()
                   setShowSettingsModal(false)
                 }} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Save Changes</button>
               </div>
@@ -3303,14 +3573,15 @@ function OrdersClientContent({
         </div>
       )}
 
-      {/* Edit Fields Modal */}
-      {showEditFieldsModal && (
+
+      {/* Save Search Modal */}
+      {showSaveModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Edit Visible Fields</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Save Search View</h3>
               <button
-                onClick={handleCancelEditFields}
+                onClick={() => setShowSaveModal(false)}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="h-6 w-6" />
@@ -3318,43 +3589,97 @@ function OrdersClientContent({
             </div>
             
             <div className="space-y-4">
-              <p className="text-sm text-gray-600">
-                Choose which fields to display in the orders table and grid view.
-              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  View Name
+                </label>
+                <input
+                  type="text"
+                  value={viewName}
+                  onChange={(e) => setViewName(e.target.value)}
+                  placeholder="Enter a name for this search view"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
               
-              {/* Field visibility toggles */}
-              <div className="grid grid-cols-2 gap-4">
-                {allOrderColumns.map((column) => (
-                  <label key={column.key} className="flex items-center space-x-2">
-                    <input 
-                      type="checkbox" 
-                      checked={tempVisibleFields.has(column.key)}
-                      onChange={() => handleFieldToggle(column.key)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
-                    />
-                    <span className="text-sm">{column.label}</span>
-                  </label>
-                ))}
+              <div className="text-sm text-gray-600">
+                <p><strong>Search Query:</strong> {searchQuery || 'None'}</p>
+                <p><strong>Filters:</strong> {Object.keys(columnFilters || {}).length} active</p>
+                <p><strong>View Mode:</strong> {viewMode}</p>
               </div>
             </div>
             
             <div className="flex justify-end space-x-3 mt-6">
               <button
-                onClick={handleCancelEditFields}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                onClick={() => setShowSaveModal(false)}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
-                onClick={handleSaveVisibleFields}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
+                onClick={async () => {
+                  if (!viewName.trim()) return
+                  
+                  try {
+                    const response = await fetch('/api/crud', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        tableName: 'shopify-inkhub-get-orders',
+                        operation: 'saveView',
+                        viewName: viewName.trim(),
+                        searchState: {
+                          searchQuery,
+                          searchConditions,
+                          columnFilters,
+                          customFilters,
+                          advancedFilters: {},
+                          sortColumn: sortState.key || '',
+                          sortDirection: sortState.dir || 'asc',
+                          viewMode,
+                          itemsPerPage
+                        }
+                      })
+                    })
+                    
+                    if (response.ok) {
+                      const data = await response.json()
+                      setSavedSearches(prev => {
+                        const next = [...prev, data.view]
+                        try { if (typeof window !== 'undefined') localStorage.setItem('orders-saved-views:shopify-inkhub-get-orders', JSON.stringify(next)) } catch {}
+                        return next
+                      })
+                      setShowSaveModal(false)
+                      setViewName('')
+                      console.log('💾 Saved search view:', viewName.trim())
+                    } else {
+                      const errorData = await response.json()
+                      console.error('Failed to save search view:', errorData)
+                    }
+                  } catch (error) {
+                    console.error('Failed to save search view:', error)
+                  }
+                }}
+                disabled={!viewName.trim()}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Save Changes
+                Save
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Column Manager Modal */}
+      <ColumnManager
+        isOpen={showColumnManager}
+        onClose={closeColumnManager}
+        selectedFields={selectedFields}
+        showJsonKeys={showJsonKeys}
+        customLabels={customLabels}
+        onSave={saveColumnConfig}
+        onReset={resetJsonColumns}
+      />
       </div>
     </div>
   )

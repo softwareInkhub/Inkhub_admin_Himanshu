@@ -17,6 +17,7 @@ export { default as GoogleStyleSearch } from './GoogleStyleSearch'
 export { default as AdvancedSearchBuilder } from './AdvancedSearchBuilder'
 export { default as FilterPanel } from './FilterPanel'
 export { default as ColumnFilter } from './ColumnFilter'
+export { default as SavedSearchesDropdown } from './SavedSearchesDropdown'
 
 // Action Components
 export { default as BulkActionsBar } from './BulkActionsBar'

@@ -108,6 +108,12 @@ const sidebarItems: SidebarItem[] = [
       { title: 'Access Control', path: '/user-management/access-control', icon: Shield, iconColor: 'text-red-500' },
     ],
   },
+  {
+    title: 'Content Library',
+    path: '/content-library',
+    icon: BookOpen,
+    iconColor: 'text-amber-600',
+  },
 ]
 
 interface SidebarItemProps {

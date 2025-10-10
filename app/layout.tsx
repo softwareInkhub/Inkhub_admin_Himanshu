@@ -17,7 +17,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <body className={`${fontClass} h-full antialiased`}>
+      <body className={`${fontClass} h-full antialiased`} suppressHydrationWarning={true}>
         <ThemeProvider>
           {children}
         </ThemeProvider>

@@ -82,6 +82,12 @@ interface AppState {
   ensureDashboardTab: () => void
   clearStorage: () => void
 
+  // Content Library persisted preferences
+  lastContentNamespace?: string
+  setLastContentNamespace: (ns: string) => void
+  lastContentView?: 'table' | 'grid'
+  setLastContentView: (v: 'table'|'grid') => void
+
   // Persisted page index for Orders (pagination)
   ordersPage: number
   setOrdersPage: (page: number) => void
@@ -94,6 +100,9 @@ interface AppState {
   productsPage: number
   setProductsPage: (page: number) => void
 
+  // Data refresh notifications for dashboard synchronization
+  dataRefreshTrigger: { [key: string]: number }
+  triggerDataRefresh: (dataType: string) => void
   
   // User management
   users: User[]
@@ -251,6 +260,12 @@ export const useAppStore = create<AppState>()(
           }))
         }
       },
+
+      // Content Library preferences
+      lastContentNamespace: undefined,
+      setLastContentNamespace: (ns) => set({ lastContentNamespace: ns }),
+      lastContentView: undefined,
+      setLastContentView: (v) => set({ lastContentView: v }),
       
       // Orders pagination persistence
       ordersPage: 1,
@@ -264,8 +279,24 @@ export const useAppStore = create<AppState>()(
       productsPage: 1,
       setProductsPage: (page) => set({ productsPage: page }),
 
+      // Data refresh notifications for dashboard synchronization
+      dataRefreshTrigger: {},
+      triggerDataRefresh: (dataType) => {
+        set((state) => ({
+          dataRefreshTrigger: {
+            ...state.dataRefreshTrigger,
+            [dataType]: Date.now()
+          }
+        }))
+        
+        // Also trigger localStorage event for cross-tab communication
+        localStorage.setItem(`data-refresh-${dataType}`, Date.now().toString())
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: `data-refresh-${dataType}`,
+          newValue: Date.now().toString()
+        }))
+      },
   
-      
       // User management
       users: [
         {
@@ -376,6 +407,8 @@ export const useAppStore = create<AppState>()(
         ordersPage: state.ordersPage,
         ordersScroll: state.ordersScroll,
         productsPage: state.productsPage,
+        lastContentNamespace: state.lastContentNamespace,
+        lastContentView: state.lastContentView,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true)

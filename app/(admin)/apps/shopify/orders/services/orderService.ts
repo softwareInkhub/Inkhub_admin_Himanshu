@@ -33,9 +33,9 @@ const parseDate = (dateStr: any): string => {
 
 // Helper function to map raw order data to Order type
 const mapRecordToOrder = (raw: any, idx: number): Order => {
-  const orderNumber = String(raw?.order_number ?? raw?.orderNumber ?? raw?.name ?? `#INK${Math.floor(Math.random() * 90000) + 10000}`)
+  const orderNumber = String(raw?.order_number ?? raw?.orderNumber ?? raw?.number ?? (raw?.name ? String(raw.name).replace(/^#/, '') : `INK${Math.floor(Math.random() * 90000) + 10000}`))
   const customerName = String(raw?.customer?.first_name ?? raw?.customer?.last_name ?? raw?.customer_name ?? raw?.customerName ?? `Customer ${idx + 1}`)
-  const customerEmail = String(raw?.customer?.email ?? raw?.customer_email ?? raw?.customerEmail ?? `customer${idx + 1}@example.com`)
+  const customerEmail = String(raw?.customer?.email ?? raw?.customer_email ?? raw?.contact_email ?? raw?.customerEmail ?? `customer${idx + 1}@example.com`)
   
   const financialStatus = String(raw?.financial_status ?? raw?.financialStatus ?? 'pending').toLowerCase()
   const fulfillmentStatus = String(raw?.fulfillment_status ?? raw?.fulfillmentStatus ?? 'unfulfilled').toLowerCase()
@@ -45,13 +45,14 @@ const mapRecordToOrder = (raw: any, idx: number): Order => {
   
   const tags = Array.isArray(raw?.tags) ? raw.tags : (typeof raw?.tags === 'string' ? raw.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [])
   
-  const channel = String(raw?.source_name ?? raw?.sourceName ?? raw?.channel ?? 'Shopify')
+  const channel = String(raw?.source_name ?? raw?.sourceName ?? raw?.channel ?? raw?.app_id ?? '')
   const deliveryMethod = String(raw?.shipping_lines?.[0]?.title ?? raw?.delivery_method ?? raw?.deliveryMethod ?? 'Standard Shipping')
   
   const deliveryStatus = fulfillmentStatus === 'fulfilled' ? 'Tracking added' : 'Pending'
   
   return {
     id: String(raw?.id ?? raw?.order_id ?? raw?.gid ?? `order-${Date.now()}-${idx}`),
+    name: String(raw?.name ?? raw?.order_name ?? (orderNumber ? `#${orderNumber}` : '')),
     orderNumber,
     customerName,
     customerEmail,
@@ -86,6 +87,11 @@ const mapRecordToOrder = (raw: any, idx: number): Order => {
       country: String(raw.shipping_address?.country ?? ''),
       zip: String(raw.shipping_address?.zip ?? ''),
       phone: String(raw.shipping_address?.phone ?? '')
+    } : undefined,
+    customer: raw?.customer ? {
+      firstName: String(raw.customer?.first_name ?? raw.customer?.firstName ?? ''),
+      lastName: String(raw.customer?.last_name ?? raw.customer?.lastName ?? ''),
+      email: String(raw.customer?.email ?? '')
     } : undefined,
     billingAddress: raw?.billing_address ? {
       firstName: String(raw.billing_address?.first_name ?? ''),

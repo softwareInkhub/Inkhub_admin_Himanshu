@@ -221,7 +221,7 @@ export function TabBar({ className }: TabBarProps) {
 
   return (
     <div className={cn(
-      "flex h-12 items-center border-b border-secondary-200 bg-white/80 backdrop-blur-sm px-4 dark:border-secondary-700 dark:bg-secondary-800/80",
+      "sticky top-0 z-30 flex h-12 items-center border-b border-secondary-200 bg-white/80 backdrop-blur-sm px-4 dark:border-secondary-700 dark:bg-secondary-800/80",
       className
     )}>
       {/* Scroll Left Button */}
@@ -361,7 +361,7 @@ export function TabBar({ className }: TabBarProps) {
       {/* Context Menu */}
       {contextMenu && (
         <div
-          className="fixed z-50 min-w-[200px] rounded-md border border-secondary-200 bg-white/90 backdrop-blur-sm py-1 shadow-soft animate-fade-in dark:border-secondary-600 dark:bg-secondary-800/90"
+          className="fixed z-40 min-w-[200px] rounded-md border border-secondary-200 bg-white/90 backdrop-blur-sm py-1 shadow-soft animate-fade-in dark:border-secondary-600 dark:bg-secondary-800/90"
           style={{
             left: contextMenu.x,
             top: contextMenu.y,

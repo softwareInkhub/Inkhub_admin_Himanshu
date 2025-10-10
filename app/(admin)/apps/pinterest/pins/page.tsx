@@ -9,7 +9,7 @@ import {
 import PinsGridCardFilterHeader from './components/PinsGridCardFilterHeader'
 import ExportModal from './components/ExportModal'
 import { Pin } from './types'
-import { getPinsForPage, getTotalChunks } from './services/pinService'
+// Server services are not used when loading from local JSON
 
 // Define table columns for pins
 const pinColumns = [
@@ -20,16 +20,45 @@ const pinColumns = [
     width: 'w-48',
     render: (value: any, pin: Pin) => (
       <div className="flex items-center space-x-3">
-        <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
+        <div className="w-12 h-12 rounded-md overflow-hidden bg-gray-100 flex-shrink-0 relative">
           {pin.image ? (
-            <img 
-              src={String(pin.image)} 
-              alt={String(pin.title || 'Pin')}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none'
-              }}
-            />
+            <>
+              {/* Loading placeholder */}
+              <div className="absolute inset-0 bg-gray-200 animate-pulse flex items-center justify-center">
+                <div className="w-4 h-4 bg-gray-300 rounded-full"></div>
+              </div>
+              
+              <img 
+                src={String(pin.image)} 
+                alt={String(pin.title || 'Pin')}
+                className="w-full h-full object-cover relative z-10"
+                loading="lazy"
+                decoding="async"
+                onLoad={(e) => {
+                  // Hide loading placeholder when image loads
+                  const target = e.target as HTMLImageElement
+                  const placeholder = target.previousElementSibling as HTMLElement
+                  if (placeholder) {
+                    placeholder.style.display = 'none'
+                  }
+                }}
+                onError={(e) => {
+                  // Hide image and show error placeholder
+                  const target = e.target as HTMLImageElement
+                  const placeholder = target.previousElementSibling as HTMLElement
+                  if (placeholder) {
+                    placeholder.style.display = 'none'
+                  }
+                  target.style.display = 'none'
+                  target.nextElementSibling?.classList.remove('hidden')
+                }}
+              />
+              
+              {/* Error placeholder */}
+              <div className="hidden w-full h-full bg-gray-200 items-center justify-center">
+                <span className="text-xs text-gray-500">Error</span>
+              </div>
+            </>
           ) : (
             <div className="w-full h-full bg-gray-200 flex items-center justify-center">
               <span className="text-xs text-gray-500">No image</span>
@@ -334,64 +363,45 @@ function PinsClient() {
       setLoadingPins(true)
       setPinsError(null)
       try {
-        // 1) Cache-first: localStorage for instant UI
-        if (typeof window !== 'undefined') {
-          const cached = localStorage.getItem('pinterest-pins-cache')
-          if (cached) {
-            try {
-              const parsed = JSON.parse(cached)
-              const ttl = 10 * 60 * 1000 // 10 minutes
-              if (parsed?.timestamp && (Date.now() - parsed.timestamp) < ttl && Array.isArray(parsed.data) && parsed.data.length > 0) {
-                if (!cancelled) {
-                  setAllPins(parsed.data as Pin[])
-                  setIsInitialLoad(false)
-                }
-                // Background refresh
-                setTimeout(() => { loadAllPins().catch(() => {}) }, 0)
-                return
-              }
-            } catch {}
-          }
-        }
+        // Load exclusively from local static JSON served from /public/pins.json
+        const localRes = await fetch('/pins.json', { cache: 'no-store' })
+        if (!localRes.ok) throw new Error(`Failed to load local pins.json (HTTP ${localRes.status})`)
+        const localJson = await localRes.json()
+        if (!Array.isArray(localJson)) throw new Error('pins.json must be a JSON array')
 
-        const totalChunks = await getTotalChunks()
-        const results: Pin[][] = []
-
-        // 2) Parallel chunk loading with bounded concurrency
-        const concurrency = Math.min(6, Math.max(2, Math.floor(navigator?.hardwareConcurrency || 4)))
-        let next = 0
-        const workers: Promise<void>[] = []
-        const runWorker = async () => {
-          while (next < totalChunks) {
-            const idx = next++
-            try {
-              const { pins } = await getPinsForPage(idx + 1)
-              if (pins && pins.length > 0) {
-                const validPins = pins.filter(pin => pin.id && pin.id.length > 5 && !pin.id.startsWith('pin-'))
-                results[idx] = validPins
-              } else {
-                results[idx] = []
-              }
-            } catch (e) {
-              console.warn(`❌ Failed to load chunk ${idx + 1}:`, e)
-              results[idx] = []
-            }
-          }
-        }
-        for (let i = 0; i < concurrency; i++) workers.push(runWorker())
-        await Promise.all(workers)
-
-        const allPinsData: Pin[] = ([] as Pin[]).concat(...results)
+        const normalized: Pin[] = localJson.map((pin: any, idx: number) => {
+          const rawType = String(pin.type || 'image').toLowerCase()
+          const type: 'image' | 'video' | 'article' = rawType === 'video' ? 'video' : rawType === 'article' ? 'article' : 'image'
+          const rawStatus = String(pin.status || 'active').toLowerCase()
+          const status: 'active' | 'archived' = rawStatus === 'archived' ? 'archived' : 'active'
+          return {
+            id: String(pin.id || `pin-${idx}`),
+            title: String(pin.title || 'Untitled Pin'),
+            description: String(pin.description || ''),
+            image: String(pin.image || ''),
+            board: String(pin.board || pin.boardName || 'Unknown Board'),
+            owner: String(pin.owner || pin.ownerName || 'Unknown'),
+            status,
+            type,
+            likes: Number(pin.likes || 0),
+            comments: Number(pin.comments || 0),
+            repins: Number(pin.repins || 0),
+            createdAt: String(pin.createdAt || new Date().toISOString()),
+            updatedAt: String(pin.updatedAt || pin.createdAt || new Date().toISOString()),
+            tags: Array.isArray(pin.tags) ? pin.tags : [],
+            link: String(pin.link || ''),
+            boardId: String(pin.boardId || ''),
+            // Provide optional fields with sensible defaults to satisfy Pin type
+            saves: Number(pin.saves || 0),
+            isStarred: Boolean(pin.isStarred || false)
+          } as Pin
+        })
 
         if (!cancelled) {
-          if (allPinsData.length > 0) {
-            setAllPins(allPinsData)
-            // Save lightweight cache
-            try { localStorage.setItem('pinterest-pins-cache', JSON.stringify({ data: allPinsData, timestamp: Date.now() })) } catch {}
-          } else {
-            setPinsError('No real Pinterest pins available from server')
-          }
+          setAllPins(normalized)
           setIsInitialLoad(false)
+          // Persist to localStorage for instant reloads
+          try { localStorage.setItem('pinterest-pins-cache', JSON.stringify({ data: normalized, timestamp: Date.now() })) } catch {}
         }
       } catch (e: any) {
         if (!cancelled) setPinsError(e?.message || 'Failed to load pins')
@@ -514,23 +524,25 @@ function PinsClient() {
     }
   }
 
-  // Tab management
+  // Tab management - avoid duplicate tabs if sidebar already created one
   useEffect(() => {
-    if (!hasAddedTab.current) {
+    if (hasAddedTab.current) return
+    const existing = useAppStore.getState().tabs.find(t => t.path === '/apps/pinterest/pins')
+    if (!existing) {
       addTab({
         title: 'Pinterest Pins',
         path: '/apps/pinterest/pins',
         pinned: false,
         closable: true,
       })
-      hasAddedTab.current = true
     }
+    hasAddedTab.current = true
   }, [addTab])
 
   // Page configuration
   const pageConfig = {
     title: 'Pinterest Pins',
-    description: `Manage and analyze your Pinterest pins (${allPins.length} real pins from server)`,
+    description: `Manage and analyze your Pinterest pins (${allPins.length} pins loaded from local cache)`,
     icon: '📌',
     endpoint: '/api/pins',
     columns: pinColumns,

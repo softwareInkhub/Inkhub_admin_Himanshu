@@ -698,27 +698,48 @@ function ProductsClientContent({
         console.log(`📥 Fetching key "${key}" from:`, url)
         return fetch(url, {
           signal: AbortSignal.timeout(12000),
-          headers: { Accept: 'application/json', 'Accept-Encoding': 'identity' }
-        })
+            headers: { Accept: 'application/json' }
+          })
           .then(async (response) => {
             if (!response.ok) {
-              console.warn(`❌ Key "${key}" failed with status ${response.status}`)
+              console.debug(`❌ Key "${key}" failed with status ${response.status}`)
               throw new Error(`HTTP ${response.status} for key ${key}`)
             }
             const text = await response.text()
             const jsonData = JSON.parse(text)
             if (!jsonData?.data || !Array.isArray(jsonData.data)) {
-              console.warn(`❌ Key "${key}" returned invalid data structure`)
+              console.debug(`❌ Key "${key}" returned invalid data structure`)
               throw new Error(`Invalid payload for key ${key}`)
             }
             console.log(`✅ Key "${key}" succeeded with ${jsonData.data.length} items`)
             return { key, data: jsonData.data as any[] }
           })
           .catch(error => {
-            console.warn(`❌ Key "${key}" error:`, error.message)
+            // Downgrade noisy logs; network timeouts are expected in dev
+            console.debug(`❌ Key "${key}" error:`, error.message)
             throw error
           })
       })
+
+      // Local fallback: serve from public/products.json (or root products.json)
+      const localFallback = fetch('/products.json', { headers: { Accept: 'application/json' } })
+        .then(async (res) => {
+          if (!res.ok) throw new Error(`Local fallback not available (${res.status})`)
+          try {
+            const json = await res.json()
+            const data = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : [])
+            if (!Array.isArray(data)) throw new Error('Local fallback invalid shape')
+            console.log('🧰 Using local fallback products.json:', data.length, 'items')
+            return { key: 'local-fallback', data }
+          } catch (e) {
+            throw new Error('Local fallback parse error')
+          }
+        })
+        .catch((e) => {
+          console.debug('ℹ️ Local fallback unavailable:', e.message)
+          // Re-throw so Promise.any can continue to other requests
+          throw e
+        })
 
       // Use the first fulfilled request
       // Polyfilled Promise.any to support environments without ES2021 lib
@@ -739,58 +760,58 @@ function ProductsClientContent({
         })
       }
 
-      const { key: winningKey, data } = await promiseAnyPolyfill(requests)
+      const { key: winningKey, data } = await promiseAnyPolyfill([...requests, localFallback])
 
       console.log('📦 Processing', data.length, 'raw products...')
-
-      // Optimized batch processing with early exit for UI responsiveness
-      const batchSize = 100
-      const mappedProducts: Product[] = []
-
+              
+              // Optimized batch processing with early exit for UI responsiveness
+              const batchSize = 100
+              const mappedProducts: Product[] = []
+              
       for (let i = 0; i < data.length; i += batchSize) {
         const batch = data.slice(i, i + batchSize)
-        const batchMapped = batch
-          .map((raw: any, idx: number) => {
-            try {
-              return mapRecordToProduct(raw, i + idx)
+                const batchMapped = batch
+                  .map((raw: any, idx: number) => {
+                    try {
+                      return mapRecordToProduct(raw, i + idx)
             } catch {
               return null
-            }
-          })
-          .filter(Boolean) as Product[]
-
-        mappedProducts.push(...batchMapped)
-
-        if (i % (batchSize * 5) === 0) {
-          await new Promise(resolve => setTimeout(resolve, 0))
-        }
-      }
-
-      // Remove duplicates by id (faster Set-based approach)
-      const seenIds = new Set<string>()
-      const uniqueProducts = mappedProducts.filter(product => {
-        if (seenIds.has(product.id)) return false
-        seenIds.add(product.id)
-        return true
-      })
-
-      console.log('✅ Processed products:', {
+                    }
+                  })
+                  .filter(Boolean) as Product[]
+                
+                mappedProducts.push(...batchMapped)
+                
+                if (i % (batchSize * 5) === 0) {
+                  await new Promise(resolve => setTimeout(resolve, 0))
+                }
+              }
+              
+              // Remove duplicates by id (faster Set-based approach)
+              const seenIds = new Set<string>()
+              const uniqueProducts = mappedProducts.filter(product => {
+                if (seenIds.has(product.id)) return false
+                seenIds.add(product.id)
+                return true
+              })
+              
+              console.log('✅ Processed products:', {
         key: winningKey,
         rawCount: data.length,
-        mappedCount: mappedProducts.length,
-        uniqueCount: uniqueProducts.length
-      })
-
-      // Set the data
-      setProductData(uniqueProducts)
-      setTotalProducts(uniqueProducts.length)
+                mappedCount: mappedProducts.length,
+                uniqueCount: uniqueProducts.length
+              })
+              
+              // Set the data
+              setProductData(uniqueProducts)
+              setTotalProducts(uniqueProducts.length)
       setChunkData({ [winningKey]: uniqueProducts })
       setChunkKeys([winningKey])
-      setIsDataLoaded(true)
-      setLoading(false)
-      setError(null)
+              setIsDataLoaded(true)
+              setLoading(false)
+              setError(null)
       return
-
+      
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         console.log('⏹️ Request aborted')
@@ -798,6 +819,28 @@ function ProductsClientContent({
       }
       
       console.error('❌ Cache fetch error:', e)
+
+      // Final safety fallback: attempt local file once here if not already tried
+      try {
+        const res = await fetch('/products.json', { headers: { Accept: 'application/json' } })
+        if (res.ok) {
+          const json = await res.json()
+          const data = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : [])
+          if (Array.isArray(data) && data.length > 0) {
+            console.log('🧯 Recovered with local products.json after failures:', data.length)
+            setProductData(data)
+            setTotalProducts(data.length)
+            setChunkData({ 'local-fallback': data })
+            setChunkKeys(['local-fallback'])
+            setIsDataLoaded(true)
+            setLoading(false)
+            setError(null)
+            return
+          }
+        }
+      } catch (_) {
+        // ignore – we'll set an error below
+      }
       
       // Check if it's a network/DNS error
       if (e.message.includes('Failed to fetch') || e.message.includes('ERR_NAME_NOT_RESOLVED') || e.message.includes('NetworkError')) {

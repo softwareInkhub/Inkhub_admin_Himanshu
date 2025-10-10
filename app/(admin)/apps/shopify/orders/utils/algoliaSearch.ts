@@ -81,89 +81,106 @@ export const searchOrdersAcrossAllChunks = async (
     
     console.log('🔍 Algolia search request:', JSON.stringify(requestBody, null, 2))
     
-    // Try the correct Algolia search endpoint
-    const response = await fetch(`${BACKEND_URL}/search/query`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(30000) // Increased timeout for comprehensive search
-    })
+    // Try the correct Algolia search endpoint with better timeout handling
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000) // Reduced to 15 seconds
     
-    if (!response.ok) {
-      throw new Error(`Algolia search failed: ${response.status}`)
-    }
-    
-    const data: AlgoliaSearchResponse = await response.json()
-    console.log('🔍 Algolia search response:', JSON.stringify(data, null, 2))
-    
-    if (!data.hits || !Array.isArray(data.hits)) {
-      console.warn('No hits found in Algolia response')
-      return []
-    }
-    
-    console.log(`✅ Found ${data.hits.length} results from Algolia search`)
-    
-    // Convert Algolia hits to Order format with comprehensive data handling
-    const convertedOrders: Order[] = []
-    const processedIds = new Set<string>()
-    const processedOrderNumbers = new Set<string>()
-    
-    for (const hit of data.hits) {
-      // Use comprehensive data from Algolia hit instead of relying on local chunk data
-      const order = convertAlgoliaHitToOrder(hit, currentChunkOrders)
+    try {
+      const response = await fetch(`${BACKEND_URL}/search/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
+      })
       
-      // Skip if order is null (failed conversion)
-      if (!order) {
-        console.error('❌ Conversion failed for hit:', {
-          orderNumber: hit?.orderNumber,
-          objectID: hit?.objectID,
-          customerName: (hit as any)?.['customer.first_name'],
-          email: (hit as any)?.email
+      clearTimeout(timeoutId)
+      
+      if (!response.ok) {
+        throw new Error(`Algolia search failed: ${response.status}`)
+      }
+      
+      const data: AlgoliaSearchResponse = await response.json()
+      console.log('🔍 Algolia search response:', JSON.stringify(data, null, 2))
+      
+      if (!data.hits || !Array.isArray(data.hits)) {
+        console.warn('No hits found in Algolia response')
+        return []
+      }
+      
+      console.log(`✅ Found ${data.hits.length} results from Algolia search`)
+      
+      // Convert Algolia hits to Order format with comprehensive data handling
+      const convertedOrders: Order[] = []
+      const processedIds = new Set<string>()
+      const processedOrderNumbers = new Set<string>()
+      
+      for (const hit of data.hits) {
+        // Use comprehensive data from Algolia hit instead of relying on local chunk data
+        const order = convertAlgoliaHitToOrder(hit, currentChunkOrders)
+        
+        // Skip if order is null (failed conversion)
+        if (!order) {
+          console.error('❌ Conversion failed for hit:', {
+            orderNumber: hit?.orderNumber,
+            objectID: hit?.objectID,
+            customerName: (hit as any)?.['customer.first_name'],
+            email: (hit as any)?.email
+          })
+          continue
+        }
+        
+        // Create unique identifier using both ID and order number
+        const uniqueKey = `${order.id}-${order.orderNumber}`
+        
+        // Skip if we've already processed this exact order
+        if (processedIds.has(uniqueKey)) {
+          continue
+        }
+        
+        // Additional check: skip if order number is already processed (prevents duplicates)
+        if (processedOrderNumbers.has(order.orderNumber?.toString() || '')) {
+          continue
+        }
+        
+        processedIds.add(uniqueKey)
+        processedOrderNumbers.add(order.orderNumber?.toString() || '')
+        convertedOrders.push(order)
+        
+        // Log successful conversion
+        console.log('✅ Successfully converted order:', {
+          orderNumber: order.orderNumber,
+          customerName: order.customerName,
+          total: order.total
         })
-        continue
       }
       
-      // Create unique identifier using both ID and order number
-      const uniqueKey = `${order.id}-${order.orderNumber}`
+      console.log('✅ Converted Algolia orders:', convertedOrders.length)
       
-      // Skip if we've already processed this exact order
-      if (processedIds.has(uniqueKey)) {
-        continue
+      // Log sample results for debugging
+      if (convertedOrders.length > 0) {
+        console.log('🔍 Sample converted orders:')
+        convertedOrders.slice(0, 3).forEach((order, index) => {
+          console.log(`  ${index + 1}. Order: ${order.orderNumber}, Customer: ${order.customerName}, Total: ${order.total}`)
+        })
       }
       
-      // Additional check: skip if order number is already processed (prevents duplicates)
-      if (processedOrderNumbers.has(order.orderNumber?.toString() || '')) {
-        continue
-      }
+      return convertedOrders
       
-      processedIds.add(uniqueKey)
-      processedOrderNumbers.add(order.orderNumber?.toString() || '')
-      convertedOrders.push(order)
-      
-      // Log successful conversion
-      console.log('✅ Successfully converted order:', {
-        orderNumber: order.orderNumber,
-        customerName: order.customerName,
-        total: order.total
-      })
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      throw fetchError
     }
-    
-    console.log('✅ Converted Algolia orders:', convertedOrders.length)
-    
-    // Log sample results for debugging
-    if (convertedOrders.length > 0) {
-      console.log('🔍 Sample converted orders:')
-      convertedOrders.slice(0, 3).forEach((order, index) => {
-        console.log(`  ${index + 1}. Order: ${order.orderNumber}, Customer: ${order.customerName}, Total: ${order.total}`)
-      })
-    }
-    
-    return convertedOrders
     
   } catch (error) {
-    console.error('❌ Algolia search error:', error)
+    // Handle different types of errors gracefully
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn('⚠️ Algolia search was aborted (timeout or cancelled)')
+      // Don't log this as an error since it's expected behavior
+    } else {
+      console.error('❌ Algolia search error:', error)
+    }
     
     // Fallback to local search if Algolia fails
     console.log('🔄 Falling back to local search...')
@@ -179,7 +196,7 @@ export const convertAlgoliaHitToOrder = (hit: any, localOrders: Order[]): Order 
   
   // Safely get values with fallbacks
   const orderNumber = hit?.order_number?.toString() || hit?.name?.replace('#INK', '') || '0'
-  const customerName = hit?.['customer.first_name'] || hit?.customerName || 'Unknown Customer'
+  const customerName = hit?.['customer.first_name'] || hit?.customerName || hit?.customer_first_name || 'Unknown Customer'
   const customerEmail = hit?.['customer.email'] || hit?.email || 'unknown@example.com'
   const objectID = hit?.objectID || 'unknown-id'
   
@@ -240,8 +257,8 @@ export const convertAlgoliaHitToOrder = (hit: any, localOrders: Order[]): Order 
     const baseTotal = parseFloat(hit?.total_price) || Math.floor(Math.random() * 1000) + 100
     
     // Extract customer name from Algolia data with better fallbacks
-    const customerFirstName = hit?.['customer.first_name'] || hit?.customerName || 'Unknown Customer'
-    const customerLastName = hit?.['customer.last_name'] || ''
+    const customerFirstName = hit?.['customer.first_name'] || hit?.customer_first_name || hit?.customerName || 'Unknown Customer'
+    const customerLastName = hit?.['customer.last_name'] || hit?.customer_last_name || ''
     const fullCustomerName = customerLastName ? `${customerFirstName} ${customerLastName}` : customerFirstName
     
     // Log the extracted customer name for debugging
@@ -289,6 +306,11 @@ export const convertAlgoliaHitToOrder = (hit: any, localOrders: Order[]): Order 
       orderNumber: orderNumber,
       customerName: fullCustomerName, // Use extracted full name
       customerEmail: customerEmail,
+      customer: {
+        firstName: customerFirstName,
+        lastName: customerLastName,
+        email: customerEmail
+      },
       phone: hit?.['customer.phone'] || hit?.phone,
       status: mapStatus(hit?.financial_status),
       fulfillmentStatus: mapFulfillmentStatus(hit?.fulfillment_status),
@@ -471,21 +493,27 @@ export const searchOrdersWithAdvancedFilters = async (
     
     console.log('🔍 Advanced Filters Algolia request:', JSON.stringify(requestBody, null, 2))
     
-    const response = await fetch(`${BACKEND_URL}/search/query`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(30000)
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
     
-    if (!response.ok) {
-      throw new Error(`Algolia search failed: ${response.status}`)
-    }
-    
-    const data: AlgoliaSearchResponse = await response.json()
-    console.log('🔍 Advanced Filters Algolia response:', data.hits?.length || 0, 'results')
+    try {
+      const response = await fetch(`${BACKEND_URL}/search/query`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
+      })
+      
+      clearTimeout(timeoutId)
+      
+      if (!response.ok) {
+        throw new Error(`Algolia search failed: ${response.status}`)
+      }
+      
+      const data: AlgoliaSearchResponse = await response.json()
+      console.log('🔍 Advanced Filters Algolia response:', data.hits?.length || 0, 'results')
     
     if (!data.hits || !Array.isArray(data.hits)) {
       console.warn('No hits found in Advanced Filters Algolia response')
@@ -542,20 +570,30 @@ export const searchOrdersWithAdvancedFilters = async (
       return dateB.getTime() - dateA.getTime()
     })
     
-    // Reduce logging noise - only log occasionally in development
-    if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
-      console.log('✅ Advanced Filters Algolia search completed:', sortedOrders.length, 'filtered results')
-      console.log('🔍 Final filtered orders sample:', sortedOrders.slice(0, 3).map(o => ({ 
-        id: o.id, 
-        orderNumber: o.orderNumber, 
-        customerName: o.customerName,
-        financialStatus: o.financialStatus
-      })))
+      // Reduce logging noise - only log occasionally in development
+      if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
+        console.log('✅ Advanced Filters Algolia search completed:', sortedOrders.length, 'filtered results')
+        console.log('🔍 Final filtered orders sample:', sortedOrders.slice(0, 3).map(o => ({ 
+          id: o.id, 
+          orderNumber: o.orderNumber, 
+          customerName: o.customerName,
+          financialStatus: o.financialStatus
+        })))
+      }
+      return sortedOrders
+      
+    } catch (fetchError) {
+      clearTimeout(timeoutId)
+      throw fetchError
     }
-    return sortedOrders
     
   } catch (error) {
-    console.error('❌ Advanced Filters Algolia search error:', error)
+    // Handle different types of errors gracefully
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn('⚠️ Advanced Filters Algolia search was aborted (timeout or cancelled)')
+    } else {
+      console.error('❌ Advanced Filters Algolia search error:', error)
+    }
     return []
   }
 }

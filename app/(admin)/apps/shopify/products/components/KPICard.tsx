@@ -1,6 +1,7 @@
 'use client'
 
 import { ArrowUp, ArrowDown, Minus, Settings, RefreshCw, Bell, Eye, EyeOff, Download } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import { useState, useRef, useEffect } from 'react'
 
@@ -46,6 +47,7 @@ export default function KPICard({
   loading = false
 }: KPICardProps) {
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsPos, setSettingsPos] = useState<{ top: number; left: number } | null>(null)
   const [localConfig, setLocalConfig] = useState<KPIConfig>({
     refreshRate: 30,
     alertThreshold: 0,
@@ -70,6 +72,18 @@ export default function KPICard({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // Close settings when scrolling or resizing (portaled, fixed-position UI)
+  useEffect(() => {
+    if (!showSettings) return
+    const close = () => setShowSettings(false)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [showSettings])
 
   const getTrendIcon = (trend: string) => {
     switch (trend) {
@@ -180,7 +194,14 @@ export default function KPICard({
             {/* Settings Button */}
             <div className="relative" ref={settingsRef}>
               <button
-                onClick={() => setShowSettings(!showSettings)}
+                onClick={(e) => {
+                  // Compute fixed position for the settings popover so it escapes any overflow contexts
+                  try {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                    setSettingsPos({ top: rect.bottom + 8, left: rect.right - 192 /* popover width */ })
+                  } catch {}
+                  setShowSettings(!showSettings)
+                }}
                 className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors opacity-0 group-hover:opacity-100 z-10"
                 title="Configure KPI"
               >
@@ -188,8 +209,8 @@ export default function KPICard({
               </button>
               
               {/* Settings Dropdown */}
-              {showSettings && (
-                <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-[9999]">
+              {showSettings && settingsPos && createPortal(
+                <div className="fixed w-48 bg-white border border-gray-200 rounded-md shadow-lg z-[99999]" style={{ top: settingsPos.top, left: settingsPos.left }}>
                   <div className="p-2">
                     <div className="text-xs font-medium text-gray-700 mb-2">KPI Settings</div>
                     
@@ -312,8 +333,8 @@ export default function KPICard({
                       </button>
                     </div>
                   </div>
-                </div>
-              )}
+                </div>, document.body)
+              }
             </div>
           </div>
         </div>
