@@ -8,7 +8,6 @@ interface ColumnsQuickToggleProps {
   selectedFields: VisibleField[]
   onToggleField: (field: VisibleField) => void
   onOpenManager: () => void
-  onResetDefault?: () => void
   className?: string
 }
 
@@ -16,7 +15,6 @@ export default function ColumnsQuickToggle({
   selectedFields,
   onToggleField,
   onOpenManager,
-  onResetDefault,
   className = ''
 }: ColumnsQuickToggleProps) {
   const [isOpen, setIsOpen] = useState(false)
@@ -113,19 +111,7 @@ export default function ColumnsQuickToggle({
           </div>
 
           {/* Footer */}
-          <div className="p-3 border-t border-gray-200 bg-gray-50 space-y-2">
-            {onResetDefault && (
-              <button
-                onClick={() => {
-                  onResetDefault()
-                  setIsOpen(false)
-                }}
-                className="w-full inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-                title="Reset to default columns"
-              >
-                Reset Columns
-              </button>
-            )}
+          <div className="p-3 border-t border-gray-200 bg-gray-50">
             <button
               onClick={() => {
                 onOpenManager()

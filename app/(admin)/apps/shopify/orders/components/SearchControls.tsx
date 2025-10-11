@@ -435,18 +435,22 @@ export default function SearchControls({
                   {savedSearches.map((savedSearch) => (
                   <span 
                     key={savedSearch.id} 
-                    className="inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-blue-100"
+                    className="group inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-blue-100 transition-all duration-200"
                     onClick={() => onApplySavedSearch?.(savedSearch)}
                     title={`Apply saved search: ${savedSearch.viewName}`}
                   >
                     <span className="font-medium">{savedSearch.viewName}</span>
                     <button
-                      className="text-blue-500 hover:text-blue-700 ml-1"
+                      className="text-blue-500 hover:text-red-600 hover:bg-red-50 rounded-full w-4 h-4 flex items-center justify-center transition-all duration-200 ml-1"
                       onClick={(e) => { 
-                        e.stopPropagation(); 
-                        onDeleteSavedSearch?.(savedSearch.id) 
+                        e.stopPropagation();
+                        if (confirm(`Delete saved search "${savedSearch.viewName}"?`)) {
+                          console.log('🗑️ User confirmed deletion of:', savedSearch.viewName)
+                          onDeleteSavedSearch?.(savedSearch.id)
+                        }
                       }}
                       aria-label={`Remove saved search ${savedSearch.viewName}`}
+                      title="Delete this saved search"
                     >
                       ×
                     </button>

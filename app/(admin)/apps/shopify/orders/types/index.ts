@@ -68,6 +68,9 @@ export interface Order {
       matchedWords: string[]
     }
   }
+  // Allow any additional properties from raw Shopify API response
+  // This enables JSON columns to access nested paths like shipping_address.city, fulfillments.0.tracking_number, etc.
+  [key: string]: any
 }
 
 export interface KPIMetric {

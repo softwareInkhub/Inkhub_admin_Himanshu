@@ -19,7 +19,7 @@ import OrderTable from './components/OrderTable'
 import OrderCardView from './components/OrderCardView'
 import GridCardFilterHeader from './components/GridCardFilterHeader'
 import OrdersGrid from './components/OrdersGrid'
-import Pagination from '../products/components/Pagination'
+import Pagination from './components/Pagination'
 import SearchControls from './components/SearchControls'
 import ProductImage from '../products/components/ProductImage'
 import BulkActionsBar from '../products/components/BulkActionsBar'
@@ -261,57 +261,104 @@ function OrdersClientContent({
     }
   }, [advancedFilters, showAdvancedFilter, handleAdvancedFiltersAlgoliaSearch])
 
-  // Map table column filters to advanced filter shape and trigger Algolia
+  // Map ALL table column filters to Algolia search (supports all 81+ columns)
   useEffect(() => {
     // Build derived filters from column filters
     const derived = {
       orderStatus: [] as string[],
+      financialStatus: [] as string[],
       priceRange: { min: '', max: '' } as { min?: string; max?: string },
       dateRange: { start: '', end: '' } as { start?: string; end?: string },
       tags: [] as string[],
       channels: [] as string[],
+      customerText: '' as string,
+      orderNumberText: '' as string,
     }
 
     const cf = columnFilters || {}
     const has = (v: any) => Array.isArray(v) ? v.length > 0 : (v !== undefined && v !== null && String(v) !== '')
 
+    // Specific field mappings for advanced filter fields
     // fulfillmentStatus -> orderStatus (case-insensitive)
-    if (has(cf['fulfillmentStatus'])) {
-      derived.orderStatus = Array.isArray(cf['fulfillmentStatus']) ? cf['fulfillmentStatus'] as string[] : [String(cf['fulfillmentStatus'])]
+    if (has(cf['fulfillmentStatus']) || has(cf['fulfillment_status'])) {
+      const val = cf['fulfillmentStatus'] || cf['fulfillment_status']
+      derived.orderStatus = Array.isArray(val) ? val as string[] : [String(val)]
     }
-    // financialStatus can also be treated as orderStatus for server-side filtering if supported
-    if (!derived.orderStatus.length && has(cf['financialStatus'])) {
-      derived.orderStatus = Array.isArray(cf['financialStatus']) ? cf['financialStatus'] as string[] : [String(cf['financialStatus'])]
+    
+    // financialStatus -> financialStatus
+    if (has(cf['financialStatus']) || has(cf['financial_status'])) {
+      const val = cf['financialStatus'] || cf['financial_status']
+      derived.financialStatus = Array.isArray(val) ? val as string[] : [String(val)]
     }
-    // total -> priceRange (support ">N", "<N", "=N") or direct number
-    if (has(cf['total'])) {
-      const v = String(cf['total']).trim()
-      if (v.startsWith('>')) derived.priceRange.min = v.slice(1)
-      else if (v.startsWith('<')) derived.priceRange.max = v.slice(1)
-      else if (v.startsWith('=')) { derived.priceRange.min = v.slice(1); derived.priceRange.max = v.slice(1) }
-      else if (!isNaN(Number(v))) { derived.priceRange.min = v; derived.priceRange.max = v }
+    
+    // total/price fields -> priceRange (support ">N", "<N", "=N") or direct number
+    const priceFields = ['total', 'totalPrice', 'currentTotalPrice', 'total_price', 'current_total_price']
+    for (const field of priceFields) {
+      if (has(cf[field])) {
+        const v = String(cf[field]).trim()
+        if (v.startsWith('>')) derived.priceRange.min = v.slice(1)
+        else if (v.startsWith('<')) derived.priceRange.max = v.slice(1)
+        else if (v.startsWith('=')) { derived.priceRange.min = v.slice(1); derived.priceRange.max = v.slice(1) }
+        else if (!isNaN(Number(v))) { derived.priceRange.min = v; derived.priceRange.max = v }
+        break // Only use first matching price field
+      }
     }
-    // createdAt -> dateRange (exact-day match)
-    if (has(cf['createdAt'])) {
-      const d = String(cf['createdAt'])
-      derived.dateRange.start = d
-      derived.dateRange.end = d
+    
+    // Date fields -> dateRange (exact-day match)
+    const dateFields = ['createdAt', 'created_at', 'updatedAt', 'updated_at', 'processedAt', 'processed_at']
+    for (const field of dateFields) {
+      if (has(cf[field])) {
+        const d = String(cf[field])
+        derived.dateRange.start = d
+        derived.dateRange.end = d
+        break // Only use first matching date field
+      }
     }
+    
     // tags -> tags array
     if (has(cf['tags'])) {
       derived.tags = Array.isArray(cf['tags']) ? cf['tags'] as string[] : [String(cf['tags'])]
     }
-    // channel -> channels array
-    if (has(cf['channel'])) {
-      derived.channels = Array.isArray(cf['channel']) ? cf['channel'] as string[] : [String(cf['channel'])]
+    
+    // channel/source -> channels array
+    const channelFields = ['channel', 'sourceName', 'source_name']
+    for (const field of channelFields) {
+      if (has(cf[field])) {
+        const val = cf[field]
+        derived.channels = Array.isArray(val) ? val as string[] : [String(val)]
+        break
+      }
+    }
+    
+    // Customer name fields -> customerText
+    const customerFields = ['customerName', 'customer_name', 'customer.firstName', 'customer.first_name']
+    for (const field of customerFields) {
+      if (has(cf[field])) {
+        derived.customerText = String(cf[field])
+        break
+      }
+    }
+    
+    // Order number fields -> orderNumberText
+    const orderFields = ['orderNumber', 'order_number', 'name', 'number']
+    for (const field of orderFields) {
+      if (has(cf[field])) {
+        derived.orderNumberText = String(cf[field])
+        break
+      }
     }
 
     const filtersActive = (
       derived.orderStatus.length > 0 ||
+      derived.financialStatus.length > 0 ||
       !!derived.priceRange.min || !!derived.priceRange.max ||
       !!derived.dateRange.start || !!derived.dateRange.end ||
       derived.tags.length > 0 ||
-      derived.channels.length > 0
+      derived.channels.length > 0 ||
+      !!derived.customerText ||
+      !!derived.orderNumberText ||
+      // Check if there are ANY other column filters (for generic text search)
+      Object.keys(cf).filter(k => has(cf[k])).length > 0
     )
 
     if (filtersActive) {
@@ -373,6 +420,7 @@ function OrdersClientContent({
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
   const fullScreenScrollRef = useRef<HTMLDivElement>(null)
+  const tableScrollRef = useRef<HTMLDivElement>(null)
   
   // Saved searches state
   const [savedSearches, setSavedSearches] = useState<any[]>([])
@@ -602,7 +650,7 @@ function OrdersClientContent({
       debouncedAlgoliaSearch(
         savedSearch.searchQuery,
         orderData,
-        (orders) => {
+        (orders: Order[]) => {
           setAlgoliaSearchResults(orders)
           setIsAlgoliaSearching(false)
         },
@@ -614,10 +662,32 @@ function OrdersClientContent({
   
   // Handle deleting a saved search
   const handleDeleteSavedSearch = useCallback(async (id: string) => {
+    console.log('🗑️ Attempting to delete saved search with ID:', id)
+    
     try {
       const savedSearch = savedSearches.find(s => s.id === id)
-      if (!savedSearch) return
+      if (!savedSearch) {
+        console.warn('⚠️ Saved search not found with ID:', id)
+        return
+      }
       
+      console.log('🗑️ Deleting saved search:', savedSearch.viewName)
+      
+      // Optimistically update UI first for instant feedback
+      setSavedSearches(prev => {
+        const next = prev.filter(s => s.id !== id)
+        try { 
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('orders-saved-views:shopify-inkhub-get-orders', JSON.stringify(next))
+            console.log('✅ Updated localStorage after deletion')
+          }
+        } catch (e) {
+          console.error('❌ Failed to update localStorage:', e)
+        }
+        return next
+      })
+      
+      // Then send delete request to API
       const response = await fetch('/api/crud', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
@@ -627,16 +697,17 @@ function OrdersClientContent({
           viewName: savedSearch.viewName 
         })
       })
+      
       if (response.ok) {
-        setSavedSearches(prev => {
-          const next = prev.filter(s => s.id !== id)
-          try { if (typeof window !== 'undefined') localStorage.setItem('orders-saved-views:shopify-inkhub-get-orders', JSON.stringify(next)) } catch {}
-          console.log('💾 Deleted saved search:', savedSearch.viewName);
-          return next
-        })
+        console.log('✅ Deleted saved search from API:', savedSearch.viewName)
+      } else {
+        const errorText = await response.text()
+        console.error('❌ API delete failed:', response.status, errorText)
+        // If API fails, we already updated UI optimistically, so user still sees it deleted
       }
     } catch (error) {
-      console.error('Failed to delete saved search:', error)
+      console.error('❌ Failed to delete saved search:', error)
+      // Even if API fails, UI is already updated for better UX
     }
   }, [savedSearches]);
   
@@ -780,6 +851,20 @@ function OrdersClientContent({
     // Load orders data for current page with INSTANT CACHING
   useEffect(() => {
     const loadOrders = async () => {
+      // One-time cleanup: remove old v1 cache entries (only on first load)
+      if (typeof window !== 'undefined' && !sessionStorage.getItem('orders-cache-cleaned-v2')) {
+        try {
+          Object.keys(localStorage).forEach(key => {
+            if (key.startsWith('orders-cache-') && !key.includes('-v2-')) {
+              localStorage.removeItem(key)
+            }
+          })
+          sessionStorage.setItem('orders-cache-cleaned-v2', 'true')
+        } catch (e) {
+          // Silently fail
+        }
+      }
+
       // Prevent duplicate runs in StrictMode for same page/perPage if we already have data or valid cache
       const guardKey = `${currentPage}-${itemsPerPage}`
       if (loadGuardRef.current === guardKey && (orderData.length > 0 || isCacheValid)) {
@@ -788,7 +873,8 @@ function OrdersClientContent({
       loadGuardRef.current = guardKey
 
       // Check cache first for INSTANT loading
-      const currentCacheKey = `orders-cache-${currentPage}-${itemsPerPage}`
+      // v2: includes full raw nested data for JSON columns
+      const currentCacheKey = `orders-cache-v2-${currentPage}-${itemsPerPage}`
       const cached = localStorage.getItem(currentCacheKey)
       
       if (cached) {
@@ -944,7 +1030,7 @@ function OrdersClientContent({
     try {
       const result = await getOrdersForPage(page, perPage)
       if (result.orders.length > 0) {
-        const cacheKey = `orders-cache-${page}-${perPage}`
+        const cacheKey = `orders-cache-v2-${page}-${perPage}`
         const cacheData = {
           data: result.orders,
           totalOrders: result.totalChunks * 500,
@@ -969,7 +1055,7 @@ function OrdersClientContent({
 
   // Preload next page for seamless navigation
   const preloadNextPage = async (page: number, perPage: number) => {
-    const nextCacheKey = `orders-cache-${page}-${perPage}`
+    const nextCacheKey = `orders-cache-v2-${page}-${perPage}`
     
     // Don't preload if already cached
     if (localStorage.getItem(nextCacheKey)) return
@@ -1096,12 +1182,15 @@ function OrdersClientContent({
     return sortedDeduplicated
   }, [orderData])
 
-  // Filter and search logic
+  // ============================================================
+  // Filter and search logic - ALL via Algolia (NO LOCAL SEARCH)
+  // All searches and filters are case-insensitive and handled server-side
+  // ============================================================
   const filteredData = useMemo(() => {
-    // Reduce console noise - only log when debugging specific issues
+    // TEMPORARILY ENABLE FULL LOGGING TO DEBUG FILTERING ISSUE
     const shouldLog = process.env.NODE_ENV === 'development' && 
-      ((debouncedSearchQuery && debouncedSearchQuery.trim()) || useAlgoliaFilters) &&
-      Math.random() < 0.1 // Only log 10% of the time to reduce noise
+      ((debouncedSearchQuery && debouncedSearchQuery.trim()) || useAlgoliaFilters)
+    // Math.random() < 0.1 // Only log 10% of the time to reduce noise - DISABLED FOR DEBUGGING
     
     if (shouldLog) {
       console.log('🔍 Filtering data with:', {
@@ -1146,104 +1235,60 @@ function OrdersClientContent({
     
     // Priority 1: Use Algolia filter results if Advanced Filters are active
     if (useAlgoliaFilters && algoliaFilterResults.length > 0) {
-      // Reduce logging noise - only log occasionally
-      if (shouldLog) {
-        console.log('🔍 Using Algolia Advanced Filters results:', algoliaFilterResults.length, 'orders')
-      }
+      console.log('🔍 Using Algolia Advanced Filters results:', algoliaFilterResults.length, 'orders')
+      console.log('🔍 Sample Algolia filter results:', algoliaFilterResults.slice(0, 3).map(o => ({
+        orderNumber: o.orderNumber,
+        fulfillmentStatus: o.fulfillmentStatus,
+        customerName: o.customerName
+      })))
       filtered = algoliaFilterResults
+    } else if (useAlgoliaFilters) {
+      console.log('🔍 Algolia filters active but no results:', {
+        useAlgoliaFilters,
+        algoliaFilterResultsLength: algoliaFilterResults.length,
+        activeFilter,
+        columnFilters,
+        advancedFilters
+      })
     }
     
-    // Only apply search filters if there's an active search query
-    if (debouncedSearchQuery && debouncedSearchQuery.trim()) {
-      // If Algolia search is active and we have results, use them
-      if (useAlgoliaSearch && algoliaSearchResults.length > 0) {
-        // Deduplicate Algolia results as well
-        const algoliaSeenIds = new Set<string>()
-        const algoliaDuplicates: string[] = []
-        filtered = algoliaSearchResults.filter(order => {
-          if (algoliaSeenIds.has(order.id)) {
-            algoliaDuplicates.push(`${order.id} (${order.orderNumber})`)
-            return false
-          }
-          algoliaSeenIds.add(order.id)
-          return true
-        })
-        
-        // Log Algolia duplicates only once (only in development mode)
-        if (algoliaDuplicates.length > 0 && process.env.NODE_ENV === 'development') {
-          console.warn(`⚠️ Found ${algoliaDuplicates.length} duplicate Algolia order IDs:`, algoliaDuplicates.slice(0, 3).join(', '), algoliaDuplicates.length > 3 ? '...' : '')
+    // Priority 2: Use Algolia search results if search query is active
+    else if (debouncedSearchQuery && debouncedSearchQuery.trim() && useAlgoliaSearch && algoliaSearchResults.length > 0) {
+      // Deduplicate Algolia results
+      const algoliaSeenIds = new Set<string>()
+      const algoliaDuplicates: string[] = []
+      filtered = algoliaSearchResults.filter(order => {
+        if (algoliaSeenIds.has(order.id)) {
+          algoliaDuplicates.push(`${order.id} (${order.orderNumber})`)
+          return false
         }
-        
-        // Sort Algolia results by date (newest first)
-        filtered = filtered.sort((a, b) => {
-          const dateA = new Date(a.createdAt || a.updatedAt || 0)
-          const dateB = new Date(b.createdAt || b.updatedAt || 0)
-          return dateB.getTime() - dateA.getTime() // Newest first (descending)
-        })
+        algoliaSeenIds.add(order.id)
+        return true
+      })
+      
+      // Log Algolia duplicates only once (only in development mode)
+      if (algoliaDuplicates.length > 0 && process.env.NODE_ENV === 'development') {
+        console.warn(`⚠️ Found ${algoliaDuplicates.length} duplicate Algolia order IDs:`, algoliaDuplicates.slice(0, 3).join(', '), algoliaDuplicates.length > 3 ? '...' : '')
+      }
+      
+      // Sort Algolia results by date (newest first)
+      filtered = filtered.sort((a, b) => {
+        const dateA = new Date(a.createdAt || a.updatedAt || 0)
+        const dateB = new Date(b.createdAt || b.updatedAt || 0)
+        return dateB.getTime() - dateA.getTime() // Newest first (descending)
+      })
+      
+      if (shouldLog) {
         console.log('🔍 Using Algolia search results:', filtered.length, 'orders')
-        console.log('🔍 Algolia results details:', {
-          useAlgoliaSearch,
-          algoliaResultsLength: algoliaSearchResults.length,
-          filteredLength: filtered.length,
-          sampleFiltered: filtered.slice(0, 3).map(o => ({ 
-            id: o.id, 
-            orderNumber: o.orderNumber, 
-            customerName: o.customerName 
-          }))
-        })
-      } else {
-        // Apply advanced search if no Algolia results
-        console.log('🔍 Applying advanced search for query:', debouncedSearchQuery)
-        
-        // Parse the advanced search query
-        const parsedQuery = parseAdvancedSearchQuery(debouncedSearchQuery)
-        
-        if (parsedQuery.isValid && parsedQuery.conditions.length > 0) {
-          console.log('🔍 Using advanced search with conditions:', parsedQuery.conditions)
-          filtered = applyAdvancedSearch(filtered, parsedQuery)
-          console.log('🔍 After advanced search filter:', filtered.length, 'orders')
-        } else {
-          // Fallback to basic search if advanced parsing fails
-          const query = debouncedSearchQuery.toLowerCase()
-          console.log('🔍 Falling back to basic search for query:', query)
-          filtered = filtered.filter(order => {
-            // Find the order's position in the original data for serial number
-            const orderIndex = orderData.findIndex(o => o.id === order.id)
-            const serialNumber = orderIndex + 1
-            
-            const matches = order.orderNumber.toLowerCase().includes(query) ||
-            order.customerName.toLowerCase().includes(query) ||
-            order.customerEmail.toLowerCase().includes(query) ||
-            order.status.toLowerCase().includes(query) ||
-            (order.channel || '').toLowerCase().includes(query) ||
-            serialNumber.toString().includes(query) // Include serial number in search
-            
-            if (matches) {
-              console.log('🔍 Order matches basic search:', order.customerName, order.orderNumber)
-            }
-            
-            return matches
-          })
-          console.log('🔍 After basic search filter:', filtered.length, 'orders')
-        }
-      }
-    } else {
-      // No search query - show all data (but check if Advanced Filters are active)
-      // Reduce console noise for normal operations
-      if (!useAlgoliaFilters && shouldLog) {
-        console.log('🔍 No search query - showing all orders:', filtered.length, 'orders')
-        console.log('🔍 Search state check:', {
-          debouncedSearchQuery,
-          useAlgoliaSearch,
-          algoliaSearchResultsLength: algoliaSearchResults.length,
-          isAlgoliaSearching
-        })
       }
     }
     
-    // Only log initial filtered data if not using Advanced Filters (reduced frequency)
-    if (!useAlgoliaFilters && shouldLog) {
-      console.log('🔍 Initial filtered data:', filtered.length, 'orders')
+    // Priority 3: Show all local data when no filters/search active
+    else if (!debouncedSearchQuery || !debouncedSearchQuery.trim()) {
+      // Show all local data
+      if (shouldLog) {
+        console.log('🔍 No search/filters active - showing local data:', filtered.length, 'orders')
+      }
     }
     
     // Final debug: Log the complete filtered data state (reduced frequency)
@@ -1264,184 +1309,8 @@ function OrdersClientContent({
       })
     }
 
-    // Apply column filters with enhanced logic
-    Object.entries(columnFilters).forEach(([key, value]) => {
-      if (value && (Array.isArray(value) ? value.length > 0 : value !== '')) {
-        filtered = filtered.filter(order => {
-          const orderValue = order[key as keyof Order]
-          
-          // Handle multi-select filters
-          if (Array.isArray(value)) {
-            if (key === 'tags') {
-              return order.tags?.some(tag => value.includes(tag))
-            }
-            return value.includes(String(orderValue))
-          }
-          
-          // Handle numeric filters (total)
-          if (key === 'total' && typeof value === 'string') {
-            const total = order.total || 0
-            if (value.startsWith('>')) {
-              const threshold = parseFloat(value.substring(1))
-              return total > threshold
-            } else if (value.startsWith('<')) {
-              const threshold = parseFloat(value.substring(1))
-              return total < threshold
-            } else if (value.startsWith('=')) {
-              const threshold = parseFloat(value.substring(1))
-              return total === threshold
-            }
-          }
-          
-          // Handle serial number filters
-          if (key === 'serialNumber' && typeof value === 'string') {
-            // Find the order's position in the original data
-            const orderIndex = orderData.findIndex(o => o.id === order.id)
-            const serialNumber = orderIndex + 1
-            
-            if (value.startsWith('>')) {
-              const threshold = parseInt(value.substring(1))
-              return serialNumber > threshold
-            } else if (value.startsWith('<')) {
-              const threshold = parseInt(value.substring(1))
-              return serialNumber < threshold
-            } else if (value.startsWith('=')) {
-              const threshold = parseInt(value.substring(1))
-              return serialNumber === threshold
-            } else {
-              // Direct number match
-              const filterNumber = parseInt(value)
-              return !isNaN(filterNumber) && serialNumber === filterNumber
-            }
-          }
-          
-          // Handle date filters
-          if (key === 'createdAt' && typeof value === 'string') {
-            const orderDate = new Date(order.createdAt)
-            const filterDate = new Date(value)
-            return orderDate.toDateString() === filterDate.toDateString()
-          }
-          
-          // Handle text filters
-          return String(orderValue).toLowerCase().includes(String(value).toLowerCase())
-        })
-      }
-    })
-
-    // Apply advanced filters (case-insensitive)
-    if (advancedFilters.orderStatus.length > 0) {
-      // Reduce logging noise - only log occasionally
-      if (shouldLog) {
-        console.log('🔍 Applying Order Status filter (case-insensitive):', {
-          selectedStatuses: advancedFilters.orderStatus,
-          sampleOrderStatuses: filtered.slice(0, 3).map(o => o.status)
-        })
-      }
-      filtered = filtered.filter(order => 
-        advancedFilters.orderStatus.some(status => 
-          status.toLowerCase() === order.status.toLowerCase()
-        )
-      )
-      if (shouldLog) {
-        console.log('🔍 After Order Status filter:', filtered.length, 'orders remaining')
-      }
-    }
-    if (advancedFilters.priceRange.min || advancedFilters.priceRange.max) {
-      if (shouldLog) {
-        console.log('🔍 Applying Price Range filter:', {
-          priceRange: advancedFilters.priceRange,
-          sampleOrderTotals: filtered.slice(0, 3).map(o => o.total)
-        })
-      }
-      filtered = filtered.filter(order => {
-        const total = order.total || 0
-        const min = advancedFilters.priceRange.min ? parseFloat(advancedFilters.priceRange.min) : 0
-        const max = advancedFilters.priceRange.max ? parseFloat(advancedFilters.priceRange.max) : Infinity
-        return total >= min && total <= max
-      })
-      if (shouldLog) {
-        console.log('🔍 After Price Range filter:', filtered.length, 'orders remaining')
-      }
-    }
-    if (advancedFilters.serialNumberRange.min || advancedFilters.serialNumberRange.max) {
-      filtered = filtered.filter(order => {
-        const orderIndex = orderData.findIndex(o => o.id === order.id)
-        const serialNumber = orderIndex + 1
-        const min = advancedFilters.serialNumberRange.min ? parseInt(advancedFilters.serialNumberRange.min) : 1
-        const max = advancedFilters.serialNumberRange.max ? parseInt(advancedFilters.serialNumberRange.max) : orderData.length
-        return serialNumber >= min && serialNumber <= max
-      })
-    }
-    if (advancedFilters.dateRange.start || advancedFilters.dateRange.end) {
-      if (shouldLog) {
-        console.log('🔍 Applying Date Range filter:', {
-          dateRange: advancedFilters.dateRange,
-          sampleOrderDates: filtered.slice(0, 3).map(o => o.createdAt)
-        })
-      }
-      filtered = filtered.filter(order => {
-        const orderDate = new Date(order.createdAt)
-        const start = advancedFilters.dateRange.start ? new Date(advancedFilters.dateRange.start) : new Date(0)
-        const end = advancedFilters.dateRange.end ? new Date(advancedFilters.dateRange.end) : new Date()
-        return orderDate >= start && orderDate <= end
-      })
-      if (shouldLog) {
-        console.log('🔍 After Date Range filter:', filtered.length, 'orders remaining')
-      }
-    }
-    if (advancedFilters.tags.length > 0) {
-      // Reduce logging noise - only log occasionally
-      if (shouldLog) {
-        console.log('🔍 Applying Tags filter (case-insensitive):', {
-          selectedTags: advancedFilters.tags,
-          sampleOrderTags: filtered.slice(0, 3).map(o => o.tags)
-        })
-      }
-      filtered = filtered.filter(order => 
-        order.tags?.some(tag => 
-          advancedFilters.tags.some(filterTag => 
-            filterTag.toLowerCase() === tag.toLowerCase()
-          )
-        )
-      )
-      if (shouldLog) {
-        console.log('🔍 After Tags filter:', filtered.length, 'orders remaining')
-      }
-    }
-    if (advancedFilters.channels.length > 0) {
-      if (shouldLog) {
-        console.log('🔍 Applying Channels filter (case-insensitive):', {
-          selectedChannels: advancedFilters.channels,
-          sampleOrderChannels: filtered.slice(0, 3).map(o => o.channel)
-        })
-      }
-      filtered = filtered.filter(order => 
-        order.channel && advancedFilters.channels.some(channel => 
-          channel.toLowerCase() === order.channel?.toLowerCase()
-        )
-      )
-      if (shouldLog) {
-        console.log('🔍 After Channels filter:', filtered.length, 'orders remaining')
-      }
-    }
-
-    // Final return with logging only when search or filters are active (reduced frequency)
-    if (shouldLog && ((debouncedSearchQuery && debouncedSearchQuery.trim()) || useAlgoliaFilters)) {
-      console.log('🔍 Returning filtered data:', {
-        finalLength: filtered.length,
-        dataSource: useAlgoliaFilters ? 'Algolia Advanced Filters' : (useAlgoliaSearch ? 'Algolia Search' : 'Local Search'),
-        useAlgoliaSearch,
-        useAlgoliaFilters,
-        algoliaResultsLength: algoliaSearchResults.length,
-        algoliaFilterResultsLength: algoliaFilterResults.length,
-        searchQuery: debouncedSearchQuery,
-        finalSample: filtered.slice(0, 3).map(o => ({ 
-          id: o.id, 
-          orderNumber: o.orderNumber, 
-          customerName: o.customerName 
-        }))
-      })
-    }
+    // NO LOCAL FILTERING - All filters are handled by Algolia
+    // Column filters and advanced filters are already applied server-side
     
     return filtered
   }, [deduplicatedOrderData, useAlgoliaSearch, algoliaSearchResults, useAlgoliaFilters, algoliaFilterResults, debouncedSearchQuery, columnFilters, advancedFilters])
@@ -2278,29 +2147,24 @@ function OrdersClientContent({
 
   return (
     <div className={cn(
-      "min-h-screen bg-gray-50",
-      isFullScreen ? "fixed inset-0 z-50 bg-white flex flex-col" : ""
+      "h-screen bg-white flex flex-col overflow-hidden",
+      isFullScreen ? "fixed inset-0 z-50 bg-white" : ""
     )}>
-      {/* In full-screen mode we no longer render a top header bar; KPI cards appear at the very top */}
-      
-      {/* Scrollable content area in fullscreen */}
-      <div ref={fullScreenScrollRef} className={cn(isFullScreen ? "flex-1 min-h-0 overflow-y-auto" : "")}> 
+      {/* KPI Metrics - Full width, no extra spacing */}
+      <div className="flex-shrink-0 w-full">
+        <OrderKPIGrid 
+          kpiMetrics={kpiMetrics} 
+          orders={filteredData}
+          onRefresh={handleKPIRefresh}
+          onConfigure={(kpiKey, config) => {
+            console.log(`Configuring ${kpiKey} KPI:`, config)
+          }}
+          loading={isCalculatingKPIs}
+        />
+      </div>
 
-       {/* KPI Metrics */}
-       <OrderKPIGrid 
-         kpiMetrics={kpiMetrics} 
-         orders={filteredData}
-         onRefresh={handleKPIRefresh}
-         onConfigure={(kpiKey, config) => {
-           console.log(`Configuring ${kpiKey} KPI:`, config)
-         }}
-         loading={isCalculatingKPIs}
-       />
-
-      {/* Search and Filter Controls - Sticky in Full Screen */}
-      <div ref={headerAreaRef} className={cn(
-        isFullScreen ? "sticky top-0 z-20 bg-white border-b border-gray-200" : ""
-      )}>
+      {/* Search and Filter Controls - Fixed height */}
+      <div ref={headerAreaRef} className="flex-shrink-0">
        <SearchControls
          searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
@@ -2351,8 +2215,8 @@ function OrdersClientContent({
        />
        </div>
 
-      {/* Persistent Actions Row - always visible between search and table */}
-      <div className="px-0 py-1 bg-white border-b border-gray-200">
+      {/* Persistent Actions Row - Fixed height */}
+      <div className="flex-shrink-0 px-4 py-1 bg-white border-b border-gray-200">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           {/* Left action group */}
           <div className="flex items-center justify-start gap-2 flex-wrap">
@@ -2452,7 +2316,6 @@ onClick={() => setShowExportModal(true)}
               selectedFields={selectedFields}
               onToggleField={toggleField}
               onOpenManager={openColumnManager}
-              onResetDefault={resetJsonColumns}
               className="hidden md:block"
             />
 
@@ -2923,11 +2786,11 @@ onClick={() => setShowExportModal(true)}
 
 
 
-      {/* Main Content */}
-      <div className="px-0 pb-6">
+      {/* Main Content - Takes remaining space */}
+      <div className="flex-1 min-h-0">
           {/* Data Source Indicator */}
           {error && (
-            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg mx-4">
               <div className="flex items-center">
                 <div className="text-yellow-800 text-sm">
                   <strong>Note:</strong> {error} Using fallback data for demonstration.
@@ -2937,64 +2800,87 @@ onClick={() => setShowExportModal(true)}
       )}
 
           {viewMode === 'table' ? (
-            <div className="space-y-2">
-              {/* Single table with sticky header to keep header/data perfectly aligned */}
-              <OrderTable
-                currentOrders={currentData}
-                selectedItems={selectedRowIds}
-                onSelectItem={handleSelectItem}
-                onSelectAll={handleSelectAll}
-                onRowClick={(order: Order, e: React.MouseEvent) => {
-                  if ((e.target as HTMLElement).closest('input,button')) return
-                  setPreviewOrder(order)
-                  setShowPreviewModal(true)
-                }}
-                columns={(function(){
-                  // Reorder columns to match the requested sequence
-                  const priority: Record<string, number> = {
-                    // 1. S.NO is added separately as serialNumberColumn
-                    name: 1, // 2. order (order name)
-                    'customer.firstName': 2, // 3. customer first name
-                    fulfillmentStatus: 3, // 4. fulfillment status
-                    currentTotalPrice: 4, // 5. current total price
-                    createdAt: 5, // 6. created date
-                    updatedAt: 6, // 7. updated date
-                    deliveryStatus: 7, // 8. delivery status
-                    tags: 8, // 9. tags
-                    sourceName: 9, // 10. channels
-                    financialStatus: 10, // 11. payment status
-                    email: 11 // 12. email
-                  }
+            <div className="h-full flex flex-col bg-white border border-gray-200 rounded-lg overflow-hidden mx-4">
+              {/* Table content - scrollable */}
+              <div 
+                ref={tableScrollRef}
+                className="flex-1 overflow-auto" 
+                style={{ position: 'relative' }}
+                data-scroll-group="orders-table"
+              >
+                <OrderTable
+                  currentOrders={currentData}
+                  selectedItems={selectedRowIds}
+                  onSelectItem={handleSelectItem}
+                  onSelectAll={handleSelectAll}
+                  onRowClick={(order: Order, e: React.MouseEvent) => {
+                    if ((e.target as HTMLElement).closest('input,button')) return
+                    setPreviewOrder(order)
+                    setShowPreviewModal(true)
+                  }}
+                  columns={(function(){
+                    // Reorder columns to match the requested sequence
+                    const priority: Record<string, number> = {
+                      // 1. S.NO is added separately as serialNumberColumn
+                      name: 1, // 2. order (order name)
+                      'customer.firstName': 2, // 3. customer first name
+                      fulfillmentStatus: 3, // 4. fulfillment status
+                      currentTotalPrice: 4, // 5. current total price
+                      createdAt: 5, // 6. created date
+                      updatedAt: 6, // 7. updated date
+                      deliveryStatus: 7, // 8. delivery status
+                      tags: 8, // 9. tags
+                      sourceName: 9, // 10. channels
+                      financialStatus: 10, // 11. payment status
+                      email: 11 // 12. email
+                    }
 
-                  const orderedJson = [...jsonColumns].sort((a, b) => {
-                    const pa = priority[a.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
-                    const pb = priority[b.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
-                    if (pa === pb) return 0
-                    return pa - pb
-                  })
+                    const orderedJson = [...jsonColumns].sort((a, b) => {
+                      const pa = priority[a.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
+                      const pb = priority[b.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
+                      if (pa === pb) return 0
+                      return pa - pb
+                    })
 
-                  const allOrderColumns = [serialNumberColumn, ...orderedJson]
-                  return allOrderColumns
-                })()}
-                loading={loading}
-                error={error}
-                searchQuery={searchQuery}
-                isFullScreen={isFullScreen}
-                activeColumnFilter={activeColumnFilter}
-                columnFilters={columnFilters}
-                onFilterClick={setActiveColumnFilter}
-                onColumnFilterChange={handleColumnFilter}
-                getUniqueValues={getUniqueValues}
-                showImages={false}
-                onClearSearch={clearSearch}
-                isSearching={isAlgoliaSearching}
-                sortState={sortState}
-                onRequestSort={handleRequestSort}
-                compact={rowDensity === 'compact'}
-                showActions={false}
-                columnWidths={{ serialNumber: 88 }}
-                renderHeader
-              />
+                    const allOrderColumns = [serialNumberColumn, ...orderedJson]
+                    return allOrderColumns
+                  })()}
+                  loading={loading}
+                  error={error}
+                  searchQuery={searchQuery}
+                  isFullScreen={isFullScreen}
+                  activeColumnFilter={activeColumnFilter}
+                  columnFilters={columnFilters}
+                  onFilterClick={setActiveColumnFilter}
+                  onColumnFilterChange={handleColumnFilter}
+                  getUniqueValues={getUniqueValues}
+                  showImages={false}
+                  onClearSearch={clearSearch}
+                  isSearching={isAlgoliaSearching}
+                  sortState={sortState}
+                  onRequestSort={handleRequestSort}
+                  compact={rowDensity === 'compact'}
+                  showActions={false}
+                  columnWidths={{ serialNumber: 88 }}
+                  renderHeader
+                  scrollGroupId="orders-table"
+                  tableScrollRef={tableScrollRef}
+                />
+              </div>
+              
+              {/* Pagination - Sticky at bottom of container, always visible */}
+              <div className="flex-shrink-0 border-t border-gray-200 shadow-lg bg-white">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  itemsPerPage={effectiveItemsPerPage}
+                  totalItems={totalItemsForPagination}
+                  onPageChange={handlePageChange}
+                  onItemsPerPageChange={handleItemsPerPageChange}
+                  scrollGroupId="orders-table"
+                  tableScrollRef={tableScrollRef}
+                />
+              </div>
             </div>
           ) : viewMode === 'grid' ? (
             <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -3101,20 +2987,6 @@ onClick={() => setShowExportModal(true)}
           </div>
         )}
 
-      </div>
-
-      {/* Pagination */}
-        <div className={cn(
-          isFullScreen ? "sticky bottom-0 z-20 bg-white border-t border-gray-200 px-4 py-2" : "mt-6"
-        )}>
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        itemsPerPage={effectiveItemsPerPage}
-        totalItems={totalItemsForPagination}
-        onPageChange={handlePageChange}
-        onItemsPerPageChange={handleItemsPerPageChange}
-      />
       </div>
 
       {/* Modals */}
@@ -3680,7 +3552,6 @@ onClick={() => setShowExportModal(true)}
         onSave={saveColumnConfig}
         onReset={resetJsonColumns}
       />
-      </div>
     </div>
   )
 }

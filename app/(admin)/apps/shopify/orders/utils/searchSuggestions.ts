@@ -54,7 +54,7 @@ export const getSearchSuggestions = (
   const orderNumberSuggestions = []
   for (const order of limitedOrders) {
     if (orderNumberSuggestions.length >= 2) break // Early exit
-    if (order.orderNumber && order.orderNumber.toLowerCase().includes(queryLower)) {
+    if (order.orderNumber && String(order.orderNumber).toLowerCase().includes(queryLower)) {
       orderNumberSuggestions.push({
         id: `order-${order.id}`,
         text: order.orderNumber,

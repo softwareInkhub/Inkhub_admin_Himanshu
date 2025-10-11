@@ -159,9 +159,9 @@ export const useAppStore = create<AppState>()(
           }
         }
 
-        // Check for existing tab with same path and title
+        // Check for existing tab with same path (ignore title to prevent duplicates)
         const existingTab = get().tabs.find(tab => 
-          tab.path === tabData.path && tab.title === tabData.title
+          tab.path === tabData.path
         )
         if (existingTab) {
           // If tab already exists, just set it as active

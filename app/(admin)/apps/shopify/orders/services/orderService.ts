@@ -50,7 +50,11 @@ const mapRecordToOrder = (raw: any, idx: number): Order => {
   
   const deliveryStatus = fulfillmentStatus === 'fulfilled' ? 'Tracking added' : 'Pending'
   
+  // Create the order object with BOTH flattened fields AND the complete raw data
+  // This allows JSON columns to access any nested path while keeping backwards compatibility
   return {
+    ...raw, // Spread all raw data first to preserve nested structures
+    // Then override with our normalized/computed fields
     id: String(raw?.id ?? raw?.order_id ?? raw?.gid ?? `order-${Date.now()}-${idx}`),
     name: String(raw?.name ?? raw?.order_name ?? (orderNumber ? `#${orderNumber}` : '')),
     orderNumber,

@@ -1,5 +1,11 @@
 import { Order } from '../types'
 
+// ============================================================
+// Advanced Search Parser - ALL COMPARISONS ARE CASE-INSENSITIVE
+// Used as fallback when Algolia is unavailable
+// Note: Orders page primarily uses Algolia for all searches
+// ============================================================
+
 // Column mapping for search queries - covers all table headers
 const COLUMN_MAPPING: Record<string, keyof Order> = {
   // Order column
@@ -137,7 +143,7 @@ function parseCondition(conditionStr: string): SearchCondition | null {
     if (mappedColumn) {
       console.log('Quoted match:', { column: mappedColumn, value })
       return {
-        column: mappedColumn,
+        column: String(mappedColumn),
         operator: 'contains',
         value: value
       }
@@ -152,7 +158,7 @@ function parseCondition(conditionStr: string): SearchCondition | null {
     if (mappedColumn) {
       console.log('Colon match:', { column: mappedColumn, value })
       return {
-        column: mappedColumn,
+        column: String(mappedColumn),
         operator: 'contains',
         value: value.trim()
       }
@@ -167,7 +173,7 @@ function parseCondition(conditionStr: string): SearchCondition | null {
     if (mappedColumn) {
       console.log('Operator match:', { column: mappedColumn, operator, value })
       return {
-        column: mappedColumn,
+        column: String(mappedColumn),
         operator,
         value: value.trim()
       }
@@ -281,34 +287,34 @@ export function applyAdvancedSearch(orders: Order[], parsedQuery: ParsedQuery): 
   })
 }
 
-// Evaluate single condition
+// Evaluate single condition (case-insensitive)
 function evaluateCondition(order: Order, condition: SearchCondition): boolean {
   const operator = condition.operator
   const searchValue = condition.value
 
-  console.log('Evaluating condition:', { column: condition.column, operator, searchValue, orderNumber: order.orderNumber })
+  console.log('Evaluating condition (case-insensitive):', { column: condition.column, operator, searchValue, orderNumber: order.orderNumber })
 
-  // Handle 'all' column search (search across all text fields)
+  // Handle 'all' column search (search across all text fields) - case-insensitive
   if (condition.column === 'all') {
     const searchLower = String(searchValue).toLowerCase()
     
     const result = (
-      order.orderNumber.toLowerCase().includes(searchLower) ||
-      order.customerName.toLowerCase().includes(searchLower) ||
-      order.customerEmail.toLowerCase().includes(searchLower) ||
-      order.status.toLowerCase().includes(searchLower) ||
-      order.fulfillmentStatus.toLowerCase().includes(searchLower) ||
-      order.financialStatus.toLowerCase().includes(searchLower) ||
+      (order.orderNumber?.toLowerCase() || '').includes(searchLower) ||
+      (order.customerName?.toLowerCase() || '').includes(searchLower) ||
+      (order.customerEmail?.toLowerCase() || '').includes(searchLower) ||
+      (order.status?.toLowerCase() || '').includes(searchLower) ||
+      (order.fulfillmentStatus?.toLowerCase() || '').includes(searchLower) ||
+      (order.financialStatus?.toLowerCase() || '').includes(searchLower) ||
       (order.channel?.toLowerCase() || '').includes(searchLower) ||
       (order.deliveryMethod?.toLowerCase() || '').includes(searchLower) ||
-      order.tags?.some(tag => tag.toLowerCase().includes(searchLower)) ||
-      String(order.total).includes(searchLower) ||
-      String(order.items).includes(searchLower) ||
+      (order.tags?.some(tag => tag.toLowerCase().includes(searchLower)) || false) ||
+      String(order.total || '').includes(searchLower) ||
+      String(order.items || '').includes(searchLower) ||
       new Date(order.createdAt).toLocaleDateString().toLowerCase().includes(searchLower) ||
       new Date(order.updatedAt).toLocaleDateString().toLowerCase().includes(searchLower)
     )
     
-    console.log('All column search result:', result, 'for search:', searchLower)
+    console.log('All column search result (case-insensitive):', result, 'for search:', searchLower)
     return result
   }
 

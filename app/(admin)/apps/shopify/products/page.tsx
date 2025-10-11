@@ -858,15 +858,14 @@ function ProductsClientContent({
     }
   }
 
-  // Optimized data fetching with immediate UI response
+  // Optimized data fetching with immediate UI response - prevent double mount
   useEffect(() => {
-    console.log('🚀 Products page mounted, starting optimized data fetch...')
-    
     // Only fetch if we haven't fetched yet or if data is empty
     if (hasFetchedRef.current && productData.length > 0) {
-      console.log('📦 Data already loaded, skipping fetch')
       return
     }
+    
+    console.log('🚀 Products page mounted, starting optimized data fetch...')
     
     // Show loading immediately but check cache first
     setLoading(true)
@@ -921,9 +920,11 @@ function ProductsClientContent({
     })
   }, [addTab])
 
-  // Optimized non-blocking cache saving
+  // Optimized non-blocking cache saving - only save once
+  const hasCachedProducts = useRef(false)
   useEffect(() => {
-    if (isDataLoaded && productData.length > 0 && typeof window !== 'undefined') {
+    if (isDataLoaded && productData.length > 0 && !hasCachedProducts.current && typeof window !== 'undefined') {
+      hasCachedProducts.current = true
       // Use setTimeout to avoid blocking the UI
       setTimeout(() => {
         try {
@@ -956,14 +957,16 @@ function ProductsClientContent({
           // Silent fail to avoid blocking user experience
           console.warn('⚠️ Cache storage failed:', e)
         }
-      }, 100) // Small delay to not block UI
+      }, 500) // Increased delay to ensure UI is responsive
     }
   }, [isDataLoaded, productData.length]) // Only depend on length to avoid frequent re-runs
 
-  // Debug: Monitor product data changes (reduced logging for cleaner console)
+  // Debug: Monitor product data changes - only log once when data first loads
+  const hasLoggedProducts = useRef(false)
   useEffect(() => {
-    if (productData.length > 0) {
+    if (productData.length > 0 && !hasLoggedProducts.current) {
       console.log('📊 Product data loaded:', productData.length, 'products')
+      hasLoggedProducts.current = true
     }
   }, [productData.length])
 
@@ -978,24 +981,15 @@ function ProductsClientContent({
     return calculateKPIMetrics(dataToUse)
   }, [productData, useAlgoliaFilters, algoliaFilterResults, useAlgoliaSearch, algoliaSearchResults])
 
-  // Get all products for filtering (combine all chunks)
+  // Get all products for filtering (combine all chunks) - optimized with stable dependencies
   const allProducts = useMemo(() => {
-    console.log('🔍 AllProducts Debug:', {
-      chunkKeys: chunkKeys,
-      chunkDataKeys: Object.keys(chunkData),
-      chunkDataLength: Object.values(chunkData).flat().length,
-      productDataLength: productData.length,
-      productData: productData.slice(0, 2) // Show first 2 products
-    })
-    
-    if (chunkKeys.length > 0) {
-      const chunkProducts = Object.values(chunkData).flat()
-      return chunkProducts
+    if (chunkKeys.length > 0 && Object.keys(chunkData).length > 0) {
+      return Object.values(chunkData).flat()
     }
     return productData
-  }, [chunkKeys, chunkData, productData])
+  }, [chunkKeys.length, Object.keys(chunkData).length, productData]) // Stable dependencies
 
-      // Filter products based on all criteria - optimized for performance
+      // Filter products based on all criteria - optimized for performance with reduced logging
   const filteredProducts = useMemo(() => {
       
       // Start with deduplicated product data
@@ -1003,12 +997,10 @@ function ProductsClientContent({
       
       // Priority 1: Use Algolia filter results if Advanced Filters are active
       if (useAlgoliaFilters && algoliaFilterResults.length > 0) {
-        console.log('🔍 Using Algolia Advanced Filters results:', algoliaFilterResults.length, 'products')
         filtered = algoliaFilterResults
       }
       // Priority 2: Use Algolia search results if regular search is active
       else if (useAlgoliaSearch && algoliaSearchResults.length > 0) {
-        console.log('🔍 Using Algolia search results:', algoliaSearchResults.length, 'products')
         filtered = algoliaSearchResults
       }
       // Priority 3: Use local filtering if no Algolia results

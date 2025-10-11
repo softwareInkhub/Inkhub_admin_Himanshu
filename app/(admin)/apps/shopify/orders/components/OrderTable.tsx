@@ -51,6 +51,7 @@ interface OrderTableProps {
   renderHeader?: boolean // default true; set false to render body without header
   // Optional: synchronize horizontal scrolling between multiple tables (header/body)
   scrollGroupId?: string
+  tableScrollRef?: React.RefObject<HTMLDivElement>
 }
 
 export default function OrderTable({
@@ -79,7 +80,8 @@ export default function OrderTable({
   columnWidths,
   headerOnly = false,
   renderHeader = true,
-  scrollGroupId
+  scrollGroupId,
+  tableScrollRef
 }: OrderTableProps) {
   // Refs for horizontal scroll synchronization
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -105,6 +107,44 @@ export default function OrderTable({
       el.removeEventListener('scroll', onScroll)
     }
   }, [scrollGroupId])
+
+  // Sync external tableScrollRef with internal scrollContainerRef
+  useEffect(() => {
+    if (!tableScrollRef) return
+    
+    const syncRefs = () => {
+      if (scrollContainerRef.current && tableScrollRef.current !== scrollContainerRef.current) {
+        // Use a more direct approach to sync the refs
+        Object.defineProperty(tableScrollRef, 'current', {
+          value: scrollContainerRef.current,
+          writable: true,
+          configurable: true
+        })
+      }
+    }
+
+    // Try to sync immediately and after a delay
+    syncRefs()
+    const timeoutId = setTimeout(syncRefs, 100)
+    
+    return () => {
+      clearTimeout(timeoutId)
+    }
+  }, [tableScrollRef])
+
+  // Log scroll events for debugging
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+
+    const onScroll = () => {
+      console.log('OrderTable scroll:', el.scrollLeft)
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+    }
+  }, [])
 
   // Use parent's sorting state instead of internal state
   // const [sortColumn, setSortColumn] = useState<string | null>(null)
@@ -474,9 +514,9 @@ export default function OrderTable({
   )
 
   const tableHeader = (
-    <thead className="sticky top-0 z-20">
-      <tr>
-        <th className="bg-white sticky top-0 z-20 px-4 py-2 text-left border-b border-gray-200">
+    <thead className="sticky top-0 z-30 bg-white shadow-sm" style={{ position: 'sticky', top: 0, backgroundColor: 'white', zIndex: 30 }}>
+      <tr className="bg-white">
+        <th className="bg-white sticky top-0 z-30 px-4 py-3 text-left border-b-2 border-gray-200" style={{ position: 'sticky', top: 0, backgroundColor: 'white', zIndex: 30 }}>
           <input
             type="checkbox"
             checked={allSelected}
@@ -490,9 +530,10 @@ export default function OrderTable({
         {columns.map((column) => (
           <th
             key={column.key}
-            className={cn("bg-white sticky top-0 z-20 text-left text-xs font-medium text-gray-600 border-b border-gray-200 border-r whitespace-nowrap min-w-[160px]",
-              compact ? 'py-1 px-2' : 'py-2 px-3'
+            className={cn("bg-white sticky top-0 z-30 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b-2 border-gray-200 border-r whitespace-nowrap min-w-[160px]",
+              compact ? 'py-2 px-2' : 'py-3 px-3'
             )}
+            style={{ position: 'sticky', top: 0, backgroundColor: 'white', zIndex: 30 }}
           >
             <div className="flex items-center justify-between">
               <span>{column.label}</span>
@@ -600,9 +641,9 @@ export default function OrderTable({
           </button>
         </div>
       )}
-      <div className="overflow-x-auto">
-        <div ref={scrollContainerRef} className="overflow-x-auto">
-          <table className={`${columns.length >= 10 ? 'min-w-max' : 'w-full'} table-fixed`} key={`orders-table-${sortedOrders.length}`}>
+      <div className="overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        <div ref={scrollContainerRef} className="overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          <table className="min-w-max table-fixed" key={`orders-table-${sortedOrders.length}`}>
           {renderColGroup()}
           {renderHeader ? tableHeader : null}
           <tbody className="bg-white divide-y divide-gray-200">

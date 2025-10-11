@@ -60,7 +60,7 @@ export default function OrderViewHeader({
     { key: 'tags', title: 'TAGS', width: 'w-32', filterType: 'multi-select', options: getUniqueValues('tags') },
     { key: 'channel', title: 'CHANNEL', width: 'w-40', filterType: 'multi-select', options: getUniqueValues('channel') },
     { key: 'deliveryMethod', title: 'DELIVERY METHOD', width: 'w-40', filterType: 'multi-select', options: getUniqueValues('deliveryMethod') },
-    { key: 'financialStatus', title: 'PAYMENT STATUS', width: 'w-32', filterType: 'select', options: ['paid', 'pending', 'refunded'] }
+    { key: 'financialStatus', title: 'PAYMENT STATUS', width: 'w-32', filterType: 'select', options: ['paid', 'pending', 'partially_paid', 'partially_refunded', 'refunded', 'voided', 'authorized'] }
   ]
 
   const getColumnClass = (column: any) => {

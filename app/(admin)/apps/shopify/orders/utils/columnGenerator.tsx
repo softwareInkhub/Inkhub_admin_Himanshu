@@ -297,18 +297,26 @@ export function generateEnhancedCellRenderer(
   }
   // Special rendering for status fields
   if (field.key === 'fulfillmentStatus' || field.key === 'fulfillment_status') {
-    const value = getValueFromPath(order, field.path)
+    // Try multiple paths to find the fulfillment status
+    const value = getFirstValue(['fulfillment_status', 'fulfillmentStatus', 'fulfillment', field.path])
     if (value) return renderStatusBadge(String(value), 'fulfillment')
+    // If still no value, try the Order type property directly
+    if (order.fulfillmentStatus) return renderStatusBadge(String(order.fulfillmentStatus), 'fulfillment')
   }
 
   if (field.key === 'financialStatus' || field.key === 'financial_status' || field.key === 'paymentStatus') {
-    const value = getValueFromPath(order, field.path)
+    // Try multiple paths to find the financial status
+    const value = getFirstValue(['financial_status', 'financialStatus', 'paymentStatus', field.path])
     if (value) return renderStatusBadge(String(value), 'financial')
+    // If still no value, try the Order type property directly
+    if (order.financialStatus) return renderStatusBadge(String(order.financialStatus), 'financial')
   }
 
   if (field.key === 'deliveryStatus') {
-    const value = getValueFromPath(order, field.path)
+    const value = getFirstValue(['delivery_status', 'deliveryStatus', field.path])
     if (value) return renderStatusBadge(String(value), 'delivery')
+    // If still no value, try the Order type property directly
+    if (order.deliveryStatus) return renderStatusBadge(String(order.deliveryStatus), 'delivery')
   }
 
   // Friendly fallbacks for common business columns
@@ -357,14 +365,23 @@ export function generateEnhancedCellRenderer(
   }
 
   // Customer name fallbacks (works for both nested and flattened shapes)
-  if (field.key === 'customer.firstName' || field.path.endsWith('customer.first_name')) {
+  if (field.key === 'customer.firstName' || field.path.endsWith('customer.first_name') || field.key === 'customerName') {
     const value = getFirstValue([
       'customer.first_name',
-      'customer.firstName',
+      'customer.firstName', 
       'shipping_address.first_name',
-      'billing_address.first_name'
+      'billing_address.first_name',
+      'customerName', // Direct property
+      'firstName', // Direct property
+      'customer_name', // Alternative naming
+      'first_name' // Alternative naming
     ])
     if (value) return <span className="text-sm text-gray-900">{String(value)}</span>
+    
+    // Final fallback: check Order object directly
+    if (order.customerName) return <span className="text-sm text-gray-900">{String(order.customerName)}</span>
+    if ((order as any).firstName) return <span className="text-sm text-gray-900">{String((order as any).firstName)}</span>
+    
     return <span className="text-xs text-gray-400 italic">N/A</span>
   }
 

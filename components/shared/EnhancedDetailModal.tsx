@@ -621,9 +621,9 @@ export default function EnhancedDetailModal({
                   <div className="bg-gray-50 rounded-lg p-4">
                     <h5 className="font-medium text-gray-900 mb-3">Tags</h5>
                     <div className="flex flex-wrap gap-2">
-                      {currentData.tags.map((tag: string, idx: number) => (
+                      {Array.isArray(currentData.tags) ? currentData.tags.map((tag: string, idx: number) => (
                         <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">{tag}</span>
-                      ))}
+                      )) : null}
                     </div>
                   </div>
                 )}

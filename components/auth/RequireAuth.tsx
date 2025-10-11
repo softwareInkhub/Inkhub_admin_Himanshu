@@ -19,6 +19,10 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
 
     // Prevent multiple calls - only run once per mount
     let isMounted = true;
+    const hasRunRef = { current: false };
+    
+    if (hasRunRef.current) return;
+    hasRunRef.current = true;
 
     const getCookie = (name: string) => {
       if (typeof document === 'undefined') return undefined as string | undefined
@@ -83,29 +87,26 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
               setCurrentUser(userProfile);
             }
           } else {
-            // If backend profile fails, fallback to ID token claims (if present)
+            // If profile fetch fails, but we have an id token, decode it as a quick fallback
             const claims = decodeJwt(idToken)
             if (claims && isMounted) {
               setCurrentUser({
                 id: claims.sub || 'user',
-                name: claims.name || claims.given_name || `${claims.given_name || ''} ${claims.family_name || ''}`.trim() || claims.email || 'User',
+                name: claims.name || claims.given_name || claims.email || 'User',
                 email: claims.email,
-                role: (claims['role'] || claims['cognito:groups']?.[0] || 'admin') as any,
+                role: 'admin',
               } as any)
             } else {
-              throw new Error('Failed to fetch user profile and no usable ID token claims')
+              throw new Error('Failed to fetch user profile')
             }
           }
         } catch (error) {
-          // Do not set any dummy user. Attempt ID token decode as a final fallback.
-          const claims = decodeJwt(idToken)
-          if (claims && isMounted) {
-            setCurrentUser({
-              id: claims.sub || 'user',
-              name: claims.name || claims.given_name || `${claims.given_name || ''} ${claims.family_name || ''}`.trim() || claims.email || 'User',
-              email: claims.email,
-              role: (claims['role'] || claims['cognito:groups']?.[0] || 'admin') as any,
-            } as any)
+          // Only fall back to dev dummy user when no tokens available and in development
+          const isDev = process.env.NODE_ENV === 'development'
+          const hasAnyToken = Boolean(accessToken || idToken)
+          if (isMounted && isDev && !hasAnyToken) {
+            console.warn('[RequireAuth] Development mode with no tokens - using fallback user')
+            setCurrentUser({ id: 'dev', name: 'Developer', email: 'dev@example.com', role: 'admin' } as any)
           } else {
             console.warn('[RequireAuth] Unable to resolve user profile:', error)
           }

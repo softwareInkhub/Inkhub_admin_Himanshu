@@ -779,19 +779,17 @@ function DesignLibraryPage() {
     })
   }, [allDesigns, filteredData])
 
-  // Tab management - avoid duplicate tabs if sidebar already created one
+  // Tab management
   useEffect(() => {
-    if (hasAddedTab.current) return
-    const existing = useAppStore.getState().tabs.find(t => t.path === '/design-library/designs')
-    if (!existing) {
+    if (!hasAddedTab.current) {
       addTab({
         title: 'Designs',
         path: '/design-library/designs',
         pinned: false,
         closable: true,
       })
+      hasAddedTab.current = true
     }
-    hasAddedTab.current = true
   }, [addTab])
 
   // Page configuration - memoized to prevent unnecessary re-renders

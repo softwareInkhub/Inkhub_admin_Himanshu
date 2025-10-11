@@ -276,16 +276,6 @@ export const filterProducts = (
     vendors: string[]
   }
 ): Product[] => {
-  // Only log in development mode for performance
-  if (process.env.NODE_ENV === 'development') {
-    console.log('🔍 filterProducts called with:', {
-      productsLength: products.length,
-      activeFilter,
-      searchQuery: searchQuery ? `${searchQuery.substring(0, 20)}...` : '',
-      columnFiltersCount: Object.keys(columnFilters).filter(k => columnFilters[k]).length
-    })
-  }
-  
   let filtered = products
 
   // Filter by status
@@ -428,9 +418,5 @@ export const filterProducts = (
     }
   }
 
-  // Only log result in development mode
-  if (process.env.NODE_ENV === 'development') {
-    console.log('🔍 filterProducts result:', filtered.length, 'products')
-  }
   return filtered
 }

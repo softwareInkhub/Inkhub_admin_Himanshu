@@ -524,19 +524,17 @@ function PinsClient() {
     }
   }
 
-  // Tab management - avoid duplicate tabs if sidebar already created one
+  // Tab management
   useEffect(() => {
-    if (hasAddedTab.current) return
-    const existing = useAppStore.getState().tabs.find(t => t.path === '/apps/pinterest/pins')
-    if (!existing) {
+    if (!hasAddedTab.current) {
       addTab({
         title: 'Pinterest Pins',
         path: '/apps/pinterest/pins',
         pinned: false,
         closable: true,
       })
+      hasAddedTab.current = true
     }
-    hasAddedTab.current = true
   }, [addTab])
 
   // Page configuration

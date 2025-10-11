@@ -353,19 +353,17 @@ function BoardsClient() {
     })
   }, [boardsData])
 
-  // Tab management - avoid duplicate tabs if sidebar already created one
+  // Tab management
   useEffect(() => {
-    if (hasAddedTab.current) return
-    const existing = useAppStore.getState().tabs.find(t => t.path === '/apps/pinterest/boards')
-    if (!existing) {
+    if (!hasAddedTab.current) {
       addTab({
         title: 'Pinterest Boards',
         path: '/apps/pinterest/boards',
         pinned: false,
         closable: true,
       })
+      hasAddedTab.current = true
     }
-    hasAddedTab.current = true
   }, [addTab])
 
   // Page configuration

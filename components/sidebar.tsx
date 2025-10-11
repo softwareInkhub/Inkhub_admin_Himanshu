@@ -157,17 +157,22 @@ function SidebarItemComponent({ item, level, isCollapsed, onActivate, onNavigate
     e.preventDefault()
     
     if (hasChildren) {
-      // For parent items, just toggle expansion
+      // For parent items, just toggle expansion (don't navigate or create tab)
       setIsExpanded(!isExpanded)
+      
+      // If sidebar is collapsed, expand it
+      if (isCollapsed) {
+        onActivate()
+      }
     } else {
-      // For leaf items, navigate and create tab
+      // For leaf items (no children), navigate and create tab
       console.log('🔄 Sidebar clicked:', item.title, 'Path:', item.path)
       onNavigate(item.path, item.title)
-    }
-    
-    // If sidebar is collapsed, expand it on any item click
-    if (isCollapsed) {
-      onActivate()
+      
+      // If sidebar is collapsed, expand it
+      if (isCollapsed) {
+        onActivate()
+      }
     }
   }
 

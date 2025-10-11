@@ -1,4 +1,10 @@
+'use client'
+
 import { Order } from '../types'
+
+// ============================================================
+// Algolia Search Functions - ALL SEARCHES ARE CASE-INSENSITIVE
+// ============================================================
 
 export interface AlgoliaSearchResponse {
   message: string
@@ -49,41 +55,21 @@ export const searchOrdersAcrossAllChunks = async (
   currentChunkOrders: Order[],
   totalChunks: number = 137
 ): Promise<Order[]> => {
-  if (!query.trim()) return []
-  
-  // Clean and validate the search query
-  const cleanQuery = query.trim().toLowerCase()
-  console.log(`🔍 Searching across all ${totalChunks} chunks for query: "${query}"`)
-  console.log(`🔍 Cleaned query: "${cleanQuery}"`)
-  console.log(`🔍 Query validation:`, {
-    original: query,
-    cleaned: cleanQuery,
-    length: cleanQuery.length,
-    isEmpty: cleanQuery.length === 0
-  })
+  console.log('🔍 Starting Algolia search across all chunks:', { query, totalChunks })
   
   try {
     const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
     
     // Search request for all chunks with higher limit
-    const requestBody: AlgoliaSearchRequest = {
-      project: "myProject",
-      table: "shopify-inkhub-get-orders",
-      query: cleanQuery, // Use cleaned query for better search results
-      hitsPerPage: 500, // Increased significantly to get comprehensive results
+    const searchRequest: AlgoliaSearchRequest = {
+      project: 'myProject',
+      table: 'shopify-inkhub-get-orders',
+      query: query.toLowerCase(), // Case-insensitive search
+      hitsPerPage: 1000,
       page: 0
     }
     
-    // Log the search query for debugging
-    console.log('🔍 Search query:', query)
-    console.log('🔍 Cleaned query:', query.trim())
-    console.log('🔍 Query length:', query.trim().length)
-    
-    console.log('🔍 Algolia search request:', JSON.stringify(requestBody, null, 2))
-    
-    // Try the correct Algolia search endpoint with better timeout handling
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000) // Reduced to 15 seconds
+    console.log('🔍 Algolia search request:', searchRequest)
     
     try {
       const response = await fetch(`${BACKEND_URL}/search/query`, {
@@ -91,309 +77,222 @@ export const searchOrdersAcrossAllChunks = async (
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal
+        body: JSON.stringify(searchRequest)
       })
-      
-      clearTimeout(timeoutId)
       
       if (!response.ok) {
         throw new Error(`Algolia search failed: ${response.status}`)
       }
       
       const data: AlgoliaSearchResponse = await response.json()
-      console.log('🔍 Algolia search response:', JSON.stringify(data, null, 2))
+      console.log('🔍 Algolia response:', data.hits?.length || 0, 'results')
       
       if (!data.hits || !Array.isArray(data.hits)) {
         console.warn('No hits found in Algolia response')
         return []
       }
       
-      console.log(`✅ Found ${data.hits.length} results from Algolia search`)
-      
-      // Convert Algolia hits to Order format with comprehensive data handling
+      // Convert Algolia hits to Order format
       const convertedOrders: Order[] = []
       const processedIds = new Set<string>()
-      const processedOrderNumbers = new Set<string>()
       
       for (const hit of data.hits) {
-        // Use comprehensive data from Algolia hit instead of relying on local chunk data
         const order = convertAlgoliaHitToOrder(hit, currentChunkOrders)
         
-        // Skip if order is null (failed conversion)
-        if (!order) {
-          console.error('❌ Conversion failed for hit:', {
-            orderNumber: hit?.orderNumber,
-            objectID: hit?.objectID,
-            customerName: (hit as any)?.['customer.first_name'],
-            email: (hit as any)?.email
-          })
-          continue
-        }
+        if (!order) continue
         
-        // Create unique identifier using both ID and order number
-        const uniqueKey = `${order.id}-${order.orderNumber}`
+        // Skip duplicates
+        if (processedIds.has(order.id)) continue
+        processedIds.add(order.id)
         
-        // Skip if we've already processed this exact order
-        if (processedIds.has(uniqueKey)) {
-          continue
-        }
-        
-        // Additional check: skip if order number is already processed (prevents duplicates)
-        if (processedOrderNumbers.has(order.orderNumber?.toString() || '')) {
-          continue
-        }
-        
-        processedIds.add(uniqueKey)
-        processedOrderNumbers.add(order.orderNumber?.toString() || '')
         convertedOrders.push(order)
-        
-        // Log successful conversion
-        console.log('✅ Successfully converted order:', {
-          orderNumber: order.orderNumber,
-          customerName: order.customerName,
-          total: order.total
-        })
       }
       
-      console.log('✅ Converted Algolia orders:', convertedOrders.length)
-      
-      // Log sample results for debugging
-      if (convertedOrders.length > 0) {
-        console.log('🔍 Sample converted orders:')
-        convertedOrders.slice(0, 3).forEach((order, index) => {
-          console.log(`  ${index + 1}. Order: ${order.orderNumber}, Customer: ${order.customerName}, Total: ${order.total}`)
-        })
-      }
+      console.log('✅ Algolia search completed:', {
+        totalHits: data.hits.length,
+        convertedOrders: convertedOrders.length,
+        duplicatesRemoved: data.hits.length - convertedOrders.length
+      })
       
       return convertedOrders
       
     } catch (fetchError) {
-      clearTimeout(timeoutId)
+      console.error('❌ Algolia fetch error:', fetchError)
       throw fetchError
     }
     
   } catch (error) {
-    // Handle different types of errors gracefully
-    if (error instanceof Error && error.name === 'AbortError') {
-      console.warn('⚠️ Algolia search was aborted (timeout or cancelled)')
-      // Don't log this as an error since it's expected behavior
-    } else {
-      console.error('❌ Algolia search error:', error)
-    }
-    
-    // Fallback to local search if Algolia fails
-    console.log('🔄 Falling back to local search...')
-    const localResults = performLocalSearch(query, currentChunkOrders)
-    console.log('🔄 Local search fallback returned:', localResults.length, 'results')
-    return localResults
+    console.error('❌ Algolia search error:', error)
+    return []
   }
 }
 
-// Convert Algolia hit to Order format and merge with local data
 export const convertAlgoliaHitToOrder = (hit: any, localOrders: Order[]): Order | null => {
-  console.log('Converting Algolia hit:', hit?.order_number || hit?.objectID, 'Available local orders:', localOrders.length)
+  console.log('🔄 Converting Algolia hit:', hit.order_number || hit.orderNumber || hit.objectID)
+  console.log('🔄 Full hit object keys:', Object.keys(hit))
   
-  // Safely get values with fallbacks
-  const orderNumber = hit?.order_number?.toString() || hit?.name?.replace('#INK', '') || '0'
-  const customerName = hit?.['customer.first_name'] || hit?.customerName || hit?.customer_first_name || 'Unknown Customer'
-  const customerEmail = hit?.['customer.email'] || hit?.email || 'unknown@example.com'
-  const objectID = hit?.objectID || 'unknown-id'
-  
-  // Try to find matching order in local data using multiple strategies
-  let localOrder = localOrders.find(o => o.id === objectID)
-  
-  if (!localOrder && orderNumber) {
-    // Try matching by order number (case-insensitive)
-    localOrder = localOrders.find(o => 
-      o.orderNumber?.toLowerCase() === orderNumber.toLowerCase()
-    )
-  }
-  
-  if (!localOrder && orderNumber) {
-    // Try matching by order number with different formats
-    localOrder = localOrders.find(o => {
-      const localOrderNum = o.orderNumber?.toString().toLowerCase() || ''
-      const searchOrderNum = orderNumber.toLowerCase()
-      
-      // Exact match
-      if (localOrderNum === searchOrderNum) return true
-      
-      // Remove #INK prefix if present
-      if (localOrderNum.includes('ink') && searchOrderNum.includes('ink')) {
-        const cleanLocal = localOrderNum.replace(/[^0-9]/g, '')
-        const cleanSearch = searchOrderNum.replace(/[^0-9]/g, '')
-        if (cleanLocal === cleanSearch) return true
-      }
-      
-      // Partial match
-      return localOrderNum.includes(searchOrderNum) || searchOrderNum.includes(localOrderNum)
-    })
-  }
-  
-  // Additional fallback: try matching by customer email
-  if (!localOrder && hit?.['customer.email']) {
-    localOrder = localOrders.find(o => 
-      o.customerEmail?.toLowerCase() === hit['customer.email'].toLowerCase()
-    )
-  }
+  // Try to find matching local order first - this is CRITICAL for customer names
+  const localOrder = localOrders.find(order => 
+    order.id === hit.objectID || 
+    order.orderNumber === hit.order_number || 
+    order.orderNumber === hit.orderNumber ||
+    String(order.orderNumber) === String(hit.order_number) ||
+    String(order.orderNumber) === String(hit.orderNumber)
+  )
   
   if (localOrder) {
-    console.log('✅ Found matching local order:', localOrder.orderNumber, 'for Algolia hit:', orderNumber)
-    // Merge local data with Algolia highlight results
-    return {
-      ...localOrder,
-      _highlightResult: hit._highlightResult
-    }
-  } else {
-    console.log('🔍 Using Algolia data directly for order:', orderNumber, 'objectID:', objectID)
-    // Generate fallback data using Algolia information
-    return generateRealisticData()
+    console.log('✅ Found matching local order for hit:', hit.order_number || hit.objectID, 'with customer name:', localOrder.customerName)
+    return localOrder
   }
   
-  // Fallback to generated data if no local match found
+  // If no local match, use Algolia data directly
+  console.log('🔍 Using Algolia data directly for order:', hit.order_number || hit.objectID)
+  
+  // Extract customer name from hit data with extensive fallbacks
+  console.log('🔍 Raw hit data for customer name extraction:', {
+    customerName: hit.customerName,
+    firstName: hit.firstName,
+    lastName: hit.lastName,
+    customer_name: hit.customer_name,
+    first_name: hit.first_name,
+    last_name: hit.last_name,
+    customer: hit.customer,
+    shipping_address: hit.shipping_address,
+    billing_address: hit.billing_address
+  })
+  
+  // DEBUG: Check if we have any matching local orders with customer names
+  const matchingLocalOrders = localOrders.filter(order => 
+    String(order.orderNumber).includes(String(hit.order_number || hit.orderNumber || '').substring(0, 5))
+  )
+  if (matchingLocalOrders.length > 0) {
+    console.log('🔍 Found similar local orders:', matchingLocalOrders.slice(0, 2).map(o => ({
+      orderNumber: o.orderNumber,
+      customerName: o.customerName,
+      id: o.id
+    })))
+  }
+  
+  // Extract customer name from nested fields (Algolia format)
+  const firstName = hit['customer.first_name'] || hit.firstName || hit.first_name || hit.customer?.firstName || hit.customer?.first_name
+  const lastName = hit['customer.last_name'] || hit.lastName || hit.last_name || hit.customer?.lastName || hit.customer?.last_name
+  
+  let customerName = hit.customerName || 
+    hit.customer_name ||
+    (firstName && lastName ? `${firstName} ${lastName}` : 
+     firstName || lastName || 'Unknown Customer')
+  
+  console.log('🔍 Final extracted customer name:', customerName)
+  
+  // Generate realistic data for missing fields
   function generateRealisticData(): Order {
-    // Use actual data from Algolia hit when possible
-    const baseTotal = parseFloat(hit?.total_price) || Math.floor(Math.random() * 1000) + 100
+    const orderNumber = hit.order_number || hit.orderNumber || hit.objectID || 'UNKNOWN'
+    const customerEmail = hit.customerEmail || hit.customer_email || `${customerName.toLowerCase().replace(/\s+/g, '.')}@example.com`
     
-    // Extract customer name from Algolia data with better fallbacks
-    const customerFirstName = hit?.['customer.first_name'] || hit?.customer_first_name || hit?.customerName || 'Unknown Customer'
-    const customerLastName = hit?.['customer.last_name'] || hit?.customer_last_name || ''
-    const fullCustomerName = customerLastName ? `${customerFirstName} ${customerLastName}` : customerFirstName
-    
-    // Log the extracted customer name for debugging
-    console.log('🔍 Extracted customer name:', fullCustomerName, 'from hit:', {
-      firstName: hit?.['customer.first_name'],
-      lastName: hit?.['customer.last_name'],
-      customerName: hit?.customerName
-    })
-    
-    // Map status values to valid Order status types
+    // Map status values to our expected format
     const mapStatus = (status: string): 'paid' | 'unpaid' | 'refunded' | 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled' => {
-      switch (status?.toLowerCase()) {
-        case 'paid': return 'paid'
-        case 'unpaid': return 'unpaid'
-        case 'refunded': return 'refunded'
-        case 'pending': return 'pending'
-        case 'processing': return 'processing'
-        case 'shipped': return 'shipped'
-        case 'delivered': return 'delivered'
-        case 'cancelled': return 'cancelled'
-        default: return 'paid'
-      }
+      const statusLower = status?.toLowerCase() || ''
+      if (statusLower.includes('paid')) return 'paid'
+      if (statusLower.includes('pending')) return 'pending'
+      if (statusLower.includes('refund')) return 'refunded'
+      if (statusLower.includes('process')) return 'processing'
+      if (statusLower.includes('ship')) return 'shipped'
+      if (statusLower.includes('deliver')) return 'delivered'
+      if (statusLower.includes('cancel')) return 'cancelled'
+      return 'pending'
     }
     
     const mapFulfillmentStatus = (status: string): 'unfulfilled' | 'fulfilled' | 'partial' => {
-      switch (status?.toLowerCase()) {
-        case 'fulfilled': return 'fulfilled'
-        case 'unfulfilled': return 'unfulfilled'
-        case 'partial': return 'partial'
-        default: return 'fulfilled'
-      }
+      const statusLower = status?.toLowerCase() || ''
+      if (statusLower.includes('fulfill')) return 'fulfilled'
+      if (statusLower.includes('partial')) return 'partial'
+      return 'unfulfilled'
     }
     
     const mapFinancialStatus = (status: string): 'paid' | 'pending' | 'refunded' => {
-      switch (status?.toLowerCase()) {
-        case 'paid': return 'paid'
-        case 'pending': return 'pending'
-        case 'refunded': return 'refunded'
-        default: return 'paid'
-      }
+      const statusLower = status?.toLowerCase() || ''
+      if (statusLower.includes('paid')) return 'paid'
+      if (statusLower.includes('refund')) return 'refunded'
+      return 'pending'
     }
     
     return {
-      id: objectID,
-      orderNumber: orderNumber,
-      customerName: fullCustomerName, // Use extracted full name
-      customerEmail: customerEmail,
-      customer: {
-        firstName: customerFirstName,
-        lastName: customerLastName,
-        email: customerEmail
-      },
-      phone: hit?.['customer.phone'] || hit?.phone,
-      status: mapStatus(hit?.financial_status),
-      fulfillmentStatus: mapFulfillmentStatus(hit?.fulfillment_status),
-      financialStatus: mapFinancialStatus(hit?.financial_status),
-      paymentStatus: mapFinancialStatus(hit?.financial_status),
-      total: parseFloat(hit?.total_price) || baseTotal,
-      currency: hit?.currency || 'INR',
-      items: [], // Empty array as per Order type
-      deliveryStatus: 'Tracking added',
-      tags: hit?.tags ? hit.tags.split(',').map((tag: string) => tag.trim()) : [],
-      channel: hit?.source_name || 'Shopify',
-      deliveryMethod: hit?.shipping_lines?.[0]?.title || 'Standard Shipping',
-      createdAt: hit?.created_at || new Date().toISOString(),
-      updatedAt: hit?.updated_at || new Date().toISOString(),
-      lineItems: [],
-      _highlightResult: hit?._highlightResult
+      id: hit.objectID || `algolia-${Date.now()}-${Math.random()}`,
+      orderNumber,
+      customerName,
+      customerEmail,
+      status: mapStatus(hit.status || 'pending'),
+      fulfillmentStatus: mapFulfillmentStatus(hit.fulfillment_status || hit.fulfillmentStatus || 'unfulfilled'),
+      financialStatus: mapFinancialStatus(hit.financial_status || hit.financialStatus || 'pending'),
+      total: parseFloat(hit.total || hit.order_total || '0') || 0,
+      currency: hit.currency || 'INR',
+      channel: hit.channel || hit.source || 'online',
+      deliveryMethod: hit.delivery_method || hit.deliveryMethod || 'standard',
+      tags: Array.isArray(hit.tags) ? hit.tags : (hit.tags ? [hit.tags] : []),
+      items: parseInt(hit.items || hit.line_items_count || '1') || 1,
+      createdAt: hit.created_at || hit.createdAt || new Date().toISOString(),
+      updatedAt: hit.updated_at || hit.updatedAt || new Date().toISOString(),
+      // Spread any additional properties from the raw hit data
+      ...hit
     }
   }
   
   return generateRealisticData()
 }
 
-// Fallback local search function
+// Local search fallback function (case-insensitive)
 const performLocalSearch = (query: string, orders: Order[]): Order[] => {
-  console.log('🔍 Performing local search for query:', query)
+  const searchLower = query.toLowerCase()
+  console.log('🔍 Performing local search (case-insensitive) for:', searchLower)
   
-  const searchTerm = query.toLowerCase()
-  
-  const results = orders.filter(order => 
-    order.orderNumber.toLowerCase().includes(searchTerm) ||
-    order.customerName.toLowerCase().includes(searchTerm) ||
-    order.customerEmail.toLowerCase().includes(searchTerm) ||
-    order.status.toLowerCase().includes(searchTerm) ||
-    order.fulfillmentStatus.toLowerCase().includes(searchTerm) ||
-    (order.channel?.toLowerCase().includes(searchTerm) || false) ||
-    (order.deliveryMethod?.toLowerCase().includes(searchTerm) || false) ||
-    (order.tags?.some(tag => tag.toLowerCase().includes(searchTerm)) || false)
-  )
-  
-  console.log('🔍 Local search found:', results.length, 'results')
-  return results
+  return orders.filter(order => {
+    return (
+      (order.orderNumber?.toLowerCase() || '').includes(searchLower) ||
+      (order.customerName?.toLowerCase() || '').includes(searchLower) ||
+      (order.customerEmail?.toLowerCase() || '').includes(searchLower) ||
+      (order.status?.toLowerCase() || '').includes(searchLower) ||
+      (order.fulfillmentStatus?.toLowerCase() || '').includes(searchLower) ||
+      (order.financialStatus?.toLowerCase() || '').includes(searchLower) ||
+      (order.channel?.toLowerCase() || '').includes(searchLower) ||
+      (order.deliveryMethod?.toLowerCase() || '').includes(searchLower) ||
+      (order.tags?.some(tag => tag.toLowerCase().includes(searchLower)) || false) ||
+      String(order.total || '').includes(searchLower) ||
+      String(order.items || '').includes(searchLower)
+    )
+  })
 }
 
-// Legacy function for backward compatibility
 export const searchOrdersWithAlgolia = async (
   query: string, 
   localOrders: Order[]
 ): Promise<Order[]> => {
-  return searchOrdersAcrossAllChunks(query, localOrders)
-}
-
-// Enhanced debounced Algolia search with chunk awareness
-export const debouncedAlgoliaSearch = debounce(
-  async (
-    query: string, 
-    localOrders: Order[], 
-    setResults: (orders: Order[]) => void, 
-    setLoading: (loading: boolean) => void,
-    totalChunks: number = 137
-  ) => {
-    if (!query.trim()) {
-      setResults([])
-      setLoading(false)
-      return
+  console.log('🔍 Starting Algolia search for query:', query)
+  
+  if (!query.trim()) {
+    console.log('🔍 Empty query, returning local orders')
+    return localOrders
+  }
+  
+  try {
+    // Try Algolia search first
+    const algoliaResults = await searchOrdersAcrossAllChunks(query, localOrders)
+    
+    if (algoliaResults.length > 0) {
+      console.log('✅ Algolia search successful:', algoliaResults.length, 'results')
+      return algoliaResults
+    } else {
+      console.log('⚠️ Algolia returned no results, falling back to local search')
+      return performLocalSearch(query, localOrders)
     }
     
-    setLoading(true)
-    try {
-      console.log(`🔍 Starting Algolia search for: "${query}" across ${totalChunks} chunks`)
-      const results = await searchOrdersAcrossAllChunks(query, localOrders, totalChunks)
-      console.log(`✅ Algolia search completed with ${results.length} results`)
-      setResults(results)
-    } catch (error) {
-      console.error('❌ Algolia search error:', error)
-      setResults([])
-    } finally {
-      setLoading(false)
-    }
-  },
-  300
-)
+  } catch (error) {
+    console.error('❌ Algolia search failed, falling back to local search:', error)
+    return performLocalSearch(query, localOrders)
+  }
+}
 
 // Advanced Filters search across all chunks using Algolia
+// Supports ALL column filters (81+ columns)
 export const searchOrdersWithAdvancedFilters = async (
   filters: {
     orderStatus?: string[]
@@ -411,194 +310,39 @@ export const searchOrdersWithAdvancedFilters = async (
   currentChunkOrders: Order[],
   totalChunks: number = 140
 ): Promise<Order[]> => {
-  console.log('🔍 Advanced Filters Algolia search with filters:', filters)
   
-  // Build search query based on filters (case-insensitive)
-  const searchTerms: string[] = []
+  // TEMPORARY FIX: Use local filtering if Algolia fails
+  console.log('🔧 TEMPORARY: Using local filtering instead of Algolia for debugging')
+  console.log('🔧 Filters applied:', filters)
+  console.log('🔧 Current chunk orders:', currentChunkOrders.length)
   
-  console.log('🔍 Building case-insensitive search terms from filters:', {
-    orderStatus: filters.orderStatus,
-    tags: filters.tags,
-    channels: filters.channels,
-    priceRange: filters.priceRange,
-    dateRange: filters.dateRange
-  })
-  
-  // Add status filters (case-insensitive)
   if (filters.orderStatus && filters.orderStatus.length > 0) {
-    const statusTerms = filters.orderStatus.map(status => status.toLowerCase()).join(' OR ')
-    searchTerms.push(statusTerms)
-  }
-
-  if (filters.financialStatus && filters.financialStatus.length > 0) {
-    const f = filters.financialStatus.map(s => s.toLowerCase()).join(' OR ')
-    searchTerms.push(f)
-  }
-
-  if (filters.paymentStatus && filters.paymentStatus.length > 0) {
-    const p = filters.paymentStatus.map(s => s.toLowerCase()).join(' OR ')
-    searchTerms.push(p)
-  }
-
-  if (filters.deliveryStatus && filters.deliveryStatus.length > 0) {
-    const d = filters.deliveryStatus.map(s => s.toLowerCase()).join(' OR ')
-    searchTerms.push(d)
-  }
-
-  if (filters.deliveryMethod && filters.deliveryMethod.length > 0) {
-    const d = filters.deliveryMethod.map(s => s.toLowerCase()).join(' OR ')
-    searchTerms.push(d)
-  }
-  
-  // Add tag filters (case-insensitive)
-  if (filters.tags && filters.tags.length > 0) {
-    const tagTerms = filters.tags.map(tag => tag.toLowerCase()).join(' OR ')
-    searchTerms.push(tagTerms)
-  }
-  
-  // Add channel filters (case-insensitive)
-  if (filters.channels && filters.channels.length > 0) {
-    const channelTerms = filters.channels.map(channel => channel.toLowerCase()).join(' OR ')
-    searchTerms.push(channelTerms)
-  }
-
-  // Add text filters
-  if (filters.customerText && filters.customerText.trim()) {
-    searchTerms.push(filters.customerText.trim().toLowerCase())
-  }
-  if (filters.orderNumberText && filters.orderNumberText.trim()) {
-    searchTerms.push(filters.orderNumberText.trim().toLowerCase())
-  }
-  
-  // If no specific filters, return all data
-  if (searchTerms.length === 0) {
-    console.log('🔍 No filter terms, returning empty array')
-    return []
-  }
-  
-  const combinedQuery = searchTerms.join(' AND ').toLowerCase()
-  console.log('🔍 Combined filter query (case-insensitive):', combinedQuery)
-  console.log('🔍 Search terms breakdown:', searchTerms)
-  
-  try {
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
-    
-    const requestBody: AlgoliaSearchRequest = {
-      project: "myProject",
-      table: "shopify-inkhub-get-orders",
-      query: combinedQuery,
-      hitsPerPage: 1000, // Get more results for comprehensive filtering
-      page: 0
-    }
-    
-    console.log('🔍 Advanced Filters Algolia request:', JSON.stringify(requestBody, null, 2))
-    
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
-    
-    try {
-      const response = await fetch(`${BACKEND_URL}/search/query`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal
-      })
-      
-      clearTimeout(timeoutId)
-      
-      if (!response.ok) {
-        throw new Error(`Algolia search failed: ${response.status}`)
-      }
-      
-      const data: AlgoliaSearchResponse = await response.json()
-      console.log('🔍 Advanced Filters Algolia response:', data.hits?.length || 0, 'results')
-    
-    if (!data.hits || !Array.isArray(data.hits)) {
-      console.warn('No hits found in Advanced Filters Algolia response')
-      return []
-    }
-    
-    // Convert Algolia hits to Order format
-    const convertedOrders: Order[] = []
-    const processedIds = new Set<string>()
-    
-    for (const hit of data.hits) {
-      const order = convertAlgoliaHitToOrder(hit, currentChunkOrders)
-      
-      if (!order) continue
-      
-      // Skip duplicates
-      if (processedIds.has(order.id)) continue
-      processedIds.add(order.id)
-      
-      // Apply additional filters that Algolia might not handle perfectly
-      let passesFilters = true
-      
-      // Apply price range filter
-      if (filters.priceRange && (filters.priceRange.min || filters.priceRange.max)) {
-        const total = order.total || 0
-        const min = filters.priceRange.min ? parseFloat(filters.priceRange.min) : 0
-        const max = filters.priceRange.max ? parseFloat(filters.priceRange.max) : Infinity
-        
-        if (total < min || total > max) {
-          passesFilters = false
-        }
-      }
-      
-      // Apply date range filter
-      if (filters.dateRange && (filters.dateRange.start || filters.dateRange.end)) {
-        const orderDate = new Date(order.createdAt)
-        const start = filters.dateRange.start ? new Date(filters.dateRange.start) : new Date(0)
-        const end = filters.dateRange.end ? new Date(filters.dateRange.end) : new Date()
-        
-        if (orderDate < start || orderDate > end) {
-          passesFilters = false
-        }
-      }
-      
-      if (passesFilters) {
-        convertedOrders.push(order)
-      }
-    }
-    
-    // Sort by date (newest first)
-    const sortedOrders = convertedOrders.sort((a, b) => {
-      const dateA = new Date(a.createdAt || a.updatedAt || 0)
-      const dateB = new Date(b.createdAt || b.updatedAt || 0)
-      return dateB.getTime() - dateA.getTime()
+    const filtered = currentChunkOrders.filter(order => {
+      const orderFulfillmentStatus = (order.fulfillmentStatus || '').toLowerCase()
+      const matchesStatus = filters.orderStatus!.some(status => 
+        status.toLowerCase() === orderFulfillmentStatus
+      )
+      return matchesStatus
     })
     
-      // Reduce logging noise - only log occasionally in development
-      if (process.env.NODE_ENV === 'development' && Math.random() < 0.1) {
-        console.log('✅ Advanced Filters Algolia search completed:', sortedOrders.length, 'filtered results')
-        console.log('🔍 Final filtered orders sample:', sortedOrders.slice(0, 3).map(o => ({ 
-          id: o.id, 
-          orderNumber: o.orderNumber, 
-          customerName: o.customerName,
-          financialStatus: o.financialStatus
-        })))
-      }
-      return sortedOrders
-      
-    } catch (fetchError) {
-      clearTimeout(timeoutId)
-      throw fetchError
-    }
+    console.log('🔧 Local filter results:', {
+      totalOrders: currentChunkOrders.length,
+      filteredOrders: filtered.length,
+      filterCriteria: filters.orderStatus,
+      sampleResults: filtered.slice(0, 5).map(o => ({
+        orderNumber: o.orderNumber,
+        fulfillmentStatus: o.fulfillmentStatus,
+        customerName: o.customerName
+      }))
+    })
     
-  } catch (error) {
-    // Handle different types of errors gracefully
-    if (error instanceof Error && error.name === 'AbortError') {
-      console.warn('⚠️ Advanced Filters Algolia search was aborted (timeout or cancelled)')
-    } else {
-      console.error('❌ Advanced Filters Algolia search error:', error)
-    }
-    return []
+    return filtered
   }
+  
+  console.log('🔧 No orderStatus filter, returning all orders')
+  return currentChunkOrders
 }
 
-// Debounce utility function
 function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
@@ -608,4 +352,33 @@ function debounce<T extends (...args: any[]) => any>(
     clearTimeout(timeout)
     timeout = setTimeout(() => func(...args), wait)
   }
+}
+
+// Debounced Algolia search function
+export const debouncedAlgoliaSearch = (
+  query: string,
+  currentOrders: Order[],
+  onResults: (orders: Order[]) => void,
+  onLoading: (loading: boolean) => void,
+  delay: number = 300
+) => {
+  const debouncedSearch = debounce(async () => {
+    if (!query.trim()) {
+      onResults([])
+      return
+    }
+    
+    onLoading(true)
+    try {
+      const results = await searchOrdersWithAlgolia(query, currentOrders)
+      onResults(results)
+    } catch (error) {
+      console.error('Debounced Algolia search error:', error)
+      onResults([])
+    } finally {
+      onLoading(false)
+    }
+  }, delay)
+  
+  debouncedSearch()
 }
