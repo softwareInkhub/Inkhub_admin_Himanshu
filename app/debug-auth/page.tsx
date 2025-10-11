@@ -31,6 +31,7 @@ export default function DebugAuthPage() {
       hasIdToken: !!cookieObj.id_token,
       hasRefreshToken: !!cookieObj.refresh_token,
       hasAuthValid: !!cookieObj.auth_valid,
+      hasAuthValidAdmin: !!cookieObj.auth_valid_admin,
       accessTokenLength: cookieObj.access_token?.length || 0,
       idTokenLength: cookieObj.id_token?.length || 0,
     }
@@ -82,7 +83,7 @@ export default function DebugAuthPage() {
   }
 
   const clearCookies = () => {
-    const cookiesToClear = ['access_token', 'id_token', 'refresh_token', 'auth_valid']
+    const cookiesToClear = ['access_token', 'id_token', 'refresh_token', 'auth_valid', 'auth_valid_admin']
     cookiesToClear.forEach(cookieName => {
       // Clear for current domain
       document.cookie = `${cookieName}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`
@@ -127,6 +128,9 @@ export default function DebugAuthPage() {
               </div>
               <div className={`${debugInfo.hasAuthValid ? 'text-green-600' : 'text-red-600'}`}>
                 <strong>Auth Valid Flag:</strong> {debugInfo.hasAuthValid ? 'Present' : 'Missing'}
+              </div>
+              <div className={`${debugInfo.hasAuthValidAdmin ? 'text-green-600' : 'text-red-600'}`}>
+                <strong>Auth Valid Admin Flag:</strong> {debugInfo.hasAuthValidAdmin ? 'Present' : 'Missing'}
               </div>
             </div>
           </div>

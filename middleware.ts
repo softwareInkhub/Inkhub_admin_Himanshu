@@ -44,6 +44,17 @@ export function middleware(req: NextRequest) {
       httpOnly: false, // Important: client-side can read this
     });
     
+    // Also set a flag for admin.brmh.in specifically without domain
+    if (hostname === 'admin.brmh.in') {
+      response.cookies.set('auth_valid_admin', '1', {
+        path: '/',
+        secure: true,
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 24 * 7, // 7 days
+        httpOnly: false, // Important: client-side can read this
+      });
+    }
+    
     return response;
   }
 

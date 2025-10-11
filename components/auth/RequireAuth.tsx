@@ -39,6 +39,10 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
       // NOTE: Authentication is already handled by middleware (which can read httpOnly cookies)
       // This component only needs to fetch/set user profile for the app state
       
+      // Check for auth flags set by middleware (non-httpOnly cookies)
+      const authValid = getCookie('auth_valid')
+      const authValidAdmin = getCookie('auth_valid_admin')
+      
       // Prioritize cookies over localStorage (cookies are set by auth callback with proper domain)
       const cAccess = getCookie('access_token')
       const cId = getCookie('id_token')
@@ -46,6 +50,8 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
       const idToken = cId || localStorage.getItem('id_token');
       
       console.log('[RequireAuth] Token check:', {
+        hasAuthValid: !!authValid,
+        hasAuthValidAdmin: !!authValidAdmin,
         hasCookieAccess: !!cAccess,
         hasCookieId: !!cId,
         hasLocalAccess: !!localStorage.getItem('access_token'),
@@ -108,9 +114,20 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
       // If still no user and no tokens, enforce login (production)
       const hasUser = Boolean(useAppStore.getState().currentUser)
       const hasToken = Boolean(accessToken || idToken)
+      const hasAuthFlag = Boolean(authValid || authValidAdmin)
       const isDev = process.env.NODE_ENV === 'development'
-      if (!hasUser && !hasToken && !isDev) {
+      
+      console.log('[RequireAuth] Auth decision:', {
+        hasUser,
+        hasToken,
+        hasAuthFlag,
+        isDev,
+        willRedirect: !hasUser && !hasToken && !hasAuthFlag && !isDev
+      });
+      
+      if (!hasUser && !hasToken && !hasAuthFlag && !isDev) {
         const nextUrl = encodeURIComponent(window.location.href)
+        console.log('[RequireAuth] Redirecting to auth:', `https://auth.brmh.in/login?next=${nextUrl}`)
         window.location.href = `https://auth.brmh.in/login?next=${nextUrl}`
         return
       }
