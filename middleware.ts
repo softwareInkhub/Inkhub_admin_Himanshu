@@ -20,6 +20,11 @@ export function middleware(req: NextRequest) {
   const idToken = req.cookies.get('id_token')?.value;
   const accessToken = req.cookies.get('access_token')?.value;
   
+  // Debug: Log all cookies
+  const allCookies = req.cookies.getAll();
+  console.log('[Inkhub Middleware] All cookies:', allCookies.map(c => ({ name: c.name, hasValue: !!c.value, length: c.value?.length })));
+  console.log('[Inkhub Middleware] Auth check:', { hasIdToken: !!idToken, hasAccessToken: !!accessToken, hostname });
+  
   if (idToken || accessToken) {
     console.log('[Inkhub Middleware] User authenticated via SSO cookies, allowing access');
     
@@ -47,6 +52,7 @@ export function middleware(req: NextRequest) {
   const redirectTarget = `${origin}/auth/callback?redirect=${encodeURIComponent(href)}`;
   const nextUrl = encodeURIComponent(redirectTarget);
   console.log('[Inkhub Middleware] No auth token found, redirecting to centralized auth with callback:', redirectTarget);
+  console.log('[Inkhub Middleware] Redirect URL:', `https://auth.brmh.in/login?next=${nextUrl}`);
   return NextResponse.redirect(`https://auth.brmh.in/login?next=${nextUrl}`);
 }
 

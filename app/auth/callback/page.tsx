@@ -33,6 +33,7 @@ export default function AuthCallbackPage() {
       return `.${h}`
     }
     const domain = isLocal ? undefined : computeBaseDomain(host)
+    console.log('[Auth Callback] Domain computation:', { host, isLocal, domain });
     return { isLocalhost: isLocal, cookieDomain: domain }
   }, [])
 
@@ -60,18 +61,54 @@ export default function AuthCallbackPage() {
         cookieDomain,
         isLocalhost,
         hostname: window.location.hostname,
-        finalRedirect
+        finalRedirect,
+        accessTokenLength: accessToken?.length,
+        idTokenLength: idToken?.length
       });
 
-      if (accessToken) setCookie('access_token', accessToken, { days: 1, path: '/', sameSite: 'lax', secure: !isLocalhost, domain: cookieDomain })
-      if (idToken) setCookie('id_token', idToken, { days: 1, path: '/', sameSite: 'lax', secure: !isLocalhost, domain: cookieDomain })
-      if (refreshToken) setCookie('refresh_token', refreshToken, { days: 30, path: '/', sameSite: 'lax', secure: !isLocalhost, domain: cookieDomain })
+      if (accessToken) {
+        setCookie('access_token', accessToken, { days: 1, path: '/', sameSite: 'lax', secure: !isLocalhost, domain: cookieDomain })
+        console.log('[Auth Callback] Set access_token cookie with domain:', cookieDomain)
+        // Fallback: also set without domain for admin.brmh.in specifically
+        if (window.location.hostname === 'admin.brmh.in') {
+          setCookie('access_token', accessToken, { days: 1, path: '/', sameSite: 'lax', secure: !isLocalhost })
+          console.log('[Auth Callback] Set access_token cookie without domain as fallback')
+        }
+      }
+      if (idToken) {
+        setCookie('id_token', idToken, { days: 1, path: '/', sameSite: 'lax', secure: !isLocalhost, domain: cookieDomain })
+        console.log('[Auth Callback] Set id_token cookie with domain:', cookieDomain)
+        // Fallback: also set without domain for admin.brmh.in specifically
+        if (window.location.hostname === 'admin.brmh.in') {
+          setCookie('id_token', idToken, { days: 1, path: '/', sameSite: 'lax', secure: !isLocalhost })
+          console.log('[Auth Callback] Set id_token cookie without domain as fallback')
+        }
+      }
+      if (refreshToken) {
+        setCookie('refresh_token', refreshToken, { days: 30, path: '/', sameSite: 'lax', secure: !isLocalhost, domain: cookieDomain })
+        console.log('[Auth Callback] Set refresh_token cookie with domain:', cookieDomain)
+        // Fallback: also set without domain for admin.brmh.in specifically
+        if (window.location.hostname === 'admin.brmh.in') {
+          setCookie('refresh_token', refreshToken, { days: 30, path: '/', sameSite: 'lax', secure: !isLocalhost })
+          console.log('[Auth Callback] Set refresh_token cookie without domain as fallback')
+        }
+      }
 
       // Client-readable flag for apps that need to detect auth without httpOnly read
       setCookie('auth_valid', '1', { days: 7, path: '/', sameSite: 'lax', secure: !isLocalhost, domain: cookieDomain })
+      console.log('[Auth Callback] Set auth_valid cookie with domain:', cookieDomain)
+      // Fallback: also set without domain for admin.brmh.in specifically
+      if (window.location.hostname === 'admin.brmh.in') {
+        setCookie('auth_valid', '1', { days: 7, path: '/', sameSite: 'lax', secure: !isLocalhost })
+        console.log('[Auth Callback] Set auth_valid cookie without domain as fallback')
+      }
 
       // Clean hash and redirect to original page
-      window.location.replace(finalRedirect)
+      // Add a small delay to ensure cookies are set before redirect
+      setTimeout(() => {
+        console.log('[Auth Callback] Redirecting to:', finalRedirect);
+        window.location.replace(finalRedirect);
+      }, 100);
     } catch (e) {
       console.error('[Auth Callback] Failed to process tokens:', e)
       // Fallback to home
