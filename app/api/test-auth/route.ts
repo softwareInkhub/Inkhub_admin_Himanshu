@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
       allCookies[cookie.name] = cookie.value
     })
 
-    const debugInfo = {
+    const debugInfo: any = {
       timestamp: new Date().toISOString(),
       hostname: request.nextUrl.hostname,
       origin: request.nextUrl.origin,
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
         }
         debugInfo.tokenExpired = decoded.exp ? (Date.now() / 1000) > decoded.exp : false
       } catch (e) {
-        debugInfo.idTokenError = e.message
+        debugInfo.idTokenError = e instanceof Error ? e.message : String(e)
       }
     }
 
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return NextResponse.json({
       success: false,
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       debugInfo: {
         timestamp: new Date().toISOString(),
         hostname: request.nextUrl.hostname,

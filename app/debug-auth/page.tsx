@@ -20,7 +20,7 @@ export default function DebugAuthPage() {
     setCookies(cookieObj)
 
     // Get debug information
-    const info = {
+    const info: any = {
       hostname: typeof window !== 'undefined' ? window.location.hostname : 'server',
       origin: typeof window !== 'undefined' ? window.location.origin : 'server',
       href: typeof window !== 'undefined' ? window.location.href : 'server',
@@ -51,7 +51,7 @@ export default function DebugAuthPage() {
         }
         info.tokenExpired = decoded.exp ? (Date.now() / 1000) > decoded.exp : false
       } catch (e) {
-        info.idTokenError = e.message
+        info.idTokenError = e instanceof Error ? e.message : String(e)
       }
     }
 
@@ -69,14 +69,14 @@ export default function DebugAuthPage() {
       })
       
       const result = await response.json()
-      setDebugInfo(prev => ({
+      setDebugInfo((prev: any) => ({
         ...prev,
         middlewareTest: result
       }))
     } catch (error) {
-      setDebugInfo(prev => ({
+      setDebugInfo((prev: any) => ({
         ...prev,
-        middlewareTestError: error.message
+        middlewareTestError: error instanceof Error ? error.message : String(error)
       }))
     }
   }
