@@ -225,30 +225,29 @@ export function KeepAliveTabContent({
   }
 
   return (
-    <AnimatePresence mode="wait">
-      {isActive && (
-        <motion.div
-          key={path}
-          ref={componentRef}
-          className={className}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
-          variants={variants}
-          transition={{
-            type: "spring",
-            stiffness: 300,
-            damping: 30,
-            duration: 0.3
-          }}
-          style={{
-            display: isActive ? 'block' : 'none'
-          }}
-        >
-          {children}
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <div style={{ display: isActive ? 'block' : 'none' }}>
+      <AnimatePresence mode="wait" initial={false}>
+        {isActive && (
+          <motion.div
+            key={path}
+            ref={componentRef}
+            className={className}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            variants={variants}
+            transition={{
+              type: "spring",
+              stiffness: 300,
+              damping: 30,
+              duration: 0.3
+            }}
+          >
+            {children}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }
 

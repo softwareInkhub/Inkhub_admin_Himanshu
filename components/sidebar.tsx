@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, startTransition } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { 
@@ -260,18 +260,13 @@ export function Sidebar() {
     
     if (existingTab) {
       // If tab exists, just set it as active and navigate
-      setActiveTab(existingTab.id)
-      router.push(path)
+      startTransition(() => setActiveTab(existingTab.id))
+      try { router.push(path, { scroll: false } as any) } catch { router.push(path) }
       console.log('✅ Navigated to existing tab:', title, path)
     } else {
       // Create new tab and navigate
-      addTab({
-        title: title,
-        path: path,
-        pinned: false,
-        closable: true
-      })
-      router.push(path)
+      startTransition(() => addTab({ title, path, pinned: false, closable: true }))
+      try { router.push(path, { scroll: false } as any) } catch { router.push(path) }
       console.log('✅ Created new tab and navigated:', title, path)
     }
   }, [addTab, setActiveTab, router])

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, forwardRef } from 'react'
 import { Search, X, Clock, TrendingUp, Package, Building, Folder, Tag } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -58,7 +58,7 @@ const getSuggestionText = (s: SharedSearchSuggestion) => {
   }
 }
 
-export default function GoogleStyleSearch({
+const GoogleStyleSearch = forwardRef<HTMLInputElement, GoogleStyleSearchProps>(({
   value,
   onChange,
   onSearch,
@@ -69,7 +69,7 @@ export default function GoogleStyleSearch({
   showSuggestions = false,
   onSuggestionClick,
   onClearHistory
-}: GoogleStyleSearchProps) {
+}, ref) => {
   const [isFocused, setIsFocused] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -121,7 +121,7 @@ export default function GoogleStyleSearch({
           {isLoading ? <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" /> : <Search className="h-4 w-4 text-gray-400" />}
         </div>
         <input
-          ref={inputRef}
+          ref={ref || inputRef}
           type="text"
           value={value}
           onChange={handleInputChange}
@@ -165,6 +165,10 @@ export default function GoogleStyleSearch({
       )}
     </div>
   )
-}
+})
+
+GoogleStyleSearch.displayName = 'GoogleStyleSearch'
+
+export default GoogleStyleSearch
 
 

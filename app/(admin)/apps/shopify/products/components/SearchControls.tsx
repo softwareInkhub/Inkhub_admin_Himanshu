@@ -69,6 +69,23 @@ interface SearchControlsProps {
   // Algolia filter props
   isAlgoliaFiltering?: boolean
   useAlgoliaFilters?: boolean
+  // Saved Search Views integration
+  onSaveToSearchViews?: () => void
+  savedSearches?: Array<{
+    id: string
+    viewName: string
+    searchQuery: string
+    searchConditions: any[]
+    columnFilters: any
+    customFilters: any[]
+    sortColumn: string
+    sortDirection: string
+    viewMode: string
+    itemsPerPage: number
+    updatedAt?: string
+  }>
+  onApplySavedSearch?: (savedSearch: any) => void
+  onDeleteSavedSearch?: (id: string) => void
 }
 
 export default function SearchControls({
@@ -115,6 +132,10 @@ export default function SearchControls({
   onSettings,
   showHeaderDropdown,
   setShowHeaderDropdown,
+  onSaveToSearchViews,
+  savedSearches,
+  onApplySavedSearch,
+  onDeleteSavedSearch,
   // View and control props
   viewMode,
   setViewMode,
@@ -173,6 +194,13 @@ export default function SearchControls({
   const handleClearHistory = () => {
     setSearchHistory([])
     localStorage.removeItem('product-search-history')
+  }
+
+  // Save current search to Saved Search Views system
+  const handleSaveCurrentSearch = () => {
+    const query = (searchQuery || '').trim()
+    if (!query && (!searchConditions || searchConditions.length === 0)) return
+    if (onSaveToSearchViews) onSaveToSearchViews()
   }
   const dropdownRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
@@ -440,82 +468,56 @@ export default function SearchControls({
                     </div>
                   )}
                   
+                  {/* Inline Cancel / Save controls + Saved chips */}
+                  <div className="relative flex items-center space-x-2 ml-2">
+                    {searchQuery.trim().length > 0 && (
+                      <button
+                        onClick={() => { onClearSearch() }}
+                        className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded-md hover:bg-gray-100"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <button
+                      onClick={handleSaveCurrentSearch}
+                      className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                      disabled={!(searchQuery.trim().length > 0 || searchConditions.length > 0)}
+                    >
+                      Save
+                    </button>
+                    {savedSearches && savedSearches.length > 0 && (
+                      <div className="ml-2 max-w-[50vw] overflow-x-auto">
+                        <div className="flex items-center gap-1 flex-nowrap whitespace-nowrap pr-2">
+                          {savedSearches.map((savedSearch, index) => (
+                            <span
+                              key={savedSearch.id || `saved-search-${index}`}
+                              className="group inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-blue-100 transition-all duration-200"
+                              onClick={() => onApplySavedSearch?.(savedSearch)}
+                              title={`Apply saved search: ${savedSearch.viewName}`}
+                            >
+                              <span className="font-medium">{savedSearch.viewName}</span>
+                              <button
+                                className="text-blue-500 hover:text-red-600 hover:bg-red-50 rounded-full w-4 h-4 flex items-center justify-center transition-all duration-200 ml-1"
+                                onClick={(e) => { e.stopPropagation(); onDeleteSavedSearch?.(savedSearch.id) }}
+                                aria-label={`Remove saved search ${savedSearch.viewName}`}
+                                title="Delete this saved search"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
           </div>
         </div>
 
-        {/* RIGHT SECTION: Export, More Actions, Filter, View, Full Screen */}
+        {/* RIGHT SECTION: Filter, View, Full Screen */}
         <div className="flex items-center space-x-2">
-          {/* Export Button */}
-          <button
-            onClick={onExport}
-            className="px-3 py-2 text-gray-700 hover:text-green-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-green-400 h-10"
-          >
-            <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Export</span>
-            </span>
-          </button>
-          
-          {/* More Actions Button */}
-          <div className="relative">
-            <button
-              onClick={() => setShowHeaderDropdown(!showHeaderDropdown)}
-              className="px-3 py-2 text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 flex items-center space-x-1 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-purple-400 h-10"
-            >
-              <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
-                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                </svg>
-                <span>More actions</span>
-              </span>
-              <ChevronDown className={cn(
-                "h-3 w-3 group-hover:rotate-180 transition-transform duration-200",
-                showHeaderDropdown ? "rotate-180" : ""
-              )} />
-            </button>
-            
-            {/* Header Dropdown */}
-            {showHeaderDropdown && (
-              <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-xl z-20 header-dropdown backdrop-blur-sm bg-white/95">
-                <div className="p-2">
-                  <div className="space-y-1">
-                    <button
-                      onClick={onImport}
-                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 hover:text-blue-700 flex items-center space-x-2"
-                    >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                      <span>Import Products</span>
-                    </button>
-                    <button
-                      onClick={onPrint}
-                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 hover:text-green-700 flex items-center space-x-2"
-                    >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                      </svg>
-                      <span>Print Products</span>
-                    </button>
-                    <button
-                      onClick={onSettings}
-                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 hover:text-purple-700 flex items-center space-x-2"
-                    >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <span>Settings</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          {/* More actions dropdown removed; actions will appear in a persistent row below */}
 
           {/* Advanced Filter Button */}
           <button

@@ -1,8 +1,10 @@
-import { log } from 'console'
 import { Order } from '../types'
 
-
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
+
+// Sampling configuration for console logging (1% in dev, 0% in prod)
+const LOG_SAMPLE_RATE = process.env.NODE_ENV === 'development' ? 0.01 : 0
+const shouldLog = () => Math.random() < LOG_SAMPLE_RATE
 
 // Configuration for pagination-based chunk fetching
 const CHUNK_CONFIG = {
@@ -168,8 +170,8 @@ export const fetchChunk = async (chunkNumber: number, maxRetries: number = 3): P
         const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
         const chunkUrl = `${BACKEND_URL}/cache/data?project=my-app&table=shopify-inkhub-get-orders&key=chunk:${chunkNumber}`
         
-        // Only log in development mode
-        if (process.env.NODE_ENV === 'development') {
+        // Only log with sampling
+        if (shouldLog()) {
           console.log(`🔄 Fetching chunk ${chunkNumber}...`)
           console.log(`🔗 Chunk ${chunkNumber} URL: ${chunkUrl}`)
         }
@@ -186,8 +188,8 @@ export const fetchChunk = async (chunkNumber: number, maxRetries: number = 3): P
               mapRecordToOrder(item, idx)
             )
             
-            // Only log in development mode
-            if (process.env.NODE_ENV === 'development') {
+            // Only log with sampling
+            if (shouldLog()) {
               console.log(`✅ Successfully mapped ${mappedChunk.length} orders from chunk ${chunkNumber}`)
             }
             
@@ -210,13 +212,10 @@ export const fetchChunk = async (chunkNumber: number, maxRetries: number = 3): P
         const message = String(error?.message || '')
         const isAbort = error?.name === 'AbortError' || /aborted/i.test(message)
         if (isAbort) {
-          // Gracefully ignore aborted requests to reduce console noise
-          if (process.env.NODE_ENV === 'development') {
-            console.warn(`⏭️ Chunk ${chunkNumber} aborted (timeout) - skipping this attempt`)
-          }
+          // Silently ignore aborted requests to reduce console noise completely
           return []
         }
-        if (process.env.NODE_ENV === 'development') {
+        if (shouldLog()) {
           console.warn(`⚠️ Chunk ${chunkNumber} fetch error (attempt ${retryCount + 1}):`, message)
         }
         if (retryCount === maxRetries - 1) {
@@ -247,20 +246,20 @@ export const getOrdersForPage = async (pageNumber: number, itemsPerPage: number 
   currentChunk: number
   hasMore: boolean
 }> => {
-  console.log(`🔄 Getting orders for page ${pageNumber} (${itemsPerPage} items per page)...`)
+  if (shouldLog()) console.log(`🔄 Getting orders for page ${pageNumber} (${itemsPerPage} items per page)...`)
   
   try {
     // Calculate which chunk this page corresponds to
     const chunkNumber = pageNumber - 1 // Page 1 = chunk 0, Page 2 = chunk 1, etc.
-    console.log(`📊 Page ${pageNumber} corresponds to chunk ${chunkNumber}`)
+    if (shouldLog()) console.log(`📊 Page ${pageNumber} corresponds to chunk ${chunkNumber}`)
     
     // Get total chunks for pagination info
     const totalChunks = await getTotalChunks()
-    console.log(`📊 Total chunks available: ${totalChunks}`)
+    if (shouldLog()) console.log(`📊 Total chunks available: ${totalChunks}`)
     
     // Check if chunk exists
     if (chunkNumber >= totalChunks) {
-      console.log(`⚠️ Chunk ${chunkNumber} does not exist (max: ${totalChunks - 1})`)
+      if (shouldLog()) console.log(`⚠️ Chunk ${chunkNumber} does not exist (max: ${totalChunks - 1})`)
       return {
         orders: [],
         totalChunks,
@@ -275,8 +274,8 @@ export const getOrdersForPage = async (pageNumber: number, itemsPerPage: number 
     // Determine if there are more pages
     const hasMore = chunkNumber < totalChunks - 1
     
-    console.log(`✅ Successfully loaded ${orders.length} orders for page ${pageNumber} (chunk ${chunkNumber})`)
-    console.log(`📊 Has more pages: ${hasMore}`)
+    if (shouldLog()) console.log(`✅ Successfully loaded ${orders.length} orders for page ${pageNumber} (chunk ${chunkNumber})`)
+    if (shouldLog()) console.log(`📊 Has more pages: ${hasMore}`)
     
     return {
       orders,
@@ -300,11 +299,11 @@ export const getAllOrdersForFiltering = async (): Promise<{
   totalChunks: number
   totalOrders: number
 }> => {
-  console.log('🔄 Fetching all orders from all chunks for comprehensive filtering...')
+  if (shouldLog()) console.log('🔄 Fetching all orders from all chunks for comprehensive filtering...')
   
   try {
     const totalChunks = await getTotalChunks()
-    console.log(`📊 Total chunks to fetch: ${totalChunks}`)
+    if (shouldLog()) console.log(`📊 Total chunks to fetch: ${totalChunks}`)
     
     const allOrders: Order[] = []
     const errors: string[] = []
@@ -313,13 +312,13 @@ export const getAllOrdersForFiltering = async (): Promise<{
     const batchSize = 10 // Process 10 chunks at a time to avoid overwhelming the server
     for (let batchStart = 0; batchStart < totalChunks; batchStart += batchSize) {
       const batchEnd = Math.min(batchStart + batchSize, totalChunks)
-      console.log(`📦 Fetching chunks ${batchStart} to ${batchEnd - 1}...`)
+      if (shouldLog()) console.log(`📦 Fetching chunks ${batchStart} to ${batchEnd - 1}...`)
       
       const batchPromises = []
       for (let chunkNumber = batchStart; chunkNumber < batchEnd; chunkNumber++) {
         batchPromises.push(
           fetchChunk(chunkNumber).catch(error => {
-            console.warn(`⚠️ Failed to fetch chunk ${chunkNumber}:`, error)
+            if (shouldLog()) console.warn(`⚠️ Failed to fetch chunk ${chunkNumber}:`, error)
             errors.push(`Chunk ${chunkNumber}: ${error.message}`)
             return [] // Return empty array for failed chunks
           })
@@ -356,8 +355,8 @@ export const getAllOrdersForFiltering = async (): Promise<{
       return dateB.getTime() - dateA.getTime()
     })
     
-    console.log(`✅ Successfully loaded ${sortedOrders.length} orders from ${totalChunks} chunks`)
-    if (errors.length > 0) {
+    if (shouldLog()) console.log(`✅ Successfully loaded ${sortedOrders.length} orders from ${totalChunks} chunks`)
+    if (errors.length > 0 && shouldLog()) {
       console.warn(`⚠️ Encountered ${errors.length} errors while fetching chunks:`, errors.slice(0, 3))
     }
     
@@ -375,11 +374,11 @@ export const getAllOrdersForFiltering = async (): Promise<{
 
 // Legacy function for backward compatibility (now fetches only chunk 0)
 export const getTransformedOrders = async (): Promise<Order[]> => {
-  console.log('🔄 Legacy getTransformedOrders called - fetching only chunk 0...')
+  if (shouldLog()) console.log('🔄 Legacy getTransformedOrders called - fetching only chunk 0...')
   
   try {
     const result = await getOrdersForPage(1, 500)
-    console.log('✅ Legacy function completed successfully')
+    if (shouldLog()) console.log('✅ Legacy function completed successfully')
     return result.orders
   } catch (error: any) {
     console.error('💥 Error in legacy getTransformedOrders:', error)

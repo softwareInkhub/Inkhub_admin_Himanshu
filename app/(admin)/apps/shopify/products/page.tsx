@@ -61,6 +61,10 @@ function ProductsClientContent({
   searchParams: URLSearchParams; 
   setParams: (patch: Record<string, string | number | undefined>) => void; 
 }) {
+  // In-memory session cache for instant navigation between tabs
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  const sessionCache = (typeof window !== 'undefined') ? (window.__productsCache as { data: Product[]; timestamp: number } | undefined) : undefined
   const { addTab, tabs } = useAppStore()
 
   // Get persistent state from Zustand store
@@ -87,8 +91,22 @@ function ProductsClientContent({
 
   // Restore scroll position after first paint
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      try { window.history.scrollRestoration = "manual" } catch {}
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (scrollY > 0) {
+          const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+          if (scroller) scroller.scrollTop = scrollY
+          else window.scrollTo({ top: scrollY, behavior: "instant" as ScrollBehavior })
+        }
+      })
+    })
     if (scrollY > 0) {
-      window.scrollTo({ top: scrollY, behavior: "instant" as ScrollBehavior })
+      const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+      if (scroller) scroller.scrollTop = scrollY
+      else window.scrollTo({ top: scrollY, behavior: "instant" as ScrollBehavior })
     }
   }, [scrollY])
 
@@ -102,6 +120,31 @@ function ProductsClientContent({
     return () => {
       save()
       window.removeEventListener("beforeunload", save)
+    }
+  }, [setScrollY])
+
+  // Continuously persist scroll position while scrolling (throttled via rAF)
+  useEffect(() => {
+    let raf = 0
+    const onScroll = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+        const y = scroller ? scroller.scrollTop : window.scrollY
+        setScrollY(y)
+        raf = 0
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    const scroller = document.querySelector('[data-scroll-group="page-table"]')
+    scroller?.addEventListener('scroll', onScroll as any, { passive: true } as any)
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      const s = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+      const y = s ? s.scrollTop : window.scrollY
+      setScrollY(y)
+      window.removeEventListener('scroll', onScroll as any)
+      s?.removeEventListener('scroll', onScroll as any)
     }
   }, [setScrollY])
 
@@ -139,6 +182,46 @@ function ProductsClientContent({
   // Search history state
   const [searchHistory, setSearchHistory] = useState<SearchHistory[]>([])
 
+  // Saved Views (Products) – mirrors Orders implementation
+  const [savedSearches, setSavedSearches] = useState<any[]>([])
+  const [showSaveModal, setShowSaveModal] = useState(false)
+  const [viewName, setViewName] = useState('')
+
+  // Load saved searches on mount (localStorage only - CRUD API removed)
+  useEffect(() => {
+    const STORAGE_KEY = 'products-saved-views:shopify-inkhub-get-products'
+    const loadSaved = async () => {
+      try {
+        if (typeof window !== 'undefined') {
+          const cached = localStorage.getItem(STORAGE_KEY)
+          if (cached) {
+            try { const parsed = JSON.parse(cached); if (Array.isArray(parsed)) setSavedSearches(parsed) } catch {}
+          }
+        }
+      } catch {}
+    }
+    loadSaved()
+  }, [])
+
+  const handleSaveToSearchViews = useCallback(() => {
+    setShowSaveModal(true)
+    if (searchQuery.trim()) setViewName(searchQuery.trim())
+  }, [searchQuery])
+
+  // handler moved below pagination state to avoid linter hoisting issues
+
+  const handleDeleteSavedSearch = useCallback(async (id: string) => {
+    const STORAGE_KEY = 'products-saved-views:shopify-inkhub-get-products'
+    const saved = savedSearches.find(s => s.id === id)
+    if (!saved) return
+    setSavedSearches(prev => {
+      const next = prev.filter(s => s.id !== id)
+      try { if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
+      return next
+    })
+    // CRUD API removed - only localStorage operations
+  }, [savedSearches])
+
   // Advanced Filter states
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false)
   const [advancedFilters, setAdvancedFilters] = useState({
@@ -148,6 +231,22 @@ function ProductsClientContent({
     tags: [] as string[],
     vendors: [] as string[]
   })
+
+  // Keep local searchQuery and persisted store globalFilter in sync (both directions)
+  useEffect(() => {
+    // When user types, persist to store so it survives navigation
+    if (searchQuery !== useProductsPageStore.getState().globalFilter) {
+      setGlobalFilter(searchQuery)
+    }
+  }, [searchQuery, setGlobalFilter])
+
+  useEffect(() => {
+    // When store rehydrates or URL loads, reflect in local input value
+    if (globalFilter !== searchQuery) {
+      setSearchQuery(globalFilter)
+      setDebouncedSearchQuery(globalFilter)
+    }
+  }, [globalFilter])
 
   // Advanced Filters Algolia search function
   const handleAdvancedFiltersAlgoliaSearch = useCallback(async (filters: {
@@ -380,6 +479,17 @@ function ProductsClientContent({
   // Pagination states - using Zustand store
   const [currentPage, setCurrentPage] = useState(pageIndex + 1) // Convert 0-based to 1-based
   const [itemsPerPage, setItemsPerPage] = useState(pageSize)
+
+  // Apply a saved view (now that pagination state exists)
+  const handleApplySavedSearch = useCallback((saved: any) => {
+    setSearchQuery(saved.searchQuery || '')
+    setSearchConditions(saved.searchConditions || [])
+    setColumnFilters(saved.columnFilters || {})
+    setCustomFilters(saved.customFilters || [])
+    setSorting(saved.sortColumn ? [{ id: saved.sortColumn, desc: saved.sortDirection === 'desc' }] : [])
+    setViewMode((saved.viewMode as any) || 'table')
+    setItemsPerPage(saved.itemsPerPage || itemsPerPage)
+  }, [itemsPerPage, setSorting])
   
   // Keep local currentPage in sync with Zustand store
   useEffect(() => {
@@ -721,27 +831,7 @@ function ProductsClientContent({
           })
       })
 
-      // Local fallback: serve from public/products.json (or root products.json)
-      const localFallback = fetch('/products.json', { headers: { Accept: 'application/json' } })
-        .then(async (res) => {
-          if (!res.ok) throw new Error(`Local fallback not available (${res.status})`)
-          try {
-            const json = await res.json()
-            const data = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : [])
-            if (!Array.isArray(data)) throw new Error('Local fallback invalid shape')
-            console.log('🧰 Using local fallback products.json:', data.length, 'items')
-            return { key: 'local-fallback', data }
-          } catch (e) {
-            throw new Error('Local fallback parse error')
-          }
-        })
-        .catch((e) => {
-          console.debug('ℹ️ Local fallback unavailable:', e.message)
-          // Re-throw so Promise.any can continue to other requests
-          throw e
-        })
-
-      // Use the first fulfilled request
+      // Use the first fulfilled request (from remote cache keys only)
       // Polyfilled Promise.any to support environments without ES2021 lib
       const promiseAnyPolyfill = async <T,>(promises: Promise<T>[]): Promise<T> => {
         return new Promise<T>((resolve, reject) => {
@@ -760,7 +850,7 @@ function ProductsClientContent({
         })
       }
 
-      const { key: winningKey, data } = await promiseAnyPolyfill([...requests, localFallback])
+      const { key: winningKey, data } = await promiseAnyPolyfill([...requests])
 
       console.log('📦 Processing', data.length, 'raw products...')
               
@@ -820,35 +910,13 @@ function ProductsClientContent({
       
       console.error('❌ Cache fetch error:', e)
 
-      // Final safety fallback: attempt local file once here if not already tried
-      try {
-        const res = await fetch('/products.json', { headers: { Accept: 'application/json' } })
-        if (res.ok) {
-          const json = await res.json()
-          const data = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : [])
-          if (Array.isArray(data) && data.length > 0) {
-            console.log('🧯 Recovered with local products.json after failures:', data.length)
-            setProductData(data)
-            setTotalProducts(data.length)
-            setChunkData({ 'local-fallback': data })
-            setChunkKeys(['local-fallback'])
-            setIsDataLoaded(true)
-            setLoading(false)
-            setError(null)
-            return
-          }
-        }
-      } catch (_) {
-        // ignore – we'll set an error below
-      }
-      
       // Check if it's a network/DNS error
       if (e.message.includes('Failed to fetch') || e.message.includes('ERR_NAME_NOT_RESOLVED') || e.message.includes('NetworkError')) {
         setError('Unable to connect to backend server. Please check your internet connection or contact support.')
       } else if (e.message.includes('404') || e.message.includes('Not Found')) {
-        setError('No products data available. Please cache the products data first using the Caching page.')
+        setError('No products data available from backend.')
       } else if (e.message.includes('All requests failed')) {
-        setError('Unable to load products data. All cache keys failed. Please check the Caching page and ensure products are cached.')
+        setError('Unable to load products data. All cache keys failed.')
       } else {
         setError(`Failed to load products: ${e.message}`)
       }
@@ -871,6 +939,28 @@ function ProductsClientContent({
     setLoading(true)
     setIsDataLoaded(false)
     
+    // 0) Ultra-fast in-memory session cache (between tab switches in same session)
+    if (typeof window !== 'undefined') {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      const mem = window.__productsCache as { data: Product[]; timestamp: number } | undefined
+      if (mem && Array.isArray(mem.data) && mem.data.length > 0) {
+        console.log('⚡ Using in-memory products cache instantly:', mem.data.length, 'products')
+        setProductData(mem.data)
+        setTotalProducts(mem.data.length)
+        setChunkData({ 'memory': mem.data })
+        setChunkKeys(['memory'])
+        setIsDataLoaded(true)
+        setLoading(false)
+        hasFetchedRef.current = true
+        // Background refresh without affecting UI
+        setTimeout(() => {
+          fetchProducts(true).catch(() => {})
+        }, 500)
+        return
+      }
+    }
+
     // Check if we have cached data first - prioritize speed
     if (typeof window !== 'undefined') {
       const cached = localStorage.getItem('products-cache')
@@ -953,6 +1043,11 @@ function ProductsClientContent({
           
           localStorage.setItem('products-cache', JSON.stringify(cacheData))
           console.log('📦 Cached', essentialProducts.length, 'products successfully')
+              try {
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // @ts-ignore
+                window.__productsCache = { data: essentialProducts as any, timestamp: Date.now() }
+              } catch {}
         } catch (e) {
           // Silent fail to avoid blocking user experience
           console.warn('⚠️ Cache storage failed:', e)
@@ -981,13 +1076,26 @@ function ProductsClientContent({
     return calculateKPIMetrics(dataToUse)
   }, [productData, useAlgoliaFilters, algoliaFilterResults, useAlgoliaSearch, algoliaSearchResults])
 
-  // Get all products for filtering (combine all chunks) - optimized with stable dependencies
+    // Get all products for filtering (combine all chunks) - optimized with stable dependencies
   const allProducts = useMemo(() => {
     if (chunkKeys.length > 0 && Object.keys(chunkData).length > 0) {
       return Object.values(chunkData).flat()
     }
     return productData
   }, [chunkKeys.length, Object.keys(chunkData).length, productData]) // Stable dependencies
+
+    // Fast lookup to enrich lightweight search results (e.g., missing images) with full data
+    const normalizeTitle = (t: string) => (t || '').toLowerCase().replace(/\s+/g,' ').trim()
+    const allProductsById = useMemo(() => {
+      const map = new Map<string, Product>()
+      for (const p of allProducts) map.set(p.id, p)
+      return map
+    }, [allProducts])
+    const allProductsByTitle = useMemo(() => {
+      const map = new Map<string, Product>()
+      for (const p of allProducts) map.set(normalizeTitle(p.title as any), p)
+      return map
+    }, [allProducts])
 
       // Filter products based on all criteria - optimized for performance with reduced logging
   const filteredProducts = useMemo(() => {
@@ -1138,8 +1246,16 @@ function ProductsClientContent({
     const paginatedData = useMemo(() => {
       const startIndex = (currentPage - 1) * effectiveItemsPerPage
       const endIndex = startIndex + effectiveItemsPerPage
-      return filteredProducts.slice(startIndex, endIndex)
-    }, [filteredProducts, currentPage, effectiveItemsPerPage])
+      const slice = filteredProducts.slice(startIndex, endIndex)
+      // Enrich items that came from cross-chunk search without images using the full dataset
+      return slice.map(p => {
+        if (p?.images && Array.isArray(p.images) && p.images[0]) return p
+        const fullById = allProductsById.get(p.id)
+        if (fullById?.images?.[0]) return { ...fullById, ...p, images: fullById.images }
+        const fullByTitle = allProductsByTitle.get(normalizeTitle((p as any).title))
+        return fullByTitle?.images?.[0] ? { ...fullByTitle, ...p, images: fullByTitle.images } : p
+      })
+    }, [filteredProducts, currentPage, effectiveItemsPerPage, allProductsById, allProductsByTitle])
 
     // Memoize total pages
     const totalPages = useMemo(() => {
@@ -1150,18 +1266,27 @@ function ProductsClientContent({
 
     // Handle product selection
     const handleSelectProduct = (productId: string) => {
-      const currentIds = useProductsPageStore.getState().selectedRowIds
-      const newIds = currentIds.includes(productId) 
-        ? currentIds.filter((id: string) => id !== productId)
-        : [...currentIds, productId]
-      setSelectedRowIds(newIds)
+      const currentAny = useProductsPageStore.getState().selectedRowIds as any
+      if (Array.isArray(currentAny)) {
+        const exists = currentAny.includes(productId)
+        setSelectedRowIds(exists ? currentAny.filter((id: string) => id !== productId) : [...currentAny, productId])
+      } else {
+        const current = currentAny as Set<string>
+        const next = new Set(current)
+        if (next.has(productId)) next.delete(productId); else next.add(productId)
+        setSelectedRowIds(next as any)
+      }
     }
 
     const handleSelectAll = () => {
-      if (selectedRowIds.length === paginatedData.length) {
-        setSelectedRowIds([])
+      const currentAny = selectedRowIds as any
+      if (Array.isArray(currentAny)) {
+        if (currentAny.length === paginatedData.length) setSelectedRowIds([])
+        else setSelectedRowIds(paginatedData.map(p => p.id))
       } else {
-        setSelectedRowIds(paginatedData.map(p => p.id))
+        const setSize = (currentAny as Set<string>).size
+        if (setSize === paginatedData.length) setSelectedRowIds(new Set() as any)
+        else setSelectedRowIds(new Set(paginatedData.map(p => p.id)) as any)
       }
     }
 
@@ -1389,7 +1514,8 @@ function ProductsClientContent({
     }, [searchQuery])
 
     // Optimized Algolia search effect with stable dependencies
-    const handleAlgoliaSearch = useCallback((query: string) => {
+  const handleAlgoliaSearch = useCallback((query: string) => {
+      if (!allProducts.length) return
       // Only search if query is at least 2 characters long
       if (query.trim().length >= 2) {
         setIsAlgoliaSearching(true)
@@ -1410,10 +1536,11 @@ function ProductsClientContent({
         setUseAlgoliaSearch(false)
         setIsAlgoliaSearching(false)
       }
-    }, []) // Remove dependencies to prevent recreation
+    }, [allProducts, searchHistory])
 
     // Separate effect for Algolia search with proper dependency management
-    useEffect(() => {
+  useEffect(() => {
+      if (!allProducts.length) return
       // Prevent multiple simultaneous searches
       if (searchInProgressRef.current) {
         return
@@ -1450,7 +1577,7 @@ function ProductsClientContent({
         searchInProgressRef.current = false
         setIsAlgoliaSearching(false)
       }
-    }, [debouncedSearchQuery]) // Only depend on the search query
+    }, [debouncedSearchQuery, allProducts])
 
     // Reset to first page when filters change - optimized to prevent unnecessary resets
     useEffect(() => {
@@ -1626,7 +1753,7 @@ function ProductsClientContent({
           onShowAllFilters={showAllFilters}
           onClearSearch={clearSearch}
           onClearSearchConditions={clearSearchConditions}
-          selectedProducts={selectedRowIds}
+          selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
           onBulkEdit={handleBulkEdit}
           onExportSelected={handleExportSelected}
           onBulkDelete={handleBulkDelete}
@@ -1645,6 +1772,11 @@ function ProductsClientContent({
           onSettings={handleSettings}
           showHeaderDropdown={showHeaderDropdown}
           setShowHeaderDropdown={setShowHeaderDropdown}
+          // Saved Views UX (Products)
+          onSaveToSearchViews={handleSaveToSearchViews}
+          savedSearches={savedSearches}
+          onApplySavedSearch={handleApplySavedSearch}
+          onDeleteSavedSearch={handleDeleteSavedSearch}
           // View and control props
           viewMode={viewMode}
           setViewMode={setViewMode}
@@ -1659,6 +1791,98 @@ function ProductsClientContent({
           isAlgoliaFiltering={isAlgoliaFiltering}
           useAlgoliaFilters={useAlgoliaFilters}
         />
+        </div>
+
+        {/* Persistent Actions Row - same as Orders page */}
+        <div className="flex-shrink-0 px-4 py-1 bg-white border-b border-gray-200">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            {/* Left action group */}
+            <div className="flex items-center justify-start gap-2 flex-wrap">
+              {/* Selection counter */}
+                 <div className="mr-2 text-xs sm:text-sm text-gray-600">
+                 {Array.isArray(selectedRowIds) ? selectedRowIds.length : (selectedRowIds as any as Set<string>).size}/{totalProducts} selected
+               </div>
+              <button
+                onClick={handleImport}
+                className={cn(
+                  "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+                  "text-blue-700 border border-blue-400 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100"
+                )}
+                title="Import Products"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                  <span>Import</span>
+                </span>
+              </button>
+              <button
+                onClick={handlePrint}
+                className={cn(
+                  "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+                  "text-indigo-700 border border-indigo-400 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-indigo-100"
+                )}
+                title="Print Products"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                  <span>Print</span>
+                </span>
+              </button>
+              <button
+                onClick={handleBulkEdit}
+                className={cn(
+                  "px-3 py-1 text-xs sm:text-sm rounded-md bg-white transition-all duration-200 shadow-sm hover:shadow-md",
+                  "text-blue-700 border border-blue-500"
+                )}
+                title="Bulk Edit selected rows"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                  <span>Bulk Edit</span>
+                </span>
+              </button>
+              <button
+                onClick={handleExport}
+                className={cn(
+                  "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+                  "text-green-700 border border-green-400 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100"
+                )}
+                title="Export"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                  <span>Export</span>
+                </span>
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                className={cn(
+                  "px-3 py-1 text-xs sm:text-sm rounded-md bg-white transition-all duration-200 shadow-sm hover:shadow-md",
+                  "text-red-700 border border-red-500"
+                )}
+                title="Delete selected rows"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  <span>Delete</span>
+                </span>
+              </button>
+            </div>
+
+            {/* Right side controls */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSettings}
+                className="px-3 py-1 text-xs sm:text-sm text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 bg-white shadow-sm hover:shadow-md"
+                title="Settings"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                  <span>Settings</span>
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Advanced Search Builder Panel */}
@@ -2187,7 +2411,7 @@ function ProductsClientContent({
           )}>
             {/* Bulk Actions Bar - Common for all views */}
             <BulkActionsBar
-              selectedProducts={selectedRowIds}
+              selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
               totalProducts={totalItemsForPagination}
               onBulkEdit={handleBulkEdit}
               onExportSelected={handleExportSelected}
@@ -2202,7 +2426,7 @@ function ProductsClientContent({
                 )}>
               <ProductTable
                 currentProducts={paginatedData}
-                selectedProducts={selectedRowIds}
+                selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
                 onSelectProduct={handleSelectProduct}
                 onSelectAll={handleSelectAll}
                 onProductClick={handleProductClick}
@@ -2242,7 +2466,7 @@ function ProductsClientContent({
                   isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : ""
                 )}>
                   <GridCardFilterHeader
-                    selectedProducts={selectedRowIds}
+                    selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
                     currentProducts={paginatedData}
                     onSelectAll={handleSelectAll}
                     activeColumnFilter={activeColumnFilter}
@@ -2272,7 +2496,7 @@ function ProductsClientContent({
                     <div className="flex items-center space-x-3 mb-3">
                     <input
                       type="checkbox"
-                        checked={selectedRowIds.includes(product.id)}
+                        checked={Array.isArray(selectedRowIds) ? selectedRowIds.includes(product.id) : (selectedRowIds as any as Set<string>).has(product.id)}
                       onChange={(e) => {
                           e.stopPropagation()
                           handleSelectProduct(product.id)
@@ -2339,7 +2563,7 @@ function ProductsClientContent({
                   isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : ""
                 )}>
                   <GridCardFilterHeader
-                    selectedProducts={selectedRowIds}
+                    selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
                     currentProducts={paginatedData}
                     onSelectAll={handleSelectAll}
                     activeColumnFilter={activeColumnFilter}
@@ -2358,7 +2582,7 @@ function ProductsClientContent({
                 )}>
                 <ProductCardView
                   currentProducts={paginatedData}
-                  selectedProducts={selectedRowIds}
+                  selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
                   onSelectProduct={handleSelectProduct}
                   onProductClick={handleProductClick}
                   getStatusBadge={getStatusBadgeForProduct}
@@ -2449,8 +2673,79 @@ function ProductsClientContent({
             : (useAlgoliaSearch && algoliaSearchResults.length > 0 
               ? algoliaSearchResults 
               : filteredProducts)}
-          selectedProducts={selectedRowIds}
+          selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
         />
+
+        {/* Save Search View Modal (same UX as Orders) */}
+        {showSaveModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Save Search View</h3>
+                <button onClick={() => setShowSaveModal(false)} className="text-gray-400 hover:text-gray-600">×</button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">View Name</label>
+                  <input
+                    type="text"
+                    value={viewName}
+                    onChange={(e) => setViewName(e.target.value)}
+                    placeholder="Enter a name for this search view"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="text-sm text-gray-600">
+                  <p><strong>Search Query:</strong> {searchQuery || 'None'}</p>
+                  <p><strong>Filters:</strong> {Object.keys(columnFilters || {}).length} active</p>
+                  <p><strong>View Mode:</strong> {viewMode}</p>
+                </div>
+              </div>
+              <div className="flex justify-end space-x-3 mt-6">
+                <button onClick={() => setShowSaveModal(false)} className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50">Cancel</button>
+                <button
+                  onClick={async () => {
+                    if (!viewName.trim()) return
+                    try {
+                      // Save to localStorage only - CRUD API removed
+                      const nowTs = Date.now()
+                      const newView = {
+                        id: `view-${nowTs}`,
+                        viewName: viewName.trim(),
+                        created_at: nowTs,
+                        createdAt: nowTs,
+                        updatedAt: nowTs,
+                        userId: useAppStore.getState().currentUser?.id || 'anonymous',
+                        searchState: {
+                          searchQuery,
+                          searchConditions,
+                          columnFilters,
+                          customFilters,
+                          advancedFilters,
+                          sortColumn: (sorting[0]?.id || ''),
+                          sortDirection: (sorting[0]?.desc ? 'desc' : 'asc'),
+                          viewMode,
+                          itemsPerPage
+                        }
+                      }
+                      setSavedSearches(prev => {
+                        const next = [...prev, newView]
+                        try { if (typeof window !== 'undefined') localStorage.setItem('products-saved-views:shopify-inkhub-get-products', JSON.stringify(next)) } catch {}
+                        return next
+                      })
+                      setShowSaveModal(false)
+                      setViewName('')
+                    } catch {}
+                  }}
+                  disabled={!viewName.trim()}
+                  className="px-4 py-2 text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
 
 
@@ -2471,7 +2766,7 @@ function ProductsClientContent({
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">Bulk Edit Products</h2>
                     <p className="text-sm text-gray-500">
-                Edit {selectedRowIds.length} selected product{selectedRowIds.length !== 1 ? 's' : ''}
+                Edit {(selectedRowIds as any as Set<string>).size} selected product{(((selectedRowIds as any as Set<string>).size) !== 1) ? 's' : ''}
               </p>
                   </div>
                 </div>
@@ -2670,9 +2965,9 @@ function ProductsClientContent({
                      Edit Summary
                       </label>
                    <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
-                     <div className="flex justify-between">
-                       <span className="text-gray-600">Products to edit:</span>
-                       <span className="font-medium">{selectedRowIds.length}</span>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Products to edit:</span>
+                        <span className="font-medium">{Array.isArray(selectedRowIds) ? selectedRowIds.length : (selectedRowIds as any as Set<string>).size}</span>
                   </div>
                      <div className="flex justify-between">
                        <span className="text-gray-600">Fields to update:</span>
@@ -2680,9 +2975,9 @@ function ProductsClientContent({
                          {Object.values(bulkEditForm).filter(field => field.enabled).length} selected
                        </span>
                 </div>
-                     <div className="flex justify-between">
-                       <span className="text-gray-600">Estimated time:</span>
-                       <span className="font-medium">~{Math.ceil(selectedRowIds.length / 10)} seconds</span>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Estimated time:</span>
+                        <span className="font-medium">~{Math.ceil((Array.isArray(selectedRowIds) ? selectedRowIds.length : (selectedRowIds as any as Set<string>).size) / 10)} seconds</span>
               </div>
                      {Object.values(bulkEditForm).filter(field => field.enabled).length > 0 && (
                        <div className="mt-3 pt-3 border-t border-gray-200">
@@ -2776,8 +3071,8 @@ function ProductsClientContent({
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Delete Products</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Are you sure you want to delete {selectedRowIds.length} selected product{selectedRowIds.length !== 1 ? 's' : ''}? This action cannot be undone.
+               <p className="text-sm text-gray-600 mb-4">
+                 Are you sure you want to delete {(selectedRowIds as any as Set<string>).size} selected product{(((selectedRowIds as any as Set<string>).size) !== 1) ? 's' : ''}? This action cannot be undone.
               </p>
               <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
                 <p className="text-sm text-red-700">
@@ -2912,7 +3207,7 @@ function ProductsClientContent({
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
                       />
                       <div className="ml-3">
-                        <div className="text-sm font-medium text-gray-900">Selected products ({selectedRowIds.length})</div>
+                        <div className="text-sm font-medium text-gray-900">Selected products {(selectedRowIds as any as Set<string>).size}</div>
                         <div className="text-xs text-gray-500">Print only selected products</div>
                       </div>
                     </label>
@@ -2997,7 +3292,7 @@ function ProductsClientContent({
                     <span className="text-sm font-medium text-gray-700">Print Preview</span>
                   </div>
                   <div className="text-xs text-gray-600 space-y-1">
-                    <div>• {printOptions.printType === 'all' ? `${totalItemsForPagination} products` : `${selectedRowIds.length} selected products`} will be printed</div>
+                    <div>• {printOptions.printType === 'all' ? `${totalItemsForPagination} products` : `${(selectedRowIds as any as Set<string>).size} selected products`} will be printed</div>
                     <div>• Layout: {printOptions.layout.charAt(0).toUpperCase() + printOptions.layout.slice(1)}</div>
                     <div>• Page: {printOptions.pageSize} {printOptions.orientation}</div>
                     <div>• {printOptions.includeImages ? 'With' : 'Without'} images, {printOptions.includeDetails ? 'with' : 'without'} detailed information</div>
@@ -3030,7 +3325,7 @@ function ProductsClientContent({
                           ? algoliaFilterResults 
                           : (useAlgoliaSearch && algoliaSearchResults.length > 0 
                             ? algoliaSearchResults 
-                            : filteredProducts)).filter(p => selectedRowIds.includes(p.id))
+                            : filteredProducts)).filter(p => (selectedRowIds as any as Set<string>).has(p.id))
                       console.log('Printing products:', {
                         count: productsToPrint.length,
                         options: printOptions,

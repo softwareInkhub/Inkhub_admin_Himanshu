@@ -1,166 +1,180 @@
 'use client'
 
-import React, { useState } from 'react'
-import { X, Download, FileText, FileSpreadsheet, FileCode } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { ExportConfig } from './types'
+import { useEffect, useMemo, useState } from 'react'
+import { X, Download, FileText, FileJson, FileType } from 'lucide-react'
 
+type ExportFormat = 'csv' | 'json' | 'pdf'
+
+// Accept both shared props (data/selectedItems) and products props (products/selectedProducts)
 interface ExportModalProps {
   isOpen: boolean
   onClose: () => void
-  data: any[]
-  selectedItems: string[]
-  onExport: (config: ExportConfig) => void
+  data?: any[]
+  selectedItems?: string[]
+  products?: any[]
+  selectedProducts?: string[]
+  onExport: (config: { format: ExportFormat; columns: string[]; selectedOnly: boolean; includeImages: boolean }) => void
   title?: string
 }
 
-export default function ExportModal({
-  isOpen,
-  onClose,
-  data,
-  selectedItems,
-  onExport,
-  title = 'Export Data'
-}: ExportModalProps) {
-  const [exportConfig, setExportConfig] = useState<ExportConfig>({
-    format: 'csv',
-    includeImages: false,
-    selectedOnly: false,
-    columns: []
-  })
+export default function ExportModal({ isOpen, onClose, data, selectedItems, products, selectedProducts, onExport, title = 'Export Data' }: ExportModalProps) {
+  const items = products ?? data ?? []
+  const selected = selectedProducts ?? selectedItems ?? []
+
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
+  const [selectedFields, setSelectedFields] = useState<string[]>([])
+  const [includeImages, setIncludeImages] = useState<boolean>(false)
+  const [isExporting, setIsExporting] = useState(false)
+
+  const inferredFields = useMemo(() => {
+    const keys = new Set<string>()
+    ;(items || []).slice(0, 100).forEach((row: any) => {
+      Object.keys(row || {}).forEach(k => keys.add(k))
+    })
+    return Array.from(keys)
+  }, [items])
+
+  useEffect(() => {
+    if (isOpen) {
+      const defaultSelection = inferredFields.length > 0 ? inferredFields.slice(0, 20) : []
+      setSelectedFields(defaultSelection)
+      const hasImage = inferredFields.includes('images') || inferredFields.includes('image') || inferredFields.includes('thumbnail')
+      setIncludeImages(hasImage)
+    }
+  }, [isOpen, inferredFields])
 
   if (!isOpen) return null
 
-  const handleExport = () => {
-    onExport(exportConfig)
-    onClose()
+  const handleFieldToggle = (fieldKey: string) => {
+    setSelectedFields(prev => prev.includes(fieldKey) ? prev.filter(f => f !== fieldKey) : [...prev, fieldKey])
+  }
+  const handleSelectAllFields = () => setSelectedFields(inferredFields)
+  const handleDeselectAllFields = () => setSelectedFields([])
+
+  const itemsToExportCount = selected.length > 0 ? selected.length : items.length
+
+  const handleExport = async () => {
+    if (selectedFields.length === 0) {
+      alert('Please select at least one field to export.')
+      return
+    }
+    setIsExporting(true)
+    try {
+      onExport({ format: exportFormat, columns: selectedFields, selectedOnly: selected.length > 0, includeImages })
+      onClose()
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   const formatOptions = [
-    { value: 'csv', label: 'CSV', icon: FileSpreadsheet, description: 'Comma-separated values' },
-    { value: 'json', label: 'JSON', icon: FileCode, description: 'JavaScript Object Notation' },
-    { value: 'pdf', label: 'PDF', icon: FileText, description: 'Portable Document Format' },
-    { value: 'excel', label: 'Excel', icon: FileSpreadsheet, description: 'Microsoft Excel format' }
+    { value: 'csv' as ExportFormat, label: 'CSV', icon: FileText, description: 'Comma-separated values file' },
+    { value: 'json' as ExportFormat, label: 'JSON', icon: FileJson, description: 'JavaScript Object Notation' },
+    { value: 'pdf' as ExportFormat, label: 'PDF', icon: FileType, description: 'Portable Document Format with images & layout' }
   ]
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Download className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+              <p className="text-sm text-gray-500">Export {itemsToExportCount} item{itemsToExportCount !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Content */}
         <div className="p-6 space-y-6">
-          {/* Export Options */}
+          {/* Format Selection */}
           <div>
-            <h4 className="text-sm font-medium text-gray-900 mb-3">Export Format</h4>
-            <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700 mb-3">Export Format</label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {formatOptions.map((option) => {
                 const Icon = option.icon
                 return (
-                  <label
+                  <button
                     key={option.value}
-                    className={cn(
-                      "flex items-center space-x-3 p-3 border rounded-lg cursor-pointer transition-colors",
-                      exportConfig.format === option.value
-                        ? "border-blue-500 bg-blue-50"
-                        : "border-gray-200 hover:border-gray-300"
-                    )}
+                    onClick={() => setExportFormat(option.value)}
+                    className={`p-4 border rounded-lg text-left transition-all duration-200 ${exportFormat === option.value ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
                   >
-                    <input
-                      type="radio"
-                      name="format"
-                      value={option.value}
-                      checked={exportConfig.format === option.value}
-                      onChange={(e) => setExportConfig(prev => ({ ...prev, format: e.target.value as any }))}
-                      className="text-blue-600 focus:ring-blue-500"
-                    />
-                    <Icon className="h-5 w-5 text-gray-400" />
-                    <div className="flex-1">
-                      <div className="text-sm font-medium text-gray-900">{option.label}</div>
-                      <div className="text-xs text-gray-500">{option.description}</div>
+                    <div className="flex items-center space-x-3">
+                      {Icon && <Icon className="h-5 w-5" />}
+                      <div>
+                        <div className="font-medium">{option.label}</div>
+                        <div className="text-xs text-gray-500">{option.description}</div>
+                      </div>
                     </div>
-                  </label>
+                  </button>
                 )
               })}
             </div>
           </div>
 
-          {/* Export Scope */}
+          {/* Field Selection */}
           <div>
-            <h4 className="text-sm font-medium text-gray-900 mb-3">Export Scope</h4>
-            <div className="space-y-2">
-              <label className="flex items-center space-x-3">
-                <input
-                  type="radio"
-                  name="scope"
-                  checked={!exportConfig.selectedOnly}
-                  onChange={() => setExportConfig(prev => ({ ...prev, selectedOnly: false }))}
-                  className="text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <div className="text-sm font-medium text-gray-900">All Data</div>
-                  <div className="text-xs text-gray-500">Export all {data.length} items</div>
-                </div>
-              </label>
-              <label className="flex items-center space-x-3">
-                <input
-                  type="radio"
-                  name="scope"
-                  checked={exportConfig.selectedOnly}
-                  onChange={() => setExportConfig(prev => ({ ...prev, selectedOnly: true }))}
-                  className="text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <div className="text-sm font-medium text-gray-900">Selected Items Only</div>
-                  <div className="text-xs text-gray-500">Export {selectedItems.length} selected items</div>
-                </div>
-              </label>
+            <div className="flex items-center justify-between mb-3">
+              <label className="block text-sm font-medium text-gray-700">Data Fields ({selectedFields.length}/{inferredFields.length} selected)</label>
+              <div className="flex space-x-2">
+                <button onClick={handleSelectAllFields} className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">Select All</button>
+                <button onClick={handleDeselectAllFields} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">Deselect All</button>
+              </div>
             </div>
+            <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-3">
+                {inferredFields.map((field) => (
+                  <label key={field} className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                    <input type="checkbox" checked={selectedFields.includes(field)} onChange={() => handleFieldToggle(field)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900 truncate">{field}</div>
+                      <div className="text-xs text-gray-500">field</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Export Summary */}
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h3 className="text-sm font-medium text-gray-900 mb-2">Export Summary</h3>
+            <div className="space-y-1 text-sm text-gray-600">
+              <div>• Items to export: {itemsToExportCount}</div>
+              <div>• Format: {formatOptions.find(f => f.value === exportFormat)?.label}</div>
+              <div>• Fields: {selectedFields.length} selected</div>
+            </div>
+            {exportFormat === 'pdf' && (
+              <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">
+                {includeImages ? '📸 Images will be included in PDF' : 'Toggle Include Images below to add images to PDF (if available).'}
+              </div>
+            )}
           </div>
 
           {/* Additional Options */}
           <div>
-            <h4 className="text-sm font-medium text-gray-900 mb-3">Additional Options</h4>
-            <div className="space-y-2">
-              <label className="flex items-center space-x-3">
-                <input
-                  type="checkbox"
-                  checked={exportConfig.includeImages}
-                  onChange={(e) => setExportConfig(prev => ({ ...prev, includeImages: e.target.checked }))}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <div className="text-sm font-medium text-gray-900">Include Images</div>
-                  <div className="text-xs text-gray-500">Include image URLs in export</div>
-                </div>
-              </label>
-            </div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">Additional Options</label>
+            <label className="flex items-center space-x-3">
+              <input type="checkbox" checked={includeImages} onChange={(e) => setIncludeImages(e.target.checked)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <div>
+                <div className="text-sm font-medium text-gray-900">Include Images</div>
+                <div className="text-xs text-gray-500">Include first image/thumbnail when available</div>
+              </div>
+            </label>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end space-x-3 p-6 border-t border-gray-200">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleExport}
-            className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
-          >
-            <Download className="h-4 w-4" />
-            <span>Export</span>
+        <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
+          <button onClick={onClose} className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors">Cancel</button>
+          <button onClick={handleExport} disabled={isExporting || selectedFields.length === 0} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2">
+            {isExporting ? (<><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div><span>Exporting...</span></>) : (<><Download className="h-4 w-4" /><span>Export</span></>)}
           </button>
         </div>
       </div>

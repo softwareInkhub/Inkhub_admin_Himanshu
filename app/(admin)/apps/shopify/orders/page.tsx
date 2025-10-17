@@ -101,8 +101,22 @@ function OrdersClientContent({
 
   // Restore scroll position after first paint
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      try { window.history.scrollRestoration = "manual" } catch {}
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (scrollY > 0) {
+          const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+          if (scroller) scroller.scrollTop = scrollY
+          else window.scrollTo({ top: scrollY, behavior: "instant" as ScrollBehavior })
+        }
+      })
+    })
     if (scrollY > 0) {
-      window.scrollTo({ top: scrollY, behavior: "instant" as ScrollBehavior })
+      const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+      if (scroller) scroller.scrollTop = scrollY
+      else window.scrollTo({ top: scrollY, behavior: "instant" as ScrollBehavior })
     }
   }, [scrollY])
 
@@ -116,6 +130,31 @@ function OrdersClientContent({
     return () => {
       save()
       window.removeEventListener("beforeunload", save)
+    }
+  }, [setScrollY])
+
+  // Continuously persist scroll position while scrolling (throttled via rAF)
+  useEffect(() => {
+    let raf = 0 as number | any
+    const onScroll = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+        const y = scroller ? scroller.scrollTop : window.scrollY
+        setScrollY(y)
+        raf = 0
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    const scroller = document.querySelector('[data-scroll-group="page-table"]')
+    scroller?.addEventListener('scroll', onScroll as any, { passive: true } as any)
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      const s = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+      const y = s ? s.scrollTop : window.scrollY
+      setScrollY(y)
+      window.removeEventListener('scroll', onScroll as any)
+      s?.removeEventListener('scroll', onScroll as any)
     }
   }, [setScrollY])
 
@@ -165,6 +204,20 @@ function OrdersClientContent({
   // Skip one Algolia cycle after applying a saved view for instant local results
   const skipNextAlgoliaRef = useRef(false)
 
+  // Two-way sync: persist local input to store and hydrate input from store
+  useEffect(() => {
+    if (searchQuery !== useOrdersPageStore.getState().globalFilter) {
+      setGlobalFilter(searchQuery)
+    }
+  }, [searchQuery, setGlobalFilter])
+
+  useEffect(() => {
+    if (globalFilter !== searchQuery) {
+      setSearchQuery(globalFilter)
+      setDebouncedSearchQuery(globalFilter)
+    }
+  }, [globalFilter])
+
   // JSON Column Customization
   const {
     selectedFields,
@@ -185,7 +238,9 @@ function OrdersClientContent({
   })
 
   // Advanced Filter states
-  const [showAdvancedFilter, setShowAdvancedFilter] = useState(false)
+  // Persist advanced filter open/closed in store for parity with Products
+  const showAdvancedFilter = useOrdersPageStore((s: any) => s.showAdvancedFilter)
+  const setShowAdvancedFilter = useOrdersPageStore((s: any) => s.setShowAdvancedFilter)
   
   // Advanced Filters Algolia search function
   const handleAdvancedFiltersAlgoliaSearch = useCallback(async (filters: {
@@ -381,8 +436,10 @@ function OrdersClientContent({
   // Default filter states
   const [hiddenDefaultFilters, setHiddenDefaultFilters] = useState<Set<string>>(new Set())
   
-  // View and control states - ensure consistent initialization
-  const [viewMode, setViewMode] = useState<'table' | 'grid' | 'card'>(() => 'table')
+  // View and control states (persisted in store for parity with Products)
+  const viewMode = useOrdersPageStore((s: any) => s.viewMode)
+  const setStoredViewMode = useOrdersPageStore((s: any) => s.setViewMode)
+  const setViewMode = (mode: 'table' | 'grid' | 'card') => setStoredViewMode(mode)
   const [showAdditionalControls, setShowAdditionalControls] = useState(false)
   
   // Header dropdown states
@@ -443,29 +500,7 @@ function OrdersClientContent({
           }
         }
 
-        // Fetch from API and merge/dedupe by viewName (prefer latest updatedAt)
-        const response = await fetch('/api/crud?tableName=shopify-inkhub-get-orders&operation=listViews', { method: 'GET' })
-        if (response.ok) {
-          const data = await response.json()
-          const apiViews: any[] = Array.isArray(data.views) ? data.views : []
-          setSavedSearches(prev => {
-            const byName = new Map<string, any>()
-            ;[...prev, ...apiViews].forEach(v => {
-              const key = (v.viewName || v.name || '').toString()
-              if (!key) return
-              const existing = byName.get(key)
-              if (!existing) byName.set(key, v)
-              else {
-                const exTime = new Date(existing.updatedAt || 0).getTime()
-                const vTime = new Date(v.updatedAt || 0).getTime()
-                byName.set(key, vTime >= exTime ? v : existing)
-              }
-            })
-            const merged = Array.from(byName.values())
-            try { if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)) } catch {}
-            return merged
-          })
-        }
+        // CRUD API removed - only localStorage operations
       } catch (error) {
         console.error('Failed to load saved searches:', error)
       }
@@ -687,24 +722,8 @@ function OrdersClientContent({
         return next
       })
       
-      // Then send delete request to API
-      const response = await fetch('/api/crud', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          tableName: 'shopify-inkhub-get-orders', 
-          operation: 'deleteView',
-          viewName: savedSearch.viewName 
-        })
-      })
-      
-      if (response.ok) {
-        console.log('✅ Deleted saved search from API:', savedSearch.viewName)
-      } else {
-        const errorText = await response.text()
-        console.error('❌ API delete failed:', response.status, errorText)
-        // If API fails, we already updated UI optimistically, so user still sees it deleted
-      }
+      // CRUD API removed - only localStorage operations
+      console.log('✅ Deleted saved search from localStorage:', savedSearch.viewName)
     } catch (error) {
       console.error('❌ Failed to delete saved search:', error)
       // Even if API fails, UI is already updated for better UX
@@ -782,6 +801,11 @@ function OrdersClientContent({
   }, [settings])
 
   // Apply default view mode on component mount
+  // useEffect(() => {
+  //   if (settings.defaultViewMode && settings.defaultViewMode !== viewMode) {
+  //     setViewMode(settings.defaultViewMode)
+  //   }
+  // }, [settings.defaultViewMode, viewMode])
   useEffect(() => {
     if (settings.defaultViewMode && settings.defaultViewMode !== viewMode) {
       setViewMode(settings.defaultViewMode)
@@ -793,7 +817,7 @@ function OrdersClientContent({
     if (settings.itemsPerPage && settings.itemsPerPage !== itemsPerPage) {
       setItemsPerPage(settings.itemsPerPage)
     }
-  }, [settings.itemsPerPage])
+  }, [settings.itemsPerPage, itemsPerPage])
 
   // Keep advanced filters closed by default; users can open via the button
 
@@ -851,6 +875,23 @@ function OrdersClientContent({
     // Load orders data for current page with INSTANT CACHING
   useEffect(() => {
     const loadOrders = async () => {
+      // Ultra-fast in-memory cache for instant tab switching in-session
+      try {
+        if (typeof window !== 'undefined') {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
+          const mem = window.__ordersCache as { data: Order[]; timestamp: number; page: number; perPage: number } | undefined
+          if (mem && Array.isArray(mem.data) && mem.data.length > 0 && mem.page === currentPage && mem.perPage === itemsPerPage) {
+            setOrderData(mem.data)
+            setIsDataLoaded(true)
+            setLoading(false)
+            setError(null)
+            // Soft background refresh
+            setTimeout(() => refreshOrdersInBackground(currentPage, itemsPerPage), 300)
+            return
+          }
+        }
+      } catch {}
       // One-time cleanup: remove old v1 cache entries (only on first load)
       if (typeof window !== 'undefined' && !sessionStorage.getItem('orders-cache-cleaned-v2')) {
         try {
@@ -977,6 +1018,11 @@ function OrdersClientContent({
               globalSorted: true // Flag to indicate this data is globally sorted
             }
             localStorage.setItem(currentCacheKey, JSON.stringify(cacheData))
+            try {
+              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+              // @ts-ignore
+              window.__ordersCache = { data: result.orders, timestamp: Date.now(), page: currentPage, perPage: itemsPerPage }
+            } catch {}
             setCacheKey(currentCacheKey)
             setIsCacheValid(true)
             setCacheTimestamp(Date.now())
@@ -3493,41 +3539,34 @@ onClick={() => setShowExportModal(true)}
                   if (!viewName.trim()) return
                   
                   try {
-                    const response = await fetch('/api/crud', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        tableName: 'shopify-inkhub-get-orders',
-                        operation: 'saveView',
-                        viewName: viewName.trim(),
-                        searchState: {
-                          searchQuery,
-                          searchConditions,
-                          columnFilters,
-                          customFilters,
-                          advancedFilters: {},
-                          sortColumn: sortState.key || '',
-                          sortDirection: sortState.dir || 'asc',
-                          viewMode,
-                          itemsPerPage
-                        }
-                      })
-                    })
-                    
-                    if (response.ok) {
-                      const data = await response.json()
-                      setSavedSearches(prev => {
-                        const next = [...prev, data.view]
-                        try { if (typeof window !== 'undefined') localStorage.setItem('orders-saved-views:shopify-inkhub-get-orders', JSON.stringify(next)) } catch {}
-                        return next
-                      })
-                      setShowSaveModal(false)
-                      setViewName('')
-                      console.log('💾 Saved search view:', viewName.trim())
-                    } else {
-                      const errorData = await response.json()
-                      console.error('Failed to save search view:', errorData)
+                    // Save to localStorage only - CRUD API removed
+                    const nowTs = Date.now()
+                    const newView = {
+                      id: `view-${nowTs}`,
+                      viewName: viewName.trim(),
+                      createdAt: nowTs,
+                      updatedAt: nowTs,
+                      userId: useAppStore.getState().currentUser?.id || 'anonymous',
+                      searchState: {
+                        searchQuery,
+                        searchConditions,
+                        columnFilters,
+                        customFilters,
+                        advancedFilters: {},
+                        sortColumn: sortState.key || '',
+                        sortDirection: sortState.dir || 'asc',
+                        viewMode,
+                        itemsPerPage
+                      }
                     }
+                    setSavedSearches(prev => {
+                      const next = [...prev, newView]
+                      try { if (typeof window !== 'undefined') localStorage.setItem('orders-saved-views:shopify-inkhub-get-orders', JSON.stringify(next)) } catch {}
+                      return next
+                    })
+                    setShowSaveModal(false)
+                    setViewName('')
+                    console.log('💾 Saved search view to localStorage:', viewName.trim())
                   } catch (error) {
                     console.error('Failed to save search view:', error)
                   }

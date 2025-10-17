@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
+import { usePinterestPinsPageStore } from '@/lib/stores/pinterest-pins-page-store'
 import { 
   PageTemplate,
   useDataTable
@@ -286,73 +287,174 @@ const pinFilters = [
 function PinsClient() {
   const { addTab } = useAppStore()
   const hasAddedTab = useRef(false)
+  
+  // ✅ USE ZUSTAND STORE for persistent state
+  const {
+    pageIndex, pageSize, sorting, columnFilters, globalFilter,
+    setPageIndex, setPageSize, setSorting, setColumnFilters, setGlobalFilter,
+    selectedRowIds, setSelectedRowIds,
+    scrollY, setScrollY,
+    viewMode: storedViewMode, setViewMode: setStoredViewMode,
+  } = usePinterestPinsPageStore()
+  
   const [loadingPins, setLoadingPins] = useState(false)
   const [pinsError, setPinsError] = useState<string | null>(null)
   const [allPins, setAllPins] = useState<Pin[]>([])
   const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [showExportModal, setShowExportModal] = useState(false)
+  
+  // ✅ RESTORE SCROLL POSITION
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try { window.history.scrollRestoration = 'manual' } catch {}
+    }
+    // Delay to allow layout to settle before restoring
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (scrollY > 0) {
+          const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+          if (scroller) scroller.scrollTop = scrollY
+          else window.scrollTo({ top: scrollY, behavior: 'instant' as ScrollBehavior })
+        }
+      })
+    })
+    if (scrollY > 0) {
+      const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+      if (scroller) scroller.scrollTop = scrollY
+      else window.scrollTo({ top: scrollY, behavior: 'instant' as ScrollBehavior })
+    }
+  }, [scrollY])
+  
+  // ✅ SAVE SCROLL POSITION
+  useEffect(() => {
+    const saveScroll = () => setScrollY(window.scrollY)
+    window.addEventListener('beforeunload', saveScroll)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') saveScroll()
+    })
+    return () => {
+      saveScroll()
+      window.removeEventListener('beforeunload', saveScroll)
+    }
+  }, [setScrollY])
 
-  // Initialize data table hook
+  // Continuously persist scroll position while scrolling (throttled via rAF)
+  useEffect(() => {
+    let raf: number | null = null
+    const onScroll = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+        const y = scroller ? scroller.scrollTop : window.scrollY
+        setScrollY(y)
+        raf = null
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    const scroller = document.querySelector('[data-scroll-group="page-table"]')
+    scroller?.addEventListener('scroll', onScroll as any, { passive: true } as any)
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      const s = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+      const y = s ? s.scrollTop : window.scrollY
+      setScrollY(y)
+      window.removeEventListener('scroll', onScroll as any)
+      s?.removeEventListener('scroll', onScroll as any)
+    }
+  }, [setScrollY])
+
+  // ✅ Initialize data table hook - INTEGRATE with Zustand for persistent state
   const {
     data: pinData,
     loading,
     error,
-    searchQuery,
-    setSearchQuery,
-    searchConditions,
-    setSearchConditions,
-    selectedItems,
-    setSelectedItems,
-    viewMode,
-    setViewMode,
-    currentPage,
-    setCurrentPage,
-    itemsPerPage,
-    setItemsPerPage,
-    sortColumn,
-    setSortColumn,
-    sortDirection,
-    setSortDirection,
-    columnFilters,
-    setColumnFilters,
-    customFilters,
-    setCustomFilters,
-    advancedFilters,
-    setAdvancedFilters,
     filteredData,
     totalPages,
     currentData,
-    handleSelectItem,
-    handleSelectAll,
-    handlePageChange,
-    handleItemsPerPageChange,
-    handleSort,
-    handleSearch,
-    handleAdvancedSearch,
-    handleColumnFilter,
-    handleCustomFilter,
-    handleAdvancedFilter,
-    clearAllFilters,
-    clearSearch,
-    clearColumnFilters,
-    clearCustomFilters,
-    clearAdvancedFilters,
     setData
   } = useDataTable<Pin>({
     initialData: [],
     columns: pinColumns,
-    searchableFields: [
-      { key: 'title', label: 'Title', type: 'text' },
-      { key: 'description', label: 'Description', type: 'text' },
-      { key: 'board', label: 'Board', type: 'text' },
-      { key: 'owner', label: 'Owner', type: 'text' },
-      { key: 'tags', label: 'Tags', type: 'text' },
-      { key: 'type', label: 'Type', type: 'text' }
-    ],
-    filterOptions: pinFilters,
-    defaultViewMode: 'table',
-    defaultItemsPerPage: 500
+    defaultViewMode: storedViewMode,
+    defaultItemsPerPage: pageSize
   })
+  
+  // ✅ Map Zustand state to local variables for consistency
+  const searchQuery = globalFilter
+  const setSearchQuery = setGlobalFilter
+  const selectedItems = selectedRowIds
+  const setSelectedItems = setSelectedRowIds
+  const viewMode = storedViewMode
+  const setViewMode = setStoredViewMode
+  const currentPage = pageIndex + 1 // Convert 0-based to 1-based
+  const setCurrentPage = (page: number) => setPageIndex(page - 1)
+  const itemsPerPage = pageSize
+  const setItemsPerPage = (size: number) => {
+    setPageSize(size)
+    setPageIndex(0)
+  }
+  
+  // ✅ Handlers using Zustand state
+  const [searchConditions, setSearchConditions] = useState<any[]>([])
+  const [customFilters, setCustomFilters] = useState<any[]>([])
+  const [advancedFilters, setAdvancedFilters] = useState<any>({})
+  
+  const sortColumn = sorting.length > 0 ? sorting[0].id : null
+  const sortDirection = sorting.length > 0 ? (sorting[0].desc ? 'desc' : 'asc') : 'desc'
+  const setSortColumn = (col: string | null) => {
+    if (col) {
+      setSorting([{ id: col, desc: sortDirection === 'desc' }])
+    } else {
+      setSorting([])
+    }
+  }
+  const setSortDirection = (dir: 'asc' | 'desc') => {
+    if (sortColumn) {
+      setSorting([{ id: sortColumn, desc: dir === 'desc' }])
+    }
+  }
+  
+  const handleSelectItem = (id: string) => {
+    const newIds = selectedRowIds.includes(id)
+      ? selectedRowIds.filter(x => x !== id)
+      : [...selectedRowIds, id]
+    setSelectedRowIds(newIds)
+  }
+  
+  const handleSelectAll = () => {
+    if (selectedRowIds.length === currentData.length) {
+      setSelectedRowIds([])
+    } else {
+      setSelectedRowIds(currentData.map((item: any) => item.id))
+    }
+  }
+  
+  const handlePageChange = (page: number) => setCurrentPage(page)
+  const handleItemsPerPageChange = (items: number) => setItemsPerPage(items)
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+  }
+  const handleSearch = setSearchQuery
+  const handleAdvancedSearch = () => {}
+  const handleColumnFilter = (column: string, value: any) => {
+    setColumnFilters({ ...columnFilters, [column]: value })
+  }
+  const handleCustomFilter = () => {}
+  const handleAdvancedFilter = () => {}
+  const clearAllFilters = () => {
+    setGlobalFilter('')
+    setColumnFilters({})
+    setSorting([])
+  }
+  const clearSearch = () => setGlobalFilter('')
+  const clearColumnFilters = () => setColumnFilters({})
+  const clearCustomFilters = () => setCustomFilters([])
+  const clearAdvancedFilters = () => setAdvancedFilters({})
 
   // Load all pins once on initial load (cache-first + parallel chunks)
   useEffect(() => {
@@ -360,6 +462,22 @@ function PinsClient() {
     
     let cancelled = false
     const loadAllPins = async () => {
+      // Ultra-fast in-memory session cache
+      try {
+        if (typeof window !== 'undefined') {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
+          const mem = window.__pinsCache as { data: Pin[]; timestamp: number } | undefined
+          if (mem && Array.isArray(mem.data) && mem.data.length > 0) {
+            if (!cancelled) {
+              setAllPins(mem.data)
+              setIsInitialLoad(false)
+              setLoadingPins(false)
+              return
+            }
+          }
+        }
+      } catch {}
       setLoadingPins(true)
       setPinsError(null)
       try {
@@ -402,6 +520,11 @@ function PinsClient() {
           setIsInitialLoad(false)
           // Persist to localStorage for instant reloads
           try { localStorage.setItem('pinterest-pins-cache', JSON.stringify({ data: normalized, timestamp: Date.now() })) } catch {}
+          try {
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
+            window.__pinsCache = { data: normalized, timestamp: Date.now() }
+          } catch {}
         }
       } catch (e: any) {
         if (!cancelled) setPinsError(e?.message || 'Failed to load pins')
@@ -414,12 +537,29 @@ function PinsClient() {
     return () => { cancelled = true }
   }, [isInitialLoad])
 
-  // Update data table when all pins are loaded or page changes
-  useEffect(() => {
-    if (allPins.length > 0) {
-      setData(allPins as any)
+  // Filter pins data based on search query
+  const filteredPinsData = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return allPins
     }
-  }, [allPins, setData])
+    
+    const query = searchQuery.toLowerCase()
+    return allPins.filter(pin =>
+      Object.values(pin).some(value => {
+        if (Array.isArray(value)) {
+          return value.some(item => String(item).toLowerCase().includes(query))
+        }
+        return String(value).toLowerCase().includes(query)
+      })
+    )
+  }, [allPins, searchQuery])
+
+  // Update data table when filtered pins data changes
+  useEffect(() => {
+    if (filteredPinsData.length > 0 || searchQuery.trim()) {
+      setData(filteredPinsData)
+    }
+  }, [filteredPinsData, setData, searchQuery])
 
   // Calculate KPI metrics based on filtered data
   const calculatedKPIs = pinKPIs.map(kpi => {

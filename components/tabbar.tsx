@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import React, { useState, useRef, useCallback, useEffect, useMemo, startTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   X, 
@@ -184,15 +184,12 @@ export function TabBar({ className }: TabBarProps) {
 
   // Tab click handler with routing - make it instant
   const handleTabClick = useCallback((tab: any) => {
-    console.log('🔄 Tab clicked:', tab.title, 'Path:', tab.path)
-    
-    // Set active tab first for immediate UI feedback
-    setActiveTab(tab.id)
-    
-    // Navigate immediately without transition delay
-    router.push(tab.path)
-    
-    console.log('✅ Navigation initiated to:', tab.path)
+    // Optimistic UI + non-blocking navigation
+    startTransition(() => {
+      setActiveTab(tab.id)
+    })
+    // Avoid scroll reset for snappier feel
+    try { router.push(tab.path, { scroll: false } as any) } catch { router.push(tab.path) }
   }, [setActiveTab, router])
 
   // Add new tab handler

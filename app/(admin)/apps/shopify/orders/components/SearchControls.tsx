@@ -432,9 +432,9 @@ export default function SearchControls({
             {savedSearches && savedSearches.length > 0 && (
               <div className="ml-2 max-w-[50vw] overflow-x-auto">
                 <div className="flex items-center gap-1 flex-nowrap whitespace-nowrap pr-2">
-                  {savedSearches.map((savedSearch) => (
+                  {savedSearches.map((savedSearch, index) => (
                   <span 
-                    key={savedSearch.id} 
+                    key={savedSearch.id || `saved-search-${index}`} 
                     className="group inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-blue-100 transition-all duration-200"
                     onClick={() => onApplySavedSearch?.(savedSearch)}
                     title={`Apply saved search: ${savedSearch.viewName}`}
@@ -466,7 +466,7 @@ export default function SearchControls({
                 if (!hasValue) return null
                 const display = Array.isArray(value) ? value.join(', ') : String(value)
                 return (
-                  <span key={`search-chip-${key}`} className="inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-default">
+                  <span key={`column-filter-${key}`} className="inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-default">
                     <span className="font-medium capitalize">{key}</span>
                     <span className="text-blue-800">: {display}</span>
                     <button onClick={() => onColumnFilterChange(key, Array.isArray(value) ? [] : '')} className="text-blue-500 hover:text-blue-700" aria-label={`Clear ${key} filter`}>

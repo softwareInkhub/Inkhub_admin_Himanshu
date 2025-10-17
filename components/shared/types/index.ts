@@ -207,12 +207,6 @@ export interface SearchControlsProps {
   onFilterClick: (column: string) => void
   onColumnFilterChange: (column: string, value: any) => void
   getUniqueValues: (field: string) => string[]
-  onExport: () => void
-  onImport: () => void
-  onPrint: () => void
-  onSettings: () => void
-  showHeaderDropdown: boolean
-  setShowHeaderDropdown: (show: boolean) => void
   viewMode: ViewMode
   setViewMode: (mode: ViewMode) => void
   showAdvancedFilter: boolean

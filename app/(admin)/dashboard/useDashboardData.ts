@@ -15,6 +15,10 @@ import { getPinsForPage, getTotalChunks } from '@/app/(admin)/apps/pinterest/pin
 import { fetchBoards } from '@/app/(admin)/apps/pinterest/boards/services/boardService'
 import { useAppStore } from '@/lib/store'
 
+// Sampling configuration for console logging (1% in dev, 0% in prod)
+const LOG_SAMPLE_RATE = process.env.NODE_ENV === 'development' ? 0.01 : 0
+const shouldLog = () => Math.random() < LOG_SAMPLE_RATE
+
 type DashboardData = {
   products: Product[]
   orders: Order[]
@@ -108,12 +112,12 @@ async function fetchProductsOrFallback(): Promise<Product[]> {
       const json = await localRes.json()
       const data = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : [])
       if (Array.isArray(data) && data.length > 0) {
-        console.log('🧰 Dashboard: Using local products.json fallback:', data.length, 'items')
+        if (shouldLog()) console.log('🧰 Dashboard: Using local products.json fallback:', data.length, 'items')
         return data.map(mapRecordToProduct)
       }
     }
   } catch (e) {
-    console.debug('ℹ️ Dashboard: Local products fallback unavailable:', e)
+    if (shouldLog()) console.debug('ℹ️ Dashboard: Local products fallback unavailable:', e)
   }
 
   return generateProducts(488) // Generate 488 products to match the expected count
@@ -121,7 +125,7 @@ async function fetchProductsOrFallback(): Promise<Product[]> {
 
 async function fetchRealPinsOrFallback(): Promise<Pin[]> {
   try {
-    console.log('📌 Dashboard: Fetching real Pinterest pins data...')
+    if (shouldLog()) console.log('📌 Dashboard: Fetching real Pinterest pins data...')
     const totalChunks = await getTotalChunks()
     const allPins: Pin[] = []
     
@@ -139,70 +143,70 @@ async function fetchRealPinsOrFallback(): Promise<Pin[]> {
           allPins.push(...validPins)
         }
       } catch (e) {
-        console.warn(`Dashboard: Failed to load pins chunk ${i + 1}:`, e)
+        if (shouldLog()) console.warn(`Dashboard: Failed to load pins chunk ${i + 1}:`, e)
       }
     }
     
     if (allPins.length > 0) {
-      console.log(`✅ Dashboard: Loaded ${allPins.length} real Pinterest pins`)
+      if (shouldLog()) console.log(`✅ Dashboard: Loaded ${allPins.length} real Pinterest pins`)
       return allPins
     }
   } catch (error) {
-    console.warn('Dashboard: Error fetching real Pinterest pins:', error)
+    if (shouldLog()) console.warn('Dashboard: Error fetching real Pinterest pins:', error)
   }
   
   // Fallback to generated data only if no real data available
-  console.warn('⚠️ Dashboard: Using fallback generated pins data')
+  if (shouldLog()) console.warn('⚠️ Dashboard: Using fallback generated pins data')
   return generatePins(6100) // Generate 6.1K pins to match the expected count
 }
 
 async function fetchRealBoardsOrFallback(): Promise<Board[]> {
   try {
-    console.log('📋 Dashboard: Fetching real Pinterest boards data...')
+    if (shouldLog()) console.log('📋 Dashboard: Fetching real Pinterest boards data...')
     const boards = await fetchBoards()
     
     if (boards && boards.length > 0) {
-      console.log(`✅ Dashboard: Loaded ${boards.length} real Pinterest boards`)
+      if (shouldLog()) console.log(`✅ Dashboard: Loaded ${boards.length} real Pinterest boards`)
       return boards
     }
   } catch (error) {
-    console.warn('Dashboard: Error fetching real Pinterest boards:', error)
+    if (shouldLog()) console.warn('Dashboard: Error fetching real Pinterest boards:', error)
   }
   
   // Fallback to generated data if no real data available
-  console.warn('⚠️ Dashboard: No real boards data available, using generated data')
+  if (shouldLog()) console.warn('⚠️ Dashboard: No real boards data available, using generated data')
   return generateBoards(251) // Generate 251 boards to match the expected count
 }
 
 async function fetchRealDesignsOrFallback(): Promise<Design[]> {
   try {
-    console.log('🎨 Dashboard: Fetching real design library data...')
+    if (shouldLog()) console.log('🎨 Dashboard: Fetching real design library data...')
     // For now, we'll use generated data since design library doesn't have a real API yet
     // This can be updated when the design library API is available
     const designs = generateDesigns(3500) // Generate 3.5K designs to match the expected count
-    console.log(`✅ Dashboard: Loaded ${designs.length} designs (generated for now)`)
+    if (shouldLog()) console.log(`✅ Dashboard: Loaded ${designs.length} designs (generated for now)`)
     return designs
   } catch (error) {
-    console.warn('Dashboard: Error fetching designs:', error)
+    if (shouldLog()) console.warn('Dashboard: Error fetching designs:', error)
     return []
   }
 }
 
 async function fetchOrdersOrFallback(): Promise<Order[]> {
   try {
-    console.log('📦 Dashboard: Fetching real orders data...')
+    if (shouldLog()) console.log('📦 Dashboard: Fetching real orders data...')
     // Use the same approach as the orders page - get chunk 0 for dashboard
     const result = await getOrdersForPage(1, 500)
     if (result.orders.length > 0) {
-      console.log(`✅ Dashboard: Loaded ${result.orders.length} orders from chunk 1`)
+      if (shouldLog()) console.log(`✅ Dashboard: Loaded ${result.orders.length} orders from chunk 1`)
       return result.orders
     }
   } catch (error) {
-    console.warn('Dashboard: Error fetching real orders:', error)
+    if (shouldLog()) console.warn('Dashboard: Error fetching real orders:', error)
   }
   
   // Fallback to generated data with correct count
-  console.warn('⚠️ Dashboard: Using fallback generated orders data')
+  if (shouldLog()) console.warn('⚠️ Dashboard: Using fallback generated orders data')
   const { generateOrders } = await import('@/app/(admin)/apps/shopify/orders/utils')
   return generateOrders(69811) // Generate 69,811 orders to match the expected count
 }
@@ -282,7 +286,7 @@ export function useDashboardData() {
         e.key.includes('designs') ||
         e.key.startsWith('data-refresh-')
       )) {
-        console.log('🔄 Dashboard: Data change detected, refreshing...', e.key)
+        if (shouldLog()) console.log('🔄 Dashboard: Data change detected, refreshing...', e.key)
         refreshData()
       }
     }
@@ -297,7 +301,7 @@ export function useDashboardData() {
     const hasNewTriggers = dataTypes.some(type => dataRefreshTrigger[type])
     
     if (hasNewTriggers) {
-      console.log('🔄 Dashboard: Store trigger detected, refreshing...')
+      if (shouldLog()) console.log('🔄 Dashboard: Store trigger detected, refreshing...')
       refreshData()
     }
   }, [dataRefreshTrigger])

@@ -4,8 +4,8 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { sessionStorageSafe } from "../persist-storage";
 
-// Shape of all persisted UI & table state for the Orders page.
-export type OrdersPageState = {
+// Shape of all persisted UI & table state for the Pinterest Pins page.
+export type PinterestPinsPageState = {
   // Table state
   pageIndex: number;
   pageSize: number;
@@ -18,30 +18,28 @@ export type OrdersPageState = {
   selectedRowIds: string[];
   scrollY: number;
   viewMode: 'table' | 'grid' | 'card' | 'list';
-  showAdvancedFilter: boolean;
 
   // Actions
   setPageIndex: (n: number) => void;
   setPageSize: (n: number) => void;
-  setSorting: (s: OrdersPageState["sorting"]) => void;
-  setColumnFilters: (f: OrdersPageState["columnFilters"]) => void;
+  setSorting: (s: PinterestPinsPageState["sorting"]) => void;
+  setColumnFilters: (f: PinterestPinsPageState["columnFilters"]) => void;
   setGlobalFilter: (v: string) => void;
   setMoreActionsOpen: (v: boolean) => void;
   setSelectedRowIds: (ids: string[]) => void;
   setScrollY: (y: number) => void;
-  setViewMode: (m: OrdersPageState['viewMode']) => void;
-  setShowAdvancedFilter: (v: boolean) => void;
+  setViewMode: (mode: 'table' | 'grid' | 'card' | 'list') => void;
   reset: () => void;
 };
 
 // IMPORTANT: unique storage key per route to avoid clashes.
-const STORAGE_KEY = "page:/apps/shopify/orders";
+const STORAGE_KEY = "page:/apps/pinterest/pins";
 
-export const useOrdersPageStore = create<OrdersPageState>()(
+export const usePinterestPinsPageStore = create<PinterestPinsPageState>()(
   persist(
     (set) => ({
       pageIndex: 0,
-      pageSize: 20,
+      pageSize: 50,
       sorting: [],
       columnFilters: {},
       globalFilter: "",
@@ -49,7 +47,6 @@ export const useOrdersPageStore = create<OrdersPageState>()(
       selectedRowIds: [],
       scrollY: 0,
       viewMode: 'table',
-      showAdvancedFilter: false,
 
       setPageIndex: (n) => set({ pageIndex: n }),
       setPageSize: (n) => set({ pageSize: n }),
@@ -59,13 +56,12 @@ export const useOrdersPageStore = create<OrdersPageState>()(
       setMoreActionsOpen: (v) => set({ moreActionsOpen: v }),
       setSelectedRowIds: (ids) => set({ selectedRowIds: ids }),
       setScrollY: (y) => set({ scrollY: y }),
-      setViewMode: (m) => set({ viewMode: m }),
-      setShowAdvancedFilter: (v) => set({ showAdvancedFilter: v }),
+      setViewMode: (mode) => set({ viewMode: mode }),
 
       reset: () =>
         set({
           pageIndex: 0,
-          pageSize: 20,
+          pageSize: 50,
           sorting: [],
           columnFilters: {},
           globalFilter: "",
@@ -73,7 +69,6 @@ export const useOrdersPageStore = create<OrdersPageState>()(
           selectedRowIds: [],
           scrollY: 0,
           viewMode: 'table',
-          showAdvancedFilter: false,
         }),
     }),
     {
@@ -91,8 +86,8 @@ export const useOrdersPageStore = create<OrdersPageState>()(
         selectedRowIds: state.selectedRowIds,
         scrollY: state.scrollY,
         viewMode: state.viewMode,
-        showAdvancedFilter: state.showAdvancedFilter,
       }),
     }
   )
 );
+

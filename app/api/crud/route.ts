@@ -1,215 +1,214 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { DynamoDBClient, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, GetCommand, UpdateCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 
-// This would integrate with your backend CRUD service
-// For now, we'll create a mock implementation that stores in localStorage-like fashion
-// In production, this should call your actual backend service
+const region = process.env.AWS_REGION || 'us-east-1'
 
-interface SavedView {
-  id: string;
-  viewName: string;
-  description?: string;
-  isDefault: boolean;
-  createdAt: string;
-  updatedAt: string;
-  searchQuery: string;
-  searchConditions: any[];
-  columnFilters: Record<string, any>;
-  customFilters: any[];
-  advancedFilters: any;
-  sortColumn: string;
-  sortDirection: 'asc' | 'desc';
-  viewMode: 'table' | 'grid' | 'card';
-  itemsPerPage: number;
+// Check if AWS credentials are available
+const hasAWSCredentials = () => {
+  return !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) || 
+         !!(process.env.AWS_PROFILE) ||
+         process.env.AWS_SESSION_TOKEN; // For temporary credentials
+};
+
+// Initialize AWS clients only if credentials are available
+let client: DynamoDBClient | null = null;
+let docClient: DynamoDBDocumentClient | null = null;
+
+if (hasAWSCredentials()) {
+  try {
+    client = new DynamoDBClient({ region });
+    docClient = DynamoDBDocumentClient.from(client);
+  } catch (error) {
+    console.error('Failed to initialize AWS clients:', error);
+  }
 }
 
-// Mock storage - in production this should use your DynamoDB backend
-const mockStorage = new Map<string, SavedView[]>();
-
-function getStorageKey(tableName: string): string {
-  return `saved_views_${tableName}`;
-}
-
-function getViews(tableName: string): SavedView[] {
-  const key = getStorageKey(tableName);
-  const stored = mockStorage.get(key);
-  return stored || [];
-}
-
-function saveViews(tableName: string, views: SavedView[]): void {
-  const key = getStorageKey(tableName);
-  mockStorage.set(key, views);
+async function describeKeySchema(tableName: string) {
+  if (!client || !docClient) {
+    throw new Error('AWS DynamoDB client not initialized. Please configure AWS credentials.');
+  }
+  const tableDesc = await client.send(new DescribeTableCommand({ TableName: tableName }));
+  const keySchema = tableDesc.Table?.KeySchema || [];
+  const partitionKey = keySchema.find(k => k.KeyType === 'HASH')?.AttributeName as string | undefined;
+  const sortKey = keySchema.find(k => k.KeyType === 'RANGE')?.AttributeName as string | undefined;
+  return { partitionKey, sortKey };
 }
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const tableName = searchParams.get('tableName');
-  const operation = searchParams.get('operation');
+  const tableName = searchParams.get('tableName') || '';
+  const operation = searchParams.get('operation') || '';
 
-  console.log('🔧 API GET called with:', { tableName, operation });
+  if (!tableName) return NextResponse.json({ error: 'tableName is required' }, { status: 400 });
 
-  if (!tableName) {
-    return NextResponse.json({ error: 'tableName is required' }, { status: 400 });
+  // Check if AWS credentials are configured
+  if (!hasAWSCredentials() || !client || !docClient) {
+    return NextResponse.json({ 
+      error: 'AWS credentials not configured. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables.',
+      code: 'AWS_CREDENTIALS_MISSING',
+      instructions: 'Create a .env.local file with your AWS credentials. See env.example for reference.'
+    }, { status: 503 });
   }
 
   try {
     switch (operation) {
-      case 'listViews':
-        const views = getViews(tableName);
-        console.log('🔧 API: listViews called for table:', tableName, 'Found views:', views.length);
-        return NextResponse.json({ 
-          success: true, 
-          views: views.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-        });
-
+      case 'listViews': {
+        const result = await docClient.send(new ScanCommand({ TableName: tableName }));
+        const items = result.Items || [];
+        return NextResponse.json({ success: true, views: items });
+      }
       default:
         return NextResponse.json({ error: 'Invalid operation' }, { status: 400 });
     }
-  } catch (error) {
-    console.error('Error in GET /api/crud:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (error: any) {
+    console.error('GET /api/crud error:', error);
+    
+    // Provide more specific error messages
+    if (error.name === 'ResourceNotFoundException') {
+      return NextResponse.json({ 
+        error: `DynamoDB table '${tableName}' not found. Please create the table first.`,
+        code: 'TABLE_NOT_FOUND'
+      }, { status: 404 });
+    } else if (error.name === 'AccessDeniedException') {
+      return NextResponse.json({ 
+        error: 'Access denied to DynamoDB. Please check your AWS credentials and permissions.',
+        code: 'ACCESS_DENIED'
+      }, { status: 403 });
+    }
+    
+    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { tableName, operation, viewName, description, searchState } = body;
-    
-    console.log('🔧 API POST called with:', { tableName, operation, viewName, hasSearchState: !!searchState });
+    const { tableName, operation, viewName, searchState, description, created_at, createdAt, updatedAt, userId } = body || {};
+    if (!tableName) return NextResponse.json({ error: 'tableName is required' }, { status: 400 });
 
-    if (!tableName) {
-      return NextResponse.json({ error: 'tableName is required' }, { status: 400 });
+    // Check if AWS credentials are configured
+    if (!hasAWSCredentials() || !client || !docClient) {
+      return NextResponse.json({ 
+        error: 'AWS credentials not configured. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables.',
+        code: 'AWS_CREDENTIALS_MISSING',
+        instructions: 'Create a .env.local file with your AWS credentials. See env.example for reference.'
+      }, { status: 503 });
     }
 
     switch (operation) {
-      case 'saveView':
-        console.log('🔧 API: saveView called with:', { tableName, viewName, searchState });
-        
-        if (!viewName || !searchState) {
-          console.log('❌ API: Missing required fields:', { viewName: !!viewName, searchState: !!searchState });
-          return NextResponse.json({ error: 'viewName and searchState are required' }, { status: 400 });
-        }
+      case 'saveView': {
+        if (!viewName || !searchState) return NextResponse.json({ error: 'viewName and searchState are required' }, { status: 400 });
+        const { partitionKey, sortKey } = await describeKeySchema(tableName);
+        if (!partitionKey) return NextResponse.json({ error: 'Unable to determine table key schema' }, { status: 500 });
 
-        const views = getViews(tableName);
-        console.log('🔧 API: Current views count:', views.length);
-        
-        // Check if view already exists
-        const existingIndex = views.findIndex(v => v.viewName === viewName);
-        const now = new Date().toISOString();
-
-        const newView: SavedView = {
-          id: existingIndex >= 0 ? views[existingIndex].id : `view_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        const now = Date.now();
+        const item: any = {
           viewName,
           description: description || '',
-          isDefault: existingIndex >= 0 ? views[existingIndex].isDefault : false,
-          createdAt: existingIndex >= 0 ? views[existingIndex].createdAt : now,
-          updatedAt: now,
-          searchQuery: searchState.searchQuery || '',
-          searchConditions: searchState.searchConditions || [],
-          columnFilters: searchState.columnFilters || {},
-          customFilters: searchState.customFilters || [],
-          advancedFilters: searchState.advancedFilters || {},
-          sortColumn: searchState.sortColumn || '',
-          sortDirection: searchState.sortDirection || 'asc',
-          viewMode: searchState.viewMode || 'table',
-          itemsPerPage: searchState.itemsPerPage || 50,
+          userId: userId || 'anonymous',
+          searchState,
+          createdAt: createdAt ?? now,
+          updatedAt: updatedAt ?? now,
         };
 
-        if (existingIndex >= 0) {
-          views[existingIndex] = newView;
-        } else {
-          views.push(newView);
+        // Ensure keys are present according to actual table schema
+        if (partitionKey !== 'viewName') item[partitionKey] = item['viewName'];
+        if (sortKey) {
+          if (sortKey in item === false) {
+            // Prefer provided values; otherwise default per table schema
+            if (sortKey === 'created_at') item['created_at'] = created_at ?? now;
+            else if (sortKey === 'updatedAt') item['updatedAt'] = updatedAt ?? now;
+            else item[sortKey] = now;
+          }
         }
 
-        saveViews(tableName, views);
-
-        return NextResponse.json({ 
-          success: true, 
-          view: newView 
-        });
-
+        await docClient.send(new PutCommand({ TableName: tableName, Item: item }));
+        return NextResponse.json({ success: true, view: item });
+      }
       default:
         return NextResponse.json({ error: 'Invalid operation' }, { status: 400 });
     }
-  } catch (error) {
-    console.error('Error in POST /api/crud:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (error: any) {
+    console.error('POST /api/crud error:', error);
+    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { tableName, operation, viewName } = body;
+    const { tableName, operation, viewName } = body || {};
+    if (!tableName || !operation || !viewName) return NextResponse.json({ error: 'tableName, operation, and viewName are required' }, { status: 400 });
 
-    if (!tableName || !operation || !viewName) {
-      return NextResponse.json({ error: 'tableName, operation, and viewName are required' }, { status: 400 });
+    // Check if AWS credentials are configured
+    if (!hasAWSCredentials() || !client || !docClient) {
+      return NextResponse.json({ 
+        error: 'AWS credentials not configured. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables.',
+        code: 'AWS_CREDENTIALS_MISSING',
+        instructions: 'Create a .env.local file with your AWS credentials. See env.example for reference.'
+      }, { status: 503 });
     }
 
     switch (operation) {
-      case 'setDefaultView':
-        const views = getViews(tableName);
-        const targetView = views.find(v => v.viewName === viewName);
-        
-        if (!targetView) {
-          return NextResponse.json({ error: 'View not found' }, { status: 404 });
-        }
-
-        // Remove default from all views
-        views.forEach(view => {
-          view.isDefault = false;
-        });
-
-        // Set the target view as default
-        targetView.isDefault = true;
-        targetView.updatedAt = new Date().toISOString();
-
-        saveViews(tableName, views);
-
-        return NextResponse.json({ 
-          success: true, 
-          view: targetView 
-        });
-
+      case 'setDefaultView': {
+        // Implementation left minimal; clients can read the flag from the item
+        const { partitionKey, sortKey } = await describeKeySchema(tableName);
+        const scan = await docClient.send(new ScanCommand({ TableName: tableName }));
+        const items = (scan.Items || []).filter((i: any) => i[partitionKey || 'viewName'] === viewName);
+        if (items.length === 0) return NextResponse.json({ error: 'View not found' }, { status: 404 });
+        const target = items.sort((a: any, b: any) => (b[sortKey || 'updatedAt'] ?? 0) - (a[sortKey || 'updatedAt'] ?? 0))[0];
+        target.isDefault = true;
+        await docClient.send(new PutCommand({ TableName: tableName, Item: target }));
+        return NextResponse.json({ success: true, view: target });
+      }
       default:
         return NextResponse.json({ error: 'Invalid operation' }, { status: 400 });
     }
-  } catch (error) {
-    console.error('Error in PUT /api/crud:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (error: any) {
+    console.error('PUT /api/crud error:', error);
+    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json();
-    const { tableName, operation, viewName } = body;
+    const { tableName, operation, viewName, sortKeyValue } = body || {};
+    if (!tableName || !operation || !viewName) return NextResponse.json({ error: 'tableName, operation, and viewName are required' }, { status: 400 });
 
-    if (!tableName || !operation || !viewName) {
-      return NextResponse.json({ error: 'tableName, operation, and viewName are required' }, { status: 400 });
+    // Check if AWS credentials are configured
+    if (!hasAWSCredentials() || !client || !docClient) {
+      return NextResponse.json({ 
+        error: 'AWS credentials not configured. Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables.',
+        code: 'AWS_CREDENTIALS_MISSING',
+        instructions: 'Create a .env.local file with your AWS credentials. See env.example for reference.'
+      }, { status: 503 });
     }
 
     switch (operation) {
-      case 'deleteView':
-        const views = getViews(tableName);
-        const filteredViews = views.filter(v => v.viewName !== viewName);
-        
-        if (filteredViews.length === views.length) {
-          return NextResponse.json({ error: 'View not found' }, { status: 404 });
+      case 'deleteView': {
+        const { partitionKey, sortKey } = await describeKeySchema(tableName);
+        let key: any = { [partitionKey || 'viewName']: viewName };
+        if (sortKey) {
+          if (sortKeyValue !== undefined) key[sortKey] = sortKeyValue;
+          else {
+            // find latest by sortKey
+            const scan = await docClient.send(new ScanCommand({ TableName: tableName }));
+            const items = (scan.Items || []).filter((i: any) => i[partitionKey || 'viewName'] === viewName);
+            if (items.length === 0) return NextResponse.json({ error: 'View not found' }, { status: 404 });
+            const latest = items.sort((a: any, b: any) => (b[sortKey] ?? 0) - (a[sortKey] ?? 0))[0];
+            key[sortKey] = latest[sortKey];
+          }
         }
-
-        saveViews(tableName, filteredViews);
-
-        return NextResponse.json({ 
-          success: true, 
-          message: 'View deleted successfully' 
-        });
-
+        await docClient.send(new DeleteCommand({ TableName: tableName, Key: key }));
+        return NextResponse.json({ success: true });
+      }
       default:
         return NextResponse.json({ error: 'Invalid operation' }, { status: 400 });
     }
-  } catch (error) {
-    console.error('Error in DELETE /api/crud:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (error: any) {
+    console.error('DELETE /api/crud error:', error);
+    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }

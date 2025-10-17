@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { useAppStore } from '@/lib/store'
+import { usePinterestBoardsPageStore } from '@/lib/stores/pinterest-boards-page-store'
 import { 
   PageTemplate, 
   useDataTable
@@ -237,9 +238,78 @@ const boardFilters = [
 function BoardsClient() {
   const { addTab } = useAppStore()
   const hasAddedTab = useRef(false)
+  
+  // ✅ USE ZUSTAND STORE for persistent state
+  const {
+    pageIndex, pageSize, sorting, columnFilters, globalFilter,
+    setPageIndex, setPageSize, setSorting, setColumnFilters, setGlobalFilter,
+    selectedRowIds, setSelectedRowIds,
+    scrollY, setScrollY,
+    viewMode: storedViewMode, setViewMode: setStoredViewMode,
+  } = usePinterestBoardsPageStore()
+  
   const [boardsData, setBoardsData] = useState<Board[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // ✅ RESTORE SCROLL POSITION
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try { window.history.scrollRestoration = 'manual' } catch {}
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (scrollY > 0) {
+          const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+          if (scroller) scroller.scrollTop = scrollY
+          else window.scrollTo({ top: scrollY, behavior: 'instant' as ScrollBehavior })
+        }
+      })
+    })
+    if (scrollY > 0) {
+      const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+      if (scroller) scroller.scrollTop = scrollY
+      else window.scrollTo({ top: scrollY, behavior: 'instant' as ScrollBehavior })
+    }
+  }, [scrollY])
+  
+  // ✅ SAVE SCROLL POSITION
+  useEffect(() => {
+    const saveScroll = () => setScrollY(window.scrollY)
+    window.addEventListener('beforeunload', saveScroll)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') saveScroll()
+    })
+    return () => {
+      saveScroll()
+      window.removeEventListener('beforeunload', saveScroll)
+    }
+  }, [setScrollY])
+
+  // Continuously persist scroll position while scrolling (throttled via rAF)
+  useEffect(() => {
+    let raf: number | null = null
+    const onScroll = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        const scroller = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+        const y = scroller ? scroller.scrollTop : window.scrollY
+        setScrollY(y)
+        raf = null
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    const scroller = document.querySelector('[data-scroll-group="page-table"]')
+    scroller?.addEventListener('scroll', onScroll as any, { passive: true } as any)
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      const s = document.querySelector('[data-scroll-group="page-table"]') as HTMLElement | null
+      const y = s ? s.scrollTop : window.scrollY
+      setScrollY(y)
+      window.removeEventListener('scroll', onScroll as any)
+      s?.removeEventListener('scroll', onScroll as any)
+    }
+  }, [setScrollY])
 
   // Fetch real boards data
   useEffect(() => {
@@ -247,8 +317,26 @@ function BoardsClient() {
       try {
         setIsLoading(true)
         setError(null)
+        // Ultra-fast in-memory session cache
+        try {
+          if (typeof window !== 'undefined') {
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+            // @ts-ignore
+            const mem = window.__boardsCache as { data: Board[]; timestamp: number } | undefined
+            if (mem && Array.isArray(mem.data) && mem.data.length > 0) {
+              setBoardsData(mem.data)
+              setIsLoading(false)
+              return
+            }
+          }
+        } catch {}
         const boards = await fetchBoards()
         setBoardsData(boards)
+        try {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
+          window.__boardsCache = { data: boards, timestamp: Date.now() }
+        } catch {}
       } catch (err: any) {
         setError(err?.message || 'Failed to load boards')
         console.error('Error loading boards:', err)
@@ -260,74 +348,122 @@ function BoardsClient() {
     loadBoards()
   }, [])
 
-  // Initialize data table hook
+  // ✅ Initialize data table hook - INTEGRATE with Zustand for persistent state
   const {
     data: boardData,
     loading,
     error: tableError,
-    searchQuery,
-    setSearchQuery,
-    searchConditions,
-    setSearchConditions,
-    selectedItems,
-    setSelectedItems,
-    viewMode,
-    setViewMode,
-    currentPage,
-    setCurrentPage,
-    itemsPerPage,
-    setItemsPerPage,
-    sortColumn,
-    setSortColumn,
-    sortDirection,
-    setSortDirection,
-    columnFilters,
-    setColumnFilters,
-    customFilters,
-    setCustomFilters,
-    advancedFilters,
-    setAdvancedFilters,
     filteredData,
     totalPages,
     currentData,
-    handleSelectItem,
-    handleSelectAll,
-    handlePageChange,
-    handleItemsPerPageChange,
-    handleSort,
-    handleSearch,
-    handleAdvancedSearch,
-    handleColumnFilter,
-    handleCustomFilter,
-    handleAdvancedFilter,
-    clearAllFilters,
-    clearSearch,
-    clearColumnFilters,
-    clearCustomFilters,
-    clearAdvancedFilters
+    setData: setBoardData,
   } = useDataTable<Board>({
     initialData: boardsData,
     columns: boardColumns,
-    searchableFields: [
-      { key: 'name', label: 'Name', type: 'text' },
-      { key: 'description', label: 'Description', type: 'text' },
-      { key: 'owner', label: 'Owner', type: 'text' },
-      { key: 'category', label: 'Category', type: 'text' },
-      { key: 'tags', label: 'Tags', type: 'text' },
-      { key: 'privacy', label: 'Privacy', type: 'text' }
-    ],
-    filterOptions: boardFilters,
-    defaultViewMode: 'table',
-    defaultItemsPerPage: 500
+    defaultViewMode: storedViewMode,
+    defaultItemsPerPage: pageSize
   })
-
-  // Update data table when boards data changes
-  useEffect(() => {
-    if (boardsData.length > 0) {
-      // The useDataTable hook should automatically update when initialData changes
-      // If not, we might need to trigger a refresh
+  
+  // ✅ Map Zustand state to local variables for consistency
+  const searchQuery = globalFilter
+  const setSearchQuery = setGlobalFilter
+  const selectedItems = selectedRowIds
+  const setSelectedItems = setSelectedRowIds
+  const viewMode = storedViewMode
+  const setViewMode = (mode: 'table' | 'grid' | 'card' | 'list') => setStoredViewMode(mode)
+  const currentPage = pageIndex + 1 // Convert 0-based to 1-based
+  const setCurrentPage = (page: number) => setPageIndex(page - 1)
+  const itemsPerPage = pageSize
+  const setItemsPerPage = (size: number) => {
+    setPageSize(size)
+    setPageIndex(0)
+  }
+  
+  // ✅ Handlers using Zustand state
+  const [searchConditions, setSearchConditions] = useState<any[]>([])
+  const [customFilters, setCustomFilters] = useState<any[]>([])
+  const [advancedFilters, setAdvancedFilters] = useState<any>({})
+  
+  const sortColumn = sorting.length > 0 ? sorting[0].id : null
+  const sortDirection = sorting.length > 0 ? (sorting[0].desc ? 'desc' : 'asc') : 'desc'
+  const setSortColumn = (col: string | null) => {
+    if (col) {
+      setSorting([{ id: col, desc: sortDirection === 'desc' }])
+    } else {
+      setSorting([])
     }
-  }, [boardsData])
+  }
+  const setSortDirection = (dir: 'asc' | 'desc') => {
+    if (sortColumn) {
+      setSorting([{ id: sortColumn, desc: dir === 'desc' }])
+    }
+  }
+  
+  const handleSelectItem = (id: string) => {
+    const newIds = selectedRowIds.includes(id)
+      ? selectedRowIds.filter(x => x !== id)
+      : [...selectedRowIds, id]
+    setSelectedRowIds(newIds)
+  }
+  
+  const handleSelectAll = () => {
+    if (selectedRowIds.length === currentData.length) {
+      setSelectedRowIds([])
+    } else {
+      setSelectedRowIds(currentData.map((item: any) => item.id))
+    }
+  }
+  
+  const handlePageChange = (page: number) => setCurrentPage(page)
+  const handleItemsPerPageChange = (items: number) => setItemsPerPage(items)
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+  }
+  const handleSearch = setSearchQuery
+  const handleAdvancedSearch = () => {}
+  const handleColumnFilter = (column: string, value: any) => {
+    setColumnFilters({ ...columnFilters, [column]: value })
+  }
+  const handleCustomFilter = () => {}
+  const handleAdvancedFilter = () => {}
+  const clearAllFilters = () => {
+    setGlobalFilter('')
+    setColumnFilters({})
+    setSorting([])
+  }
+  const clearSearch = () => setGlobalFilter('')
+  const clearColumnFilters = () => setColumnFilters({})
+  const clearCustomFilters = () => setCustomFilters([])
+  const clearAdvancedFilters = () => setAdvancedFilters({})
+
+  // Filter boards data based on search query
+  const filteredBoardsData = useMemo(() => {
+    if (!searchQuery.trim()) {
+      return boardsData
+    }
+    
+    const query = searchQuery.toLowerCase()
+    return boardsData.filter(board =>
+      Object.values(board).some(value => {
+        if (Array.isArray(value)) {
+          return value.some(item => String(item).toLowerCase().includes(query))
+        }
+        return String(value).toLowerCase().includes(query)
+      })
+    )
+  }, [boardsData, searchQuery])
+
+  // Update data table when filtered boards data changes
+  useEffect(() => {
+    if (filteredBoardsData.length > 0 || searchQuery.trim()) {
+      setBoardData(filteredBoardsData)
+    }
+  }, [filteredBoardsData, setBoardData, searchQuery])
 
   // Calculate KPI metrics based on real boards data
   const calculatedKPIs = useMemo(() => {

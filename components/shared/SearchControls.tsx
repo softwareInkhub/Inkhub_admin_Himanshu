@@ -6,13 +6,8 @@ import {
   Filter, 
   Grid, 
   List, 
-  Download, 
-  Upload, 
-  Printer, 
-  Settings, 
-  MoreHorizontal,
+  Download,
   X,
-  ChevronDown,
   ChevronUp,
   Eye,
   Edit,
@@ -57,12 +52,6 @@ export default function SearchControls({
   onFilterClick,
   onColumnFilterChange,
   getUniqueValues,
-  onExport,
-  onImport,
-  onPrint,
-  onSettings,
-  showHeaderDropdown,
-  setShowHeaderDropdown,
   viewMode,
   setViewMode,
   showAdvancedFilter,
@@ -89,7 +78,6 @@ export default function SearchControls({
 
   const handleResetAll = () => {
     setActiveFilter('')
-    setShowHeaderDropdown(false)
     setShowAdvancedFilter(false)
     if (searchQuery) handleClearSearch()
     onClearSearchConditions()
@@ -117,22 +105,6 @@ export default function SearchControls({
   }, [searchHistory])
 
   // Click outside detection to close dropdown
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement
-      
-      // Check if click is outside the dropdown and its trigger button
-      if (!target.closest('.header-dropdown') && !target.closest('[data-dropdown-trigger="more-actions"]')) {
-        setShowHeaderDropdown(false)
-      }
-    }
-
-    // Only add listener when dropdown is open
-    if (showHeaderDropdown) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showHeaderDropdown, setShowHeaderDropdown])
 
   const pushHistory = (text: string, count: number) => {
     if (!text.trim()) return
@@ -179,7 +151,17 @@ export default function SearchControls({
 
     // Append recent history if no query
     const hist = !query ? searchHistory.slice(0, 4) : []
-    const nextCombined = [...next.slice(0, 20), ...hist]
+    
+    // Deduplicate suggestions by text to avoid showing the same item twice
+    const allSuggestions = [...next.slice(0, 20), ...hist]
+    const seen = new Set<string>()
+    const nextCombined = allSuggestions.filter(suggestion => {
+      if (seen.has(suggestion.text)) {
+        return false
+      }
+      seen.add(suggestion.text)
+      return true
+    })
 
     // Build a stable signature to avoid redundant state updates
     const signature = `${query}|${items.length}|${searchHistory.length}|${nextCombined.length}`
@@ -285,87 +267,8 @@ export default function SearchControls({
           </div>
         </div>
 
-        {/* RIGHT SECTION: Export, More Actions, Filter, View, Full Screen */}
+        {/* RIGHT SECTION: Filter, View, Full Screen */}
         <div className="flex items-center space-x-2 flex-shrink-0">
-          {/* Export Button */}
-          <button
-            onClick={onExport}
-            className="px-3 py-2 text-gray-700 hover:text-green-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-green-400 h-10"
-          >
-            <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Export</span>
-            </span>
-          </button>
-
-          {/* More Actions Button */}
-          <div className="relative">
-            <button
-              data-dropdown-trigger="more-actions"
-              onClick={() => setShowHeaderDropdown(!showHeaderDropdown)}
-              className="px-3 py-2 text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 flex items-center space-x-1 text-sm group bg-white shadow-sm hover:shadow-lg transform hover:scale-105 hover:border-purple-400 h-10"
-            >
-              <span className="group-hover:scale-105 transition-transform duration-200 flex items-center space-x-1">
-                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                </svg>
-                <span>More actions</span>
-              </span>
-              <ChevronDown className={cn(
-                "h-3 w-3 group-hover:rotate-180 transition-transform duration-200",
-                showHeaderDropdown ? "rotate-180" : ""
-              )} />
-            </button>
-            
-            {/* Header Dropdown */}
-            {showHeaderDropdown && (
-              <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-xl z-50 header-dropdown backdrop-blur-sm bg-white/95">
-                <div className="p-2">
-                  <div className="space-y-1">
-                    <button
-                      onClick={() => {
-                        onImport()
-                        setShowHeaderDropdown(false)
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100 hover:text-blue-700 flex items-center space-x-2"
-                    >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                      </svg>
-                      <span>Import Items</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        onPrint()
-                        setShowHeaderDropdown(false)
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 hover:text-green-700 flex items-center space-x-2"
-                    >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                      </svg>
-                      <span>Print Items</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        onSettings()
-                        setShowHeaderDropdown(false)
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs rounded-md transition-all duration-200 text-gray-700 hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 hover:text-purple-700 flex items-center space-x-2"
-                    >
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <span>Settings</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* Advanced Filter Button */}
           <button

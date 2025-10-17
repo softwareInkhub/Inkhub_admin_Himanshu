@@ -167,10 +167,260 @@ export default function PageTemplate<T extends BaseEntity>({
   // Cards-per-row controls for grid and card views
   const [gridCardsPerRow, setGridCardsPerRow] = useState<number>(4)
   const [cardCardsPerRow, setCardCardsPerRow] = useState<number>(6)
+
+  // Client-side export helper (CSV/JSON)
+  const handleClientExport = useCallback(async (exportConfig: any) => {
+    try {
+      const rows = exportConfig?.selectedOnly
+        ? (data || []).filter((item: any) => selectedItems.includes(String(item.id)))
+        : (data || [])
+
+      if (!rows || rows.length === 0) {
+        alert('No data to export')
+        return
+      }
+
+      const filenameBase = (config?.title || 'export').toLowerCase().replace(/\s+/g, '-')
+
+      // PDF: try html2pdf (via CDN); fallback to printable window
+      if (exportConfig?.format === 'pdf') {
+        const ensureHtml2Pdf = async (): Promise<any | null> => {
+          // If already loaded
+          if (typeof (window as any).html2pdf !== 'undefined') return (window as any).html2pdf
+          // Inject script tag from CDN
+          await new Promise<void>((resolve, reject) => {
+            const s = document.createElement('script')
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
+            s.async = true
+            s.onload = () => resolve()
+            s.onerror = () => resolve() // resolve to allow fallback
+            document.body.appendChild(s)
+          })
+          return (window as any).html2pdf || null
+        }
+
+        const collectKeys = (items: any[]) => {
+          const keySet = new Set<string>()
+          items.forEach((it) => {
+            Object.keys(it || {}).forEach((k) => keySet.add(k))
+          })
+          return Array.from(keySet)
+        }
+        // Prefer provided columns, then page config columns, else infer keys
+        const pageColumns: any[] = Array.isArray((config as any)?.columns) ? (config as any).columns as any[] : []
+        const pageKeys: string[] = pageColumns.map((c: any) => String(c.key))
+        let keyToLabel: Record<string, string> = Object.fromEntries(pageColumns.map((c: any) => [String(c.key), String(c.label || c.key)]))
+        let headers: string[] = (exportConfig?.columns && exportConfig.columns.length > 0)
+          ? exportConfig.columns
+          : (pageKeys.length > 0 ? pageKeys : collectKeys(rows))
+
+        // Special-case: Design Library – ensure stable, meaningful columns
+        if (String((config as any)?.title || '').toLowerCase() === 'design library') {
+          headers = [
+            'image','name','type','category','price','size','status','designer','client','tags','views','downloads','createdAt','updatedAt'
+          ]
+          keyToLabel = {
+            image: 'Image',
+            name: 'Design Name',
+            type: 'Type',
+            category: 'Category',
+            price: 'Price',
+            size: 'Size',
+            status: 'Status',
+            designer: 'Designer',
+            client: 'Client',
+            tags: 'Tags',
+            views: 'Views',
+            downloads: 'Downloads',
+            createdAt: 'Created',
+            updatedAt: 'Updated'
+          }
+        }
+
+        const escapeHtml = (val: any) => {
+          if (val == null) return ''
+          const str = typeof val === 'object' ? JSON.stringify(val) : String(val)
+          return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;')
+        }
+
+        const includeImages = !!exportConfig?.includeImages
+        const imageHeader = includeImages ? `<th style=\"padding:8px;border:1px solid #e5e7eb;text-align:left;background:#f9fafb;font-size:12px;\">Image</th>` : ''
+        const headerCells = headers.map((h: string) => `<th style=\"padding:8px;border:1px solid #e5e7eb;text-align:left;background:#f9fafb;font-size:12px;\">${escapeHtml(keyToLabel[h] || h)}</th>`).join('')
+        const tableHead = `<tr>${imageHeader}${headerCells}</tr>`
+
+        const getImageUrl = (row: any): string | undefined => {
+          const cand = row?.image || (Array.isArray(row?.images) ? row.images[0] : undefined) || row?.thumbnail || row?.cover || row?.preview
+          return typeof cand === 'string' ? cand : undefined
+        }
+
+        // Pre-fetch images as data URLs to avoid cross-origin canvas taint
+        const toDataUrl = async (url?: string): Promise<string | undefined> => {
+          if (!url) return undefined
+          try {
+            const res = await fetch(url, { mode: 'cors' })
+            const blob = await res.blob()
+            return await new Promise<string>((resolve) => {
+              const fr = new FileReader()
+              fr.onloadend = () => resolve(String(fr.result || ''))
+              fr.readAsDataURL(blob)
+            })
+          } catch {
+            return url // fallback to direct URL; may work if CORS permits
+          }
+        }
+
+        let imageDataUrls: (string | undefined)[] = []
+        const buildBody = async () => {
+          if (includeImages) {
+            imageDataUrls = await Promise.all(rows.map((r: any) => toDataUrl(getImageUrl(r))))
+          }
+          return rows.map((row: any, idx: number) => {
+          const imgSrc = includeImages ? imageDataUrls[idx] : undefined
+          const imgCell = includeImages ? `<td style=\"padding:8px;border:1px solid #e5e7eb;font-size:12px;\">${imgSrc ? `<img src=\"${imgSrc}\" style=\"width:64px;height:64px;object-fit:cover;border-radius:6px;\" />` : ''}</td>` : ''
+          const formatValue = (key: string, value: any) => {
+            if (value == null) return ''
+            if (key === 'price') return typeof value === 'number' ? `$${value.toFixed(2)}` : String(value)
+            if (key === 'createdAt' || key === 'updatedAt') {
+              const d = new Date(value)
+              return isNaN(d.getTime()) ? String(value) : d.toLocaleDateString()
+            }
+            if (Array.isArray(value)) return value.slice(0, 10).join(', ')
+            if (typeof value === 'object') return JSON.stringify(value)
+            return String(value)
+          }
+          const cells = headers.map((h: string) => {
+            const raw = (row as any)?.[h]
+            const val = formatValue(h, raw)
+            return `<td style=\"padding:8px;border:1px solid #e5e7eb;font-size:12px;\">${escapeHtml(val)}</td>`
+          }).join('')
+          return `<tr>${imgCell}${cells}</tr>`
+          }).join('')
+        }
+        const tableBody = await buildBody()
+
+        const container = document.createElement('div')
+        container.style.position = 'fixed'
+        container.style.top = '0'
+        container.style.left = '0'
+        container.style.visibility = 'hidden'
+        container.style.pointerEvents = 'none'
+        container.style.width = '1120px'
+        container.style.minHeight = '400px'
+        container.style.background = '#ffffff'
+        container.innerHTML = `
+          <div style="font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,Noto Sans;color:#111827;">
+            <h1 style="font-size:16px;margin:0 0 12px;">${config?.title || 'Export'}</h1>
+            <table style="border-collapse:collapse;width:100%;">
+              <thead>${tableHead}</thead>
+              <tbody>${tableBody}</tbody>
+            </table>
+          </div>
+        `
+        document.body.appendChild(container)
+
+        // Give the browser a tick to layout the hidden content
+        await new Promise(resolve => setTimeout(resolve, 50))
+
+        ensureHtml2Pdf().then(async (html2pdf) => {
+          if (html2pdf) {
+            // Wait a frame and for images to load to avoid blank output
+            await new Promise(requestAnimationFrame)
+            const imgs = Array.from(container.querySelectorAll('img')) as HTMLImageElement[]
+            await Promise.all(imgs.map(img => img.complete ? Promise.resolve() : new Promise<void>(res => { img.onload = () => res(); img.onerror = () => res() })))
+            const opt = {
+              margin:       10,
+              filename:     `${filenameBase}.pdf`,
+              image:        { type: 'jpeg', quality: 0.98 },
+              html2canvas:  { scale: 2, useCORS: true, allowTaint: true },
+              jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
+            }
+            html2pdf().set(opt).from(container).save().finally(() => {
+              container.remove()
+            })
+          } else {
+            // Fallback: open print window
+            const html = `<!doctype html><html><head><meta charset="utf-8" /><title>${filenameBase}</title>
+              <style>@media print { @page { size: A4 landscape; margin: 12mm; } } body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,Noto Sans;color:#111827;} h1{font-size:16px;margin:0 0 12px;} table{border-collapse:collapse;width:100%;}</style>
+              <script>window.onload = () => { window.print(); setTimeout(() => window.close(), 300); };</script>
+            </head><body>
+              <h1>${config?.title || 'Export'}</h1>
+              <table><thead>${tableHead}</thead><tbody>${tableBody}</tbody></table>
+            </body></html>`
+            const w = window.open('', '_blank')
+            if (w) {
+              w.document.open(); w.document.write(html); w.document.close()
+            } else {
+              alert('Popup blocked. Please allow popups to export as PDF.')
+            }
+            container.remove()
+          }
+        })
+        return
+      }
+
+      if (exportConfig?.format === 'json') {
+        const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${filenameBase}.json`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+        return
+      }
+
+      // Default to CSV
+      const collectKeys = (items: any[]) => {
+        const keySet = new Set<string>()
+        items.forEach((it) => {
+          Object.keys(it || {}).forEach((k) => keySet.add(k))
+        })
+        return Array.from(keySet)
+      }
+
+      const headers = exportConfig?.columns && exportConfig.columns.length > 0
+        ? exportConfig.columns
+        : collectKeys(rows)
+
+      const escapeCell = (val: any) => {
+        if (val == null) return ''
+        const str = typeof val === 'object' ? JSON.stringify(val) : String(val)
+        if (/[",\n]/.test(str)) {
+          return `"${str.replace(/"/g, '""')}"`
+        }
+        return str
+      }
+
+      const csvLines: string[] = []
+      csvLines.push(headers.map(escapeCell).join(','))
+      rows.forEach((row: any) => {
+        const line = headers.map((h: string) => escapeCell((row as any)[h]))
+        csvLines.push(line.join(','))
+      })
+
+      const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${filenameBase}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error('Export failed:', e)
+      alert('Export failed. See console for details.')
+    }
+  }, [data, selectedItems, config?.title])
   // Advanced filter visibility
   const [showAdvancedFilter, setShowAdvancedFilter] = useState<boolean>(false)
-  // Header dropdown state
-  const [showHeaderDropdown, setShowHeaderDropdown] = useState<boolean>(false)
 
   // Table settings: page size and column visibility (persisted per page)
   const storageKey = `table-settings:${config.title.toLowerCase().replace(/\s+/g, '-')}`
@@ -374,79 +624,168 @@ export default function PageTemplate<T extends BaseEntity>({
         </div>
       )}
 
-      {/* KPI Grid - Fixed below header */}
-      <div className={cn("px-4 py-3", isFullScreen ? "flex-shrink-0 bg-white border-b border-gray-200" : "")}>
-        <KPIGrid 
-          kpiMetrics={config.kpis.reduce((acc, kpi) => {
-            acc[kpi.key] = kpi
-            return acc
-          }, {} as KPIMetrics)} 
-          data={data} 
-          compact
-          onRefresh={(kpiKey) => {
-            console.log(`Refreshing ${kpiKey} KPI...`)
-            // Here you can implement actual refresh logic
-            // For now, we'll just log the action
-          }}
-          onConfigure={(kpiKey, config) => {
-            console.log(`Configuring ${kpiKey} KPI:`, config)
-            // Here you can implement configuration saving logic
-            // For now, we'll just log the configuration
-          }}
-        />
-      </div>
-
-      {/* Search Controls - Fixed below KPI */}
+      {/* Unified Header Section - KPI, Search, and Actions in one container */}
       <div className={cn(
-        "px-4 pb-2", 
-        isFullScreen ? "sticky top-0 z-20 bg-white border-b border-gray-200 flex-shrink-0" : ""
+        "bg-white",
+        isFullScreen ? "flex-shrink-0 border-b border-gray-200" : ""
       )}>
-        <SearchControls
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          searchConditions={searchConditions}
-          showSearchBuilder={false}
-          setShowSearchBuilder={() => {}}
-          showAdditionalControls={false}
-          setShowAdditionalControls={() => {}}
-          activeFilter=""
-          setActiveFilter={() => {}}
-          customFilters={customFilters}
-          onAddCustomFilter={handleCustomFilter}
-          onRemoveCustomFilter={() => {}}
-          hiddenDefaultFilters={new Set()}
-          onShowAllFilters={() => {}}
-          onClearSearch={clearSearch}
-          onClearSearchConditions={() => {}}
-          selectedItems={selectedItems}
-          onBulkEdit={() => setShowBulkEditModal(true)}
-          onExportSelected={() => setShowExportModal(true)}
-          onBulkDelete={() => setShowBulkDeleteModal(true)}
-          currentItems={filteredData}
-          onSelectAll={handleSelectAll}
-          activeColumnFilter={activeColumnFilter}
-          columnFilters={localColumnFilters}
-          onFilterClick={onFilterClickHeader}
-          onColumnFilterChange={onColumnFilterChangeHeader}
-          getUniqueValues={getUniqueValues}
-          onExport={() => setShowExportModal(true)}
-          onImport={() => setShowImportModal(true)}
-          onPrint={() => setShowPrintModal(true)}
-          onSettings={() => {
-            setSettingsDraft({ pageSize: itemsPerPage, columnVisibility: { ...columnVisibility } })
-            setShowSettingsModal(true)
-          }}
-          showHeaderDropdown={showHeaderDropdown}
-          setShowHeaderDropdown={setShowHeaderDropdown}
-          viewMode={viewMode}
-          setViewMode={setViewMode}
-          showAdvancedFilter={showAdvancedFilter}
-          setShowAdvancedFilter={setShowAdvancedFilter}
-          isFullScreen={isFullScreen}
-          onToggleFullScreen={() => setIsFullScreen(!isFullScreen)}
-          isAlgoliaSearching={false}
-          useAlgoliaSearch={false}
-        />
+        {/* KPI Grid */}
+        <div className="px-4 py-3">
+          <KPIGrid 
+            kpiMetrics={config.kpis.reduce((acc, kpi) => {
+              acc[kpi.key] = kpi
+              return acc
+            }, {} as KPIMetrics)} 
+            data={data} 
+            compact
+            onRefresh={(kpiKey) => {
+              console.log(`Refreshing ${kpiKey} KPI...`)
+              // Here you can implement actual refresh logic
+              // For now, we'll just log the action
+            }}
+            onConfigure={(kpiKey, config) => {
+              console.log(`Configuring ${kpiKey} KPI:`, config)
+              // Here you can implement configuration saving logic
+              // For now, we'll just log the configuration
+            }}
+          />
+        </div>
+
+        {/* Search Controls */}
+        <div className={cn(
+          "px-4 pb-2", 
+          isFullScreen ? "sticky top-0 z-20 border-b border-gray-200" : ""
+        )}>
+          <SearchControls
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            searchConditions={searchConditions}
+            showSearchBuilder={false}
+            setShowSearchBuilder={() => {}}
+            showAdditionalControls={false}
+            setShowAdditionalControls={() => {}}
+            activeFilter=""
+            setActiveFilter={() => {}}
+            customFilters={customFilters}
+            onAddCustomFilter={handleCustomFilter}
+            onRemoveCustomFilter={() => {}}
+            hiddenDefaultFilters={new Set()}
+            onShowAllFilters={() => {}}
+            onClearSearch={clearSearch}
+            onClearSearchConditions={() => {}}
+            selectedItems={selectedItems}
+            onBulkEdit={() => setShowBulkEditModal(true)}
+            onExportSelected={() => setShowExportModal(true)}
+            onBulkDelete={() => setShowBulkDeleteModal(true)}
+            currentItems={filteredData}
+            onSelectAll={handleSelectAll}
+            activeColumnFilter={activeColumnFilter}
+            columnFilters={localColumnFilters}
+            onFilterClick={onFilterClickHeader}
+            onColumnFilterChange={onColumnFilterChangeHeader}
+            getUniqueValues={getUniqueValues}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            showAdvancedFilter={showAdvancedFilter}
+            setShowAdvancedFilter={setShowAdvancedFilter}
+            isFullScreen={isFullScreen}
+            onToggleFullScreen={() => setIsFullScreen(!isFullScreen)}
+            isAlgoliaSearching={false}
+            useAlgoliaSearch={false}
+          />
+        </div>
+
+        {/* Persistent Actions Row */}
+        <div className="px-4 py-1 border-b border-gray-200">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          {/* Left action group */}
+          <div className="flex items-center justify-start gap-2 flex-wrap">
+            {/* Selection counter */}
+            <div className="mr-2 text-xs sm:text-sm text-gray-600">
+              {selectedItems.length}/{data.length} selected
+            </div>
+            <button
+              onClick={() => setShowImportModal(true)}
+              className={cn(
+                "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+                "text-blue-700 border border-blue-400 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100"
+              )}
+              title={`Import ${config.title}`}
+            >
+              <span className="inline-flex items-center gap-1">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                <span>Import</span>
+              </span>
+            </button>
+            <button
+              onClick={() => setShowPrintModal(true)}
+              className={cn(
+                "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+                "text-indigo-700 border border-indigo-400 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-indigo-100"
+              )}
+              title={`Print ${config.title}`}
+            >
+              <span className="inline-flex items-center gap-1">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                <span>Print</span>
+              </span>
+            </button>
+            <button
+              onClick={() => setShowBulkEditModal(true)}
+              className={cn(
+                "px-3 py-1 text-xs sm:text-sm rounded-md bg-white transition-all duration-200 shadow-sm hover:shadow-md",
+                "text-blue-700 border border-blue-500"
+              )}
+              title="Bulk Edit selected rows"
+            >
+              <span className="inline-flex items-center gap-1">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                <span>Bulk Edit</span>
+              </span>
+            </button>
+            <button
+              onClick={() => setShowExportModal(true)}
+              className={cn(
+                "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+                "text-green-700 border border-green-400 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100"
+              )}
+              title="Export"
+            >
+              <span className="inline-flex items-center gap-1">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <span>Export</span>
+              </span>
+            </button>
+            <button
+              onClick={() => setShowBulkDeleteModal(true)}
+              className={cn(
+                "px-3 py-1 text-xs sm:text-sm rounded-md bg-white transition-all duration-200 shadow-sm hover:shadow-md",
+                "text-red-700 border border-red-500"
+              )}
+              title="Delete selected rows"
+            >
+              <span className="inline-flex items-center gap-1">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                <span>Delete</span>
+              </span>
+            </button>
+          </div>
+
+          {/* Right side controls */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSettingsModal(true)}
+              className="px-3 py-1 text-xs sm:text-sm text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 bg-white shadow-sm hover:shadow-md"
+              title="Settings"
+            >
+              <span className="inline-flex items-center gap-1">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+              <span>Settings</span>
+            </span>
+            </button>
+          </div>
+        </div>
+      </div>
       </div>
 
       {/* Bulk Actions Bar - Fixed below search controls */}
@@ -467,7 +806,7 @@ export default function PageTemplate<T extends BaseEntity>({
 
       {/* Main Content Area - Scrollable */}
       <div className={cn(
-        isFullScreen ? "flex-1 overflow-auto flex flex-col" : "px-4 pb-4"
+        isFullScreen ? "flex-1 overflow-auto flex flex-col" : "pb-4"
       )}>
         {viewMode === 'table' && (
           <>
@@ -811,10 +1150,11 @@ export default function PageTemplate<T extends BaseEntity>({
         <ExportModal
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
-          data={data}
+          data={filteredData}
           selectedItems={selectedItems}
           onExport={(config: any) => {
-            console.log('Export config:', config)
+            // Client-side export (CSV/JSON). Replace with API call if needed.
+            handleClientExport(config)
             setShowExportModal(false)
           }}
         />

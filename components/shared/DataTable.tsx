@@ -128,10 +128,13 @@ export default function DataTable<T extends BaseEntity>({
       "bg-white rounded-lg border border-gray-200 overflow-hidden",
       isFullScreen && "flex-1 flex flex-col"
     )}>
-      <div className={cn(
-        "overflow-auto",
-        isFullScreen ? "flex-1" : ""
-      )}>
+      <div
+        data-scroll-group="page-table"
+        className={cn(
+          "overflow-auto",
+          isFullScreen ? "flex-1" : ""
+        )}
+      >
         <table className="min-w-full divide-y divide-gray-200">
           <thead className={cn(
             "bg-gray-50 relative",

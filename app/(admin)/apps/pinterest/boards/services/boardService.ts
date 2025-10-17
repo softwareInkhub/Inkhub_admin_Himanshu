@@ -119,7 +119,40 @@ export const fetchBoards = async (): Promise<Board[]> => {
       promises.forEach(p => p.then(resolve).catch(() => { rejected++; if (rejected === n) reject(new Error('All failed')) }))
     })
 
-    const { key: winningKey, data } = await promiseAny(reqs)
+    let winningKey = 'unknown'
+    let data: any[] | null = null
+    try {
+      const result: any = await promiseAny(reqs)
+      winningKey = result.key
+      data = result.data
+    } catch (e) {
+      // Parallel keys all failed – try local fallback(s)
+      if (shouldLog()) console.warn('⚠️ All parallel keys failed, trying local fallbacks...')
+      const fallbacks = ['/pinterest-boards.json', '/boards.json']
+      for (const path of fallbacks) {
+        try {
+          const res = await fetch(path, { headers: { 'Accept': 'application/json' } })
+          if (res.ok) {
+            const json = await res.json()
+            const arr = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : null)
+            if (Array.isArray(arr)) {
+              winningKey = `local:${path}`
+              data = arr
+              break
+            }
+          }
+        } catch {}
+      }
+      // If still no data, return empty array instead of throwing to avoid UI hard-failure
+      if (!data) {
+        if (shouldLog()) console.error('❌ Boards fallback also failed – returning empty list')
+        boardsCache.set(cacheKey, { data: [], timestamp: Date.now() })
+        if (typeof window !== 'undefined') {
+          try { localStorage.setItem(cacheKey, JSON.stringify({ data: [], timestamp: Date.now(), key: 'none' })) } catch {}
+        }
+        return []
+      }
+    }
 
     const boards = (data as any[]).map((item: any, index: number) => mapApiResponseToBoard(item, index))
 
