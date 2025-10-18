@@ -17,7 +17,7 @@ export type OrdersPageState = {
   moreActionsOpen: boolean;
   selectedRowIds: string[];
   scrollY: number;
-  viewMode: 'table' | 'grid' | 'card' | 'list';
+  viewMode: 'table' | 'grid' | 'card';
   showAdvancedFilter: boolean;
 
   // Actions

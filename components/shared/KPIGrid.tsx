@@ -5,8 +5,8 @@ import { Plus, Settings, RefreshCw, Download } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import { KPIGridProps, KPIMetrics } from './types'
-import CustomCardModal from '@/app/(admin)/apps/shopify/products/components/CustomCardModal'
-import CardManagerModal from '@/app/(admin)/apps/shopify/products/components/CardManagerModal'
+import CustomCardModal from './CustomCardModal'
+import CardManagerModal from './CardManagerModal'
 
 interface CustomCard {
   id: string

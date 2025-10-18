@@ -6,7 +6,10 @@ const nextConfig = {
       'picsum.photos',
       'images.unsplash.com',
       'randomuser.me',
-      'example.com'
+      'example.com',
+      'cdn.shopify.com',
+      'i.pinimg.com',
+      'media.pinterest.com'
     ],
     formats: ['image/webp', 'image/avif'],
   },

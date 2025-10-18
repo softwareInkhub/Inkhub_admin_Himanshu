@@ -19,9 +19,9 @@ import {
   SearchControls,
   ViewToggle,
   CardsPerRowDropdown,
-  TablePreferencesModal
+  TablePreferencesModal,
+  GridCardFilterHeader
 } from './index'
-import ProductsGridCardFilterHeader from '@/app/(admin)/apps/shopify/products/components/GridCardFilterHeader'
 import { useDataTable } from './hooks/useDataTable'
 
 // Reusable props contract for grid/card header components
@@ -84,6 +84,8 @@ interface PageTemplateProps<T extends BaseEntity> {
   clearColumnFilters?: () => void
   clearCustomFilters?: () => void
   clearAdvancedFilters?: () => void
+  cardsPerRow?: number
+  onCardsPerRowChange?: (value: number) => void
 }
 
 // Icon mapping function
@@ -151,7 +153,9 @@ export default function PageTemplate<T extends BaseEntity>({
   clearSearch = () => {},
   clearColumnFilters = () => {},
   clearCustomFilters = () => {},
-  clearAdvancedFilters = () => {}
+  clearAdvancedFilters = () => {},
+  cardsPerRow,
+  onCardsPerRowChange
 }: PageTemplateProps<T>) {
   // Modal states
   const [showExportModal, setShowExportModal] = useState(false)
@@ -167,6 +171,10 @@ export default function PageTemplate<T extends BaseEntity>({
   // Cards-per-row controls for grid and card views
   const [gridCardsPerRow, setGridCardsPerRow] = useState<number>(4)
   const [cardCardsPerRow, setCardCardsPerRow] = useState<number>(6)
+  
+  // Use prop values if provided, otherwise use internal state
+  const effectiveGridCardsPerRow = cardsPerRow ?? gridCardsPerRow
+  const effectiveCardCardsPerRow = cardsPerRow ?? cardCardsPerRow
 
   // Client-side export helper (CSV/JSON)
   const handleClientExport = useCallback(async (exportConfig: any) => {
@@ -847,6 +855,7 @@ export default function PageTemplate<T extends BaseEntity>({
                 totalItems={data.length}
                 onPageChange={handlePageChange}
                 onItemsPerPageChange={handleItemsPerPageChange}
+                itemType={getItemTypeFromConfig(config)}
               />
             </div>
           </>
@@ -856,7 +865,8 @@ export default function PageTemplate<T extends BaseEntity>({
           <>
             {/* Grid Header - Fixed */}
             {(() => {
-              const HeaderComp = GridHeaderComponent || ProductsGridCardFilterHeader
+              const HeaderComp = GridHeaderComponent
+              if (!HeaderComp) return null
               return (
                 <div className={cn(
                   isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200 flex-shrink-0" : ""
@@ -870,17 +880,17 @@ export default function PageTemplate<T extends BaseEntity>({
                     onFilterClick={onFilterClickHeader}
                     onColumnFilterChange={onColumnFilterChangeHeader}
                     getUniqueValues={getUniqueValues}
-                    cardsPerRow={gridCardsPerRow}
-                    onCardsPerRowChange={(v: number) => setGridCardsPerRow(v)}
+                    cardsPerRow={effectiveGridCardsPerRow}
+                    onCardsPerRowChange={onCardsPerRowChange ?? ((v: number) => setGridCardsPerRow(v))}
                   />
                 </div>
               )
             })()}
             {/* Grid Content - Scrollable */}
             <div className={cn(
-              getGridClasses(gridCardsPerRow).className, 
+              getGridClasses(effectiveGridCardsPerRow).className, 
               isFullScreen ? "flex-1 overflow-auto px-4 min-h-0" : ""
-            )} style={getGridClasses(gridCardsPerRow).style}>
+            )} style={getGridClasses(effectiveGridCardsPerRow).style}>
               {filteredData.map((item: T) => (
                 <div
                   key={item.id}
@@ -949,6 +959,7 @@ export default function PageTemplate<T extends BaseEntity>({
                 totalItems={data.length}
                 onPageChange={handlePageChange}
                 onItemsPerPageChange={handleItemsPerPageChange}
+                itemType={getItemTypeFromConfig(config)}
               />
             </div>
           </>
@@ -958,7 +969,8 @@ export default function PageTemplate<T extends BaseEntity>({
           <>
             {/* Card Header - Fixed */}
             {(() => {
-              const HeaderComp = CardHeaderComponent || GridHeaderComponent || ProductsGridCardFilterHeader
+              const HeaderComp = CardHeaderComponent || GridHeaderComponent
+              if (!HeaderComp) return null
               return (
                 <div className={cn(
                   isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200 flex-shrink-0" : ""
@@ -972,17 +984,17 @@ export default function PageTemplate<T extends BaseEntity>({
                     onFilterClick={onFilterClickHeader}
                     onColumnFilterChange={onColumnFilterChangeHeader}
                     getUniqueValues={getUniqueValues}
-                    cardsPerRow={cardCardsPerRow}
-                    onCardsPerRowChange={(v: number) => setCardCardsPerRow(v)}
+                    cardsPerRow={effectiveCardCardsPerRow}
+                    onCardsPerRowChange={onCardsPerRowChange ?? ((v: number) => setCardCardsPerRow(v))}
                   />
                 </div>
               )
             })()}
             {/* Card Content - Scrollable */}
             <div className={cn(
-              getGridClasses(cardCardsPerRow).className, 
+              getGridClasses(effectiveCardCardsPerRow).className, 
               isFullScreen ? "flex-1 overflow-auto px-4 min-h-0" : ""
-            )} style={getGridClasses(cardCardsPerRow).style}>
+            )} style={getGridClasses(effectiveCardCardsPerRow).style}>
               {filteredData.map((item: T) => {
                 const anyItem: any = item as any
                 const title = anyItem.title || anyItem.name || 'Untitled'
@@ -1085,6 +1097,7 @@ export default function PageTemplate<T extends BaseEntity>({
                 totalItems={data.length}
                 onPageChange={handlePageChange}
                 onItemsPerPageChange={handleItemsPerPageChange}
+                itemType={getItemTypeFromConfig(config)}
               />
             </div>
           </>

@@ -8,5 +8,8 @@ export { default as OrdersList } from './OrdersList'
 export { default as OrderCardView } from './OrderCardView'
 export { default as OrderViewHeader } from './OrderViewHeader'
 export { default as OrderSearchControls } from './OrderSearchControls'
-export { default as Pagination } from './Pagination'
+// Removed duplicate exports - now using shared components:
+// - Pagination (use from @/components/shared)
+// - GridCardFilterHeader (use from @/components/shared)
+// - CardsPerRowDropdown (use from @/components/shared)
 export { default as SearchControls } from './SearchControls'

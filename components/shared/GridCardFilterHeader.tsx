@@ -4,9 +4,16 @@ import { cn } from '@/lib/utils'
 import CardsPerRowDropdown from './CardsPerRowDropdown'
 import { useEffect, useRef, useState } from 'react'
 
+export interface GridFilterColumn {
+  key: string
+  label: string
+  filterType: 'text' | 'select' | 'multi-select' | 'numeric' | 'date'
+  options?: string[]
+}
+
 interface GridCardFilterHeaderProps {
-  selectedProducts: string[]
-  currentProducts: any[]
+  selectedItems: string[]
+  currentItems: any[]
   onSelectAll: () => void
   activeColumnFilter: string | null
   columnFilters: Record<string, any>
@@ -15,11 +22,13 @@ interface GridCardFilterHeaderProps {
   getUniqueValues: (field: string) => string[]
   cardsPerRow?: number
   onCardsPerRowChange?: (value: number) => void
+  columns: GridFilterColumn[]  // Generic column configuration
+  itemType?: string  // For display (e.g., 'products', 'orders')
 }
 
 export default function GridCardFilterHeader({
-  selectedProducts,
-  currentProducts,
+  selectedItems,
+  currentItems,
   onSelectAll,
   activeColumnFilter,
   columnFilters,
@@ -27,13 +36,13 @@ export default function GridCardFilterHeader({
   onColumnFilterChange,
   getUniqueValues,
   cardsPerRow = 4,
-  onCardsPerRowChange
+  onCardsPerRowChange,
+  columns,
+  itemType = 'items'
 }: GridCardFilterHeaderProps) {
   const [dropdownPosition, setDropdownPosition] = useState<{ x: number; y: number } | null>(null)
   const activeButtonRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  
-
 
   // Calculate dropdown position when active filter changes
   useEffect(() => {
@@ -172,8 +181,7 @@ export default function GridCardFilterHeader({
             </div>
           )}
           
-          {/* Enhanced numeric filtering for price and inventory */}
-          {(filterType === 'numeric' || column === 'price' || column === 'inventoryQuantity') && (
+          {filterType === 'numeric' && (
             <div className="space-y-4">
               <div className="text-sm font-semibold text-black mb-2">FILTER OPTIONS:</div>
               <div className="grid grid-cols-2 gap-2">
@@ -295,7 +303,7 @@ export default function GridCardFilterHeader({
           <div className="mt-4 pt-3 border-t border-gray-100">
             <button
               onClick={() => {
-                if (filterType === 'text' || filterType === 'date' || filterType === 'numeric' || column === 'price' || column === 'inventoryQuantity') {
+                if (filterType === 'text' || filterType === 'date' || filterType === 'numeric') {
                   onColumnFilterChange(column, '')
                 } else {
                   onColumnFilterChange(column, [])
@@ -312,204 +320,51 @@ export default function GridCardFilterHeader({
     )
   }
 
+  const renderColumnHeader = (column: GridFilterColumn) => {
+    const options = column.options || (column.filterType === 'multi-select' || column.filterType === 'select' ? getUniqueValues(column.key) : undefined)
+    
     return (
+      <div key={column.key} className="flex items-center space-x-1 relative">
+        <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+          {column.label}
+        </span>
+        <button
+          ref={activeColumnFilter === column.key ? activeButtonRef : null}
+          onClick={() => onFilterClick(column.key)}
+          className={cn(
+            "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
+            activeColumnFilter === column.key ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
+            (Array.isArray(columnFilters[column.key]) ? columnFilters[column.key]?.length > 0 : columnFilters[column.key]) ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
+          )}
+        >
+          <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+          </svg>
+        </button>
+        {renderFilterDropdown(column.key, column.filterType, options)}
+      </div>
+    )
+  }
+
+  return (
     <div className="bg-gray-50 border-b border-gray-200 px-4 py-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-6">
-          {/* Product Column with Filter */}
+          {/* Select All Checkbox */}
           <div className="flex items-center space-x-2 relative">
             <input
               type="checkbox"
-              checked={selectedProducts.length === currentProducts.length && currentProducts.length > 0}
+              checked={selectedItems.length === currentItems.length && currentItems.length > 0}
               onChange={onSelectAll}
               className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
             />
             <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-              PRODUCT
+              {itemType.toUpperCase()}
             </span>
-            <button
-              ref={activeColumnFilter === 'title' ? activeButtonRef : null}
-              onClick={() => onFilterClick('title')}
-              className={cn(
-                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
-                activeColumnFilter === 'title' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
-                columnFilters.title ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
-              )}
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-              </svg>
-            </button>
-            {renderFilterDropdown('title', 'text')}
           </div>
 
-          {/* Status Column */}
-          <div className="flex items-center space-x-1 relative">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-              STATUS
-            </span>
-            <button
-              ref={activeColumnFilter === 'status' ? activeButtonRef : null}
-              onClick={() => onFilterClick('status')}
-              className={cn(
-                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
-                activeColumnFilter === 'status' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
-                columnFilters.status?.length > 0 ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
-              )}
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-              </svg>
-            </button>
-            {renderFilterDropdown('status', 'select', ['active', 'draft', 'archived'])}
-          </div>
-
-          {/* Inventory Column */}
-          <div className="flex items-center space-x-1 relative">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-              INVENTORY
-            </span>
-            <button
-              ref={activeColumnFilter === 'inventoryQuantity' ? activeButtonRef : null}
-              onClick={() => onFilterClick('inventoryQuantity')}
-              className={cn(
-                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
-                activeColumnFilter === 'inventoryQuantity' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
-                columnFilters.inventoryQuantity ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
-              )}
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-              </svg>
-            </button>
-            {renderFilterDropdown('inventoryQuantity', 'numeric')}
-          </div>
-
-          {/* Price Column */}
-          <div className="flex items-center space-x-1 relative">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-              PRICE
-            </span>
-            <button
-              ref={activeColumnFilter === 'price' ? activeButtonRef : null}
-              onClick={() => onFilterClick('price')}
-              className={cn(
-                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
-                activeColumnFilter === 'price' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
-                columnFilters.price ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
-              )}
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-              </svg>
-            </button>
-            {renderFilterDropdown('price', 'numeric')}
-          </div>
-
-          {/* Type Column */}
-          <div className="flex items-center space-x-1 relative">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-              TYPE
-            </span>
-            <button
-              ref={activeColumnFilter === 'productType' ? activeButtonRef : null}
-              onClick={() => onFilterClick('productType')}
-              className={cn(
-                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
-                activeColumnFilter === 'productType' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
-                columnFilters.productType?.length > 0 ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
-              )}
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-              </svg>
-            </button>
-            {renderFilterDropdown('productType', 'multi-select', getUniqueValues('productType'))}
-          </div>
-
-          {/* Vendor Column */}
-          <div className="flex items-center space-x-1 relative">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-              VENDOR
-            </span>
-            <button
-              ref={activeColumnFilter === 'vendor' ? activeButtonRef : null}
-              onClick={() => onFilterClick('vendor')}
-              className={cn(
-                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
-                activeColumnFilter === 'vendor' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
-                columnFilters.vendor?.length > 0 ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
-              )}
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-              </svg>
-            </button>
-            {renderFilterDropdown('vendor', 'multi-select', getUniqueValues('vendor'))}
-          </div>
-
-          {/* Category Column */}
-          <div className="flex items-center space-x-1 relative">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-              CATEGORY
-            </span>
-            <button
-              ref={activeColumnFilter === 'category' ? activeButtonRef : null}
-              onClick={() => onFilterClick('category')}
-              className={cn(
-                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
-                activeColumnFilter === 'category' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
-                columnFilters.category?.length > 0 ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
-              )}
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-              </svg>
-            </button>
-            {renderFilterDropdown('category', 'multi-select', getUniqueValues('category'))}
-          </div>
-
-          {/* Created Column */}
-          <div className="flex items-center space-x-1 relative">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-              CREATED
-            </span>
-            <button
-              ref={activeColumnFilter === 'createdAt' ? activeButtonRef : null}
-              onClick={() => onFilterClick('createdAt')}
-              className={cn(
-                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
-                activeColumnFilter === 'createdAt' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
-                columnFilters.createdAt ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
-              )}
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-              </svg>
-            </button>
-            {renderFilterDropdown('createdAt', 'date')}
-          </div>
-
-          {/* Updated Column */}
-          <div className="flex items-center space-x-1 relative">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-              UPDATED
-            </span>
-            <button
-              ref={activeColumnFilter === 'updatedAt' ? activeButtonRef : null}
-              onClick={() => onFilterClick('updatedAt')}
-              className={cn(
-                "ml-1 p-1 rounded-md hover:bg-gray-100 transition-all duration-200 hover:scale-105",
-                activeColumnFilter === 'updatedAt' ? "bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-600 shadow-sm border border-blue-200" : "text-gray-400",
-                columnFilters.updatedAt ? "text-blue-600 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-sm border border-blue-200" : "text-gray-400"
-              )}
-            >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-              </svg>
-            </button>
-            {renderFilterDropdown('updatedAt', 'date')}
-          </div>
+          {/* Render all column headers dynamically */}
+          {columns.map(renderColumnHeader)}
         </div>
         
         {/* Cards per row dropdown - only show if handler is provided */}
@@ -523,3 +378,4 @@ export default function GridCardFilterHeader({
     </div>
   )
 }
+

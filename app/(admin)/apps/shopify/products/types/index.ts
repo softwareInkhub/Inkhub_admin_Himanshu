@@ -59,14 +59,7 @@ export interface KPIMetric {
   trend: 'up' | 'down' | 'neutral'
 }
 
-export interface KPIMetrics {
-  totalProducts: KPIMetric
-  activeProducts: KPIMetric
-  draftProducts: KPIMetric
-  totalValue: KPIMetric
-  averagePrice: KPIMetric
-  lowStock: KPIMetric
-}
+// KPIMetrics is now imported from @/components/shared/types
 
 export interface SearchCondition {
   field: string

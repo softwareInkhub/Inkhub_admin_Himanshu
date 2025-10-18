@@ -8,21 +8,29 @@ import { cn } from '@/lib/utils'
 import { X } from 'lucide-react'
 import { debounce } from './utils/advancedSearch'
 import { debouncedAlgoliaSearch, searchProductsWithAdvancedFilters } from './utils/algoliaSearch'
-import HighlightedText from './components/HighlightedText'
 import { SearchHistory, saveSearchToHistory } from './utils/searchSuggestions'
 
-import KPIGrid from './components/KPIGrid'
+// Using enhanced shared components for better consistency across all pages
+import { 
+  GridCardFilterHeader, 
+  Pagination, 
+  BulkActionsBar, 
+  ExportModal, 
+  CardsPerRowDropdown,
+  EnhancedDetailModal,
+  KPIGrid,
+  CustomCardModal,
+  CardManagerModal,
+  CalculatorInterface,
+  HighlightedText,
+  ImageDisplay,
+  type GridFilterColumn 
+} from '@/components/shared'
 import ProductTable from './components/ProductTable'
 import ProductCardView from './components/ProductCardView'
-import GridCardFilterHeader from './components/GridCardFilterHeader'
-import Pagination from './components/Pagination'
 import SearchControls from './components/SearchControls'
-import ProductImage from './components/ProductImage'
-import BulkActionsBar from './components/BulkActionsBar'
-import ExportModal from './components/ExportModal'
-import CardsPerRowDropdown from './components/CardsPerRowDropdown'
-import { EnhancedDetailModal } from '@/components/shared'
 import { Product, SearchCondition, CustomFilter } from './types'
+import { KPIMetrics } from '@/components/shared/types'
 import { 
   calculateKPIMetrics, 
   getUniqueValues, 
@@ -76,6 +84,19 @@ function ProductsClientContent({
     scrollY, setScrollY,
     reset: resetPageState
   } = useProductsPageStore()
+
+  // Grid filter columns configuration for shared component
+  const gridFilterColumns: GridFilterColumn[] = [
+    { key: 'title', label: 'PRODUCT', filterType: 'text' },
+    { key: 'status', label: 'STATUS', filterType: 'select', options: ['active', 'draft', 'archived'] },
+    { key: 'inventoryQuantity', label: 'INVENTORY', filterType: 'numeric' },
+    { key: 'price', label: 'PRICE', filterType: 'numeric' },
+    { key: 'productType', label: 'TYPE', filterType: 'multi-select' },
+    { key: 'vendor', label: 'VENDOR', filterType: 'multi-select' },
+    { key: 'category', label: 'CATEGORY', filterType: 'multi-select' },
+    { key: 'createdAt', label: 'CREATED', filterType: 'date' },
+    { key: 'updatedAt', label: 'UPDATED', filterType: 'date' },
+  ]
 
   // Hydrate from URL on first mount
   useEffect(() => {
@@ -1439,6 +1460,12 @@ function ProductsClientContent({
       setShowAdditionalControls(false)
     }
 
+    const handleExportAction = (config: { format: string; columns: string[]; selectedOnly: boolean; includeImages: boolean }) => {
+      console.log('Export action triggered:', config)
+      // Export logic handled by the modal itself
+      setShowExportModal(false)
+    }
+
     const handleBulkDelete = () => {
       setShowBulkDeleteModal(true)
       setShowAdditionalControls(false)
@@ -1722,7 +1749,7 @@ function ProductsClientContent({
         {/* KPI Metrics */}
         <KPIGrid 
           kpiMetrics={kpiMetrics} 
-          products={useAlgoliaFilters && algoliaFilterResults.length > 0 
+          data={useAlgoliaFilters && algoliaFilterResults.length > 0 
             ? algoliaFilterResults 
             : (useAlgoliaSearch && algoliaSearchResults.length > 0 
               ? algoliaSearchResults 
@@ -2420,8 +2447,8 @@ function ProductsClientContent({
           )}>
             {/* Bulk Actions Bar - Common for all views */}
             <BulkActionsBar
-              selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
-              totalProducts={totalItemsForPagination}
+              selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+              totalItems={totalItemsForPagination}
               onBulkEdit={handleBulkEdit}
               onExportSelected={handleExportSelected}
               onBulkDelete={handleBulkDelete}
@@ -2463,6 +2490,7 @@ function ProductsClientContent({
                 totalItems={totalItemsForPagination}
                 onPageChange={handlePageChange}
                 onItemsPerPageChange={handleItemsPerPageChange}
+                itemType="products"
               />
                 </div>
             </>
@@ -2475,8 +2503,8 @@ function ProductsClientContent({
                   isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : ""
                 )}>
                   <GridCardFilterHeader
-                    selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
-                    currentProducts={paginatedData}
+                    selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+                    currentItems={paginatedData}
                     onSelectAll={handleSelectAll}
                     activeColumnFilter={activeColumnFilter}
                     columnFilters={columnFilters}
@@ -2485,6 +2513,8 @@ function ProductsClientContent({
                     getUniqueValues={getUniqueValuesForField}
                     cardsPerRow={cardsPerRow}
                     onCardsPerRowChange={setCardsPerRow}
+                    columns={gridFilterColumns}
+                    itemType="products"
                   />
                 </div>
                 
@@ -2513,7 +2543,7 @@ function ProductsClientContent({
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                       {settings.showImages ? (
-                      <ProductImage src={product.images?.[0] || ''} alt={product.title} size="md" />
+                      <ImageDisplay src={product.images?.[0] || ''} alt={product.title} size="md" />
                       ) : (
                         <div className="w-12 h-12 flex items-center justify-center bg-gray-200 rounded-lg">
                           <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2526,6 +2556,7 @@ function ProductsClientContent({
                       {debouncedSearchQuery && product._highlightResult?.title?.value ? (
                         <HighlightedText 
                           text={product._highlightResult.title.value}
+                          searchQuery={debouncedSearchQuery}
                           className="text-gray-900"
                         />
                       ) : (
@@ -2560,6 +2591,7 @@ function ProductsClientContent({
                   itemsPerPage={itemsPerPage}
                   onPageChange={handlePageChange}
                   onItemsPerPageChange={handleItemsPerPageChange}
+                  itemType="products"
                 />
               </div>
               </>
@@ -2572,8 +2604,8 @@ function ProductsClientContent({
                   isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : ""
                 )}>
                   <GridCardFilterHeader
-                    selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
-                    currentProducts={paginatedData}
+                    selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+                    currentItems={paginatedData}
                     onSelectAll={handleSelectAll}
                     activeColumnFilter={activeColumnFilter}
                     columnFilters={columnFilters}
@@ -2582,6 +2614,8 @@ function ProductsClientContent({
                     getUniqueValues={getUniqueValuesForField}
                     cardsPerRow={cardsPerRow}
                     onCardsPerRowChange={setCardsPerRow}
+                    columns={gridFilterColumns}
+                    itemType="products"
                   />
                 </div>
                 
@@ -2613,6 +2647,7 @@ function ProductsClientContent({
                   totalItems={totalItemsForPagination}
                   onPageChange={handlePageChange}
                   onItemsPerPageChange={handleItemsPerPageChange}
+                  itemType="products"
                 />
               </div>
             </>
@@ -2683,6 +2718,7 @@ function ProductsClientContent({
               ? algoliaSearchResults 
               : filteredProducts)}
           selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
+          onExport={handleExportAction}
         />
 
         {/* Save Search View Modal (same UX as Orders) */}

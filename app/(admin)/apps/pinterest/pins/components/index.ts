@@ -1,8 +1,12 @@
-export { default as PinHeader } from './PinHeader'
-export { default as KPICard } from './KPICard'
-export { default as KPIGrid } from './KPIGrid'
-export { default as PinImage } from './PinImage'
-export { default as SearchControls } from './SearchControls'
-export { default as PinTable } from './PinTable'
-export { default as ColumnHeader } from './ColumnHeader'
-export { default as Pagination } from './Pagination'
+// Pinterest Pins Components
+// All components now use shared components from @/components/shared
+// Local components have been removed to use centralized shared components
+
+// Note: All functionality is now provided by shared components:
+// - GridCardFilterHeader (from @/components/shared)
+// - Pagination (from @/components/shared)
+// - SearchControls (from @/components/shared)
+// - KPICard (from @/components/shared)
+// - KPIGrid (from @/components/shared)
+// - BulkActionsBar (from @/components/shared)
+// - ExportModal (from @/components/shared)

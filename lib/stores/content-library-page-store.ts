@@ -17,7 +17,7 @@ export type ContentLibraryPageState = {
   moreActionsOpen: boolean;
   selectedRowIds: string[];
   scrollY: number;
-  viewMode: 'table' | 'grid' | 'card' | 'list';
+  viewMode: 'table' | 'grid' | 'card';
 
   // Actions
   setPageIndex: (n: number) => void;
@@ -28,7 +28,7 @@ export type ContentLibraryPageState = {
   setMoreActionsOpen: (v: boolean) => void;
   setSelectedRowIds: (ids: string[]) => void;
   setScrollY: (y: number) => void;
-  setViewMode: (mode: 'table' | 'grid' | 'card' | 'list') => void;
+  setViewMode: (mode: 'table' | 'grid' | 'card') => void;
   reset: () => void;
 };
 

@@ -5,9 +5,10 @@ import { useAppStore } from '@/lib/store'
 import { useDesignLibraryPageStore } from '@/lib/stores/design-library-page-store'
 import {
   PageTemplate,
-  useDataTable
+  useDataTable,
+  GridCardFilterHeader,
+  type GridFilterColumn
 } from '@/components/shared'
-import DesignsGridCardFilterHeader from './components/DesignsGridCardFilterHeader'
 import { Design } from './types'
 import { designAPI } from './services/api'
 import { loadSnapshot } from '@/lib/snapshots'
@@ -319,6 +320,21 @@ const designFilters = [
   { key: 'draft', label: 'Drafts' },
   { key: 'free', label: 'Free' },
   { key: 'paid', label: 'Paid' }
+]
+
+// Define grid filter columns for designs
+const gridFilterColumns: GridFilterColumn[] = [
+  { key: 'status', label: 'Status', filterType: 'select', options: ['completed', 'in_progress', 'pending', 'approved', 'rejected'] },
+  { key: 'type', label: 'Type', filterType: 'select', options: ['logo', 'banner', 'social_media', 'print', 'web', 'illustration'] },
+  { key: 'category', label: 'Category', filterType: 'text' },
+  { key: 'price', label: 'Price', filterType: 'numeric' },
+  { key: 'size', label: 'Size', filterType: 'text' },
+  { key: 'client', label: 'Client', filterType: 'text' },
+  { key: 'designer', label: 'Designer', filterType: 'text' },
+  { key: 'views', label: 'Views', filterType: 'numeric' },
+  { key: 'downloads', label: 'Downloads', filterType: 'numeric' },
+  { key: 'createdAt', label: 'Created', filterType: 'date' },
+  { key: 'updatedAt', label: 'Updated', filterType: 'date' }
 ]
 
 function DesignLibraryPage() {
@@ -753,7 +769,12 @@ function DesignLibraryPage() {
     currentData,
     totalPages,
     setData,
-    // Note: We use Zustand for these states, not useDataTable
+    currentPage,
+    setCurrentPage,
+    itemsPerPage,
+    setItemsPerPage,
+    handlePageChange,
+    handleItemsPerPageChange
   } = useDataTable<Design>({
     initialData: serverData,
     columns: designColumns,
@@ -767,14 +788,7 @@ function DesignLibraryPage() {
   const selectedItems = selectedRowIds
   const setSelectedItems = setSelectedRowIds
   const viewMode = storedViewMode
-  const setViewMode = (mode: 'table' | 'grid' | 'card' | 'list') => setStoredViewMode(mode)
-  const currentPage = pageIndex + 1 // Convert 0-based to 1-based
-  const setCurrentPage = (page: number) => setPageIndex(page - 1) // Convert back to 0-based
-  const itemsPerPage = pageSize
-  const setItemsPerPage = (size: number) => {
-    setPageSize(size)
-    setPageIndex(0) // Reset to first page
-  }
+  const setViewMode = (mode: 'table' | 'grid' | 'card') => setStoredViewMode(mode)
   
   // ✅ Handlers using Zustand state
   const [searchConditions, setSearchConditions] = useState<any[]>([])
@@ -811,8 +825,7 @@ function DesignLibraryPage() {
     }
   }
   
-  const handlePageChange = (page: number) => setCurrentPage(page)
-  const handleItemsPerPageChange = (items: number) => setItemsPerPage(items)
+  // Pagination handlers are now provided by useDataTable hook
   const handleSort = (column: string) => {
     if (sortColumn === column) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
@@ -837,6 +850,35 @@ function DesignLibraryPage() {
   const clearColumnFilters = () => setColumnFilters({})
   const clearCustomFilters = () => setCustomFilters([])
   const clearAdvancedFilters = () => setAdvancedFilters({})
+
+  // Grid filter handlers
+  const [activeColumnFilter, setActiveColumnFilter] = useState<string | null>(null)
+  const [cardsPerRow, setCardsPerRow] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('designs-cards-per-row')
+      return saved ? parseInt(saved, 10) : 4
+    }
+    return 4
+  })
+
+  // Save cards per row preference to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('designs-cards-per-row', cardsPerRow.toString())
+    }
+  }, [cardsPerRow])
+  
+  const toggleColumnFilter = (column: string) => {
+    setActiveColumnFilter(activeColumnFilter === column ? null : column)
+  }
+  
+  const handleColumnFilterChange = (column: string, value: any) => {
+    setColumnFilters({ ...columnFilters, [column]: value })
+  }
+  
+  const getUniqueValuesForField = (field: string) => {
+    return Array.from(new Set(currentData.map((item: any) => item[field]).filter(Boolean)))
+  }
 
 
 
@@ -1054,10 +1096,40 @@ function DesignLibraryPage() {
       <PageTemplate
       config={pageConfig}
       data={currentData}
-      loading={loading}
+          loading={loading}
       error={error}
-      GridHeaderComponent={DesignsGridCardFilterHeader}
-      CardHeaderComponent={DesignsGridCardFilterHeader}
+      GridHeaderComponent={() => (
+        <GridCardFilterHeader
+          selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+          currentItems={currentData}
+          onSelectAll={handleSelectAll}
+          activeColumnFilter={activeColumnFilter}
+          columnFilters={columnFilters}
+          onFilterClick={toggleColumnFilter}
+          onColumnFilterChange={handleColumnFilterChange}
+          getUniqueValues={getUniqueValuesForField}
+          cardsPerRow={cardsPerRow}
+          onCardsPerRowChange={setCardsPerRow}
+          columns={gridFilterColumns}
+          itemType="designs"
+        />
+      )}
+      CardHeaderComponent={() => (
+        <GridCardFilterHeader
+          selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+          currentItems={currentData}
+          onSelectAll={handleSelectAll}
+          activeColumnFilter={activeColumnFilter}
+          columnFilters={columnFilters}
+          onFilterClick={toggleColumnFilter}
+          onColumnFilterChange={handleColumnFilterChange}
+          getUniqueValues={getUniqueValuesForField}
+          cardsPerRow={cardsPerRow}
+          onCardsPerRowChange={setCardsPerRow}
+          columns={gridFilterColumns}
+          itemType="designs"
+        />
+      )}
       searchQuery={searchQuery}
       setSearchQuery={setSearchQuery}
       searchConditions={searchConditions}
@@ -1096,6 +1168,8 @@ function DesignLibraryPage() {
       clearColumnFilters={clearColumnFilters}
       clearCustomFilters={clearCustomFilters}
       clearAdvancedFilters={clearAdvancedFilters}
+      cardsPerRow={cardsPerRow}
+      onCardsPerRowChange={setCardsPerRow}
       />
     </div>
   )

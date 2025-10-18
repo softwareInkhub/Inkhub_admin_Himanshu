@@ -119,27 +119,27 @@ export default function CardManagerModal({
                     <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
                     <span className="text-sm font-medium text-gray-900">{card.label}</span>
                   </div>
-                                     <div className="flex items-center space-x-2">
-                     <button
-                       onClick={() => onEditDefaultCard(card.key)}
-                       className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                       title="Edit card"
-                     >
-                       <Edit className="h-4 w-4" />
-                     </button>
-                     <button
-                       onClick={() => onUpdateDefaultCard(card.key, !card.isVisible)}
-                       className={cn(
-                         "p-2 rounded-lg transition-colors",
-                         card.isVisible
-                           ? "text-green-600 hover:bg-green-50"
-                           : "text-gray-400 hover:bg-gray-100"
-                       )}
-                       title={card.isVisible ? "Hide card" : "Show card"}
-                     >
-                       {card.isVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                     </button>
-                   </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => onEditDefaultCard(card.key)}
+                      className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Edit card"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => onUpdateDefaultCard(card.key, !card.isVisible)}
+                      className={cn(
+                        "p-2 rounded-lg transition-colors",
+                        card.isVisible
+                          ? "text-green-600 hover:bg-green-50"
+                          : "text-gray-400 hover:bg-gray-100"
+                      )}
+                      title={card.isVisible ? "Hide card" : "Show card"}
+                    >
+                      {card.isVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -160,12 +160,12 @@ export default function CardManagerModal({
                   className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   <div className="flex items-center space-x-3 flex-1 min-w-0">
-                                         <div 
-                       className={cn(
-                         "w-3 h-3 rounded-full",
-                         `bg-gradient-to-r ${card.color}`
-                       )}
-                     ></div>
+                    <div 
+                      className={cn(
+                        "w-3 h-3 rounded-full",
+                        `bg-gradient-to-r ${card.color}`
+                      )}
+                    ></div>
                     <div className="flex items-center space-x-2 min-w-0">
                       <span className="text-base">{card.icon}</span>
                       <div className="min-w-0">
@@ -177,34 +177,34 @@ export default function CardManagerModal({
                     </div>
                   </div>
                   
-                                     <div className="flex items-center space-x-2">
-                     <button
-                       onClick={() => onEditCustomCard(card)}
-                       className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                       title="Edit card"
-                     >
-                       <Edit className="h-4 w-4" />
-                     </button>
-                     <button
-                       onClick={() => onUpdateCustomCard(card.id, { isVisible: !card.isVisible })}
-                       className={cn(
-                         "p-2 rounded-lg transition-colors",
-                         card.isVisible
-                           ? "text-green-600 hover:bg-green-50"
-                           : "text-gray-400 hover:bg-gray-100"
-                       )}
-                       title={card.isVisible ? "Hide card" : "Show card"}
-                     >
-                       {card.isVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                     </button>
-                     <button
-                       onClick={() => onDeleteCustomCard(card.id)}
-                       className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                       title="Delete card"
-                     >
-                       <Trash2 className="h-4 w-4" />
-                     </button>
-                   </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => onEditCustomCard(card)}
+                      className="p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Edit card"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => onUpdateCustomCard(card.id, { isVisible: !card.isVisible })}
+                      className={cn(
+                        "p-2 rounded-lg transition-colors",
+                        card.isVisible
+                          ? "text-green-600 hover:bg-green-50"
+                          : "text-gray-400 hover:bg-gray-100"
+                      )}
+                      title={card.isVisible ? "Hide card" : "Show card"}
+                    >
+                      {card.isVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                    </button>
+                    <button
+                      onClick={() => onDeleteCustomCard(card.id)}
+                      className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete card"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

@@ -5,9 +5,10 @@ import { useAppStore } from '@/lib/store'
 import { useContentLibraryPageStore } from '@/lib/stores/content-library-page-store'
 import {
   PageTemplate,
-  useDataTable
+  useDataTable,
+  GridCardFilterHeader,
+  type GridFilterColumn
 } from '@/components/shared'
-import ContentGridCardFilterHeader from './components/ContentGridCardFilterHeader'
 import { ContentItem } from './types'
 
 // Define table columns for content
@@ -286,6 +287,19 @@ const contentFilters = [
   { key: 'published', label: 'Published' },
   { key: 'draft', label: 'Drafts' },
   { key: 'archived', label: 'Archived' }
+]
+
+// Define grid filter columns for content
+const gridFilterColumns: GridFilterColumn[] = [
+  { key: 'type', label: 'Type', filterType: 'select', options: ['text', 'image', 'video', 'audio', 'file', 'json', 'richtext', 'html'] },
+  { key: 'status', label: 'Status', filterType: 'select', options: ['published', 'draft', 'archived'] },
+  { key: 'labels', label: 'Labels', filterType: 'text' },
+  { key: 'bytes', label: 'Size', filterType: 'numeric' },
+  { key: 'locale', label: 'Locale', filterType: 'text' },
+  { key: 'version', label: 'Version', filterType: 'numeric' },
+  { key: 'createdAt', label: 'Created', filterType: 'date' },
+  { key: 'updatedAt', label: 'Updated', filterType: 'date' },
+  { key: 'updatedBy', label: 'Updated By', filterType: 'text' }
 ]
 
 interface ContentLibraryClientProps {
@@ -626,6 +640,35 @@ function ContentLibraryClientContent({
   const clearCustomFilters = () => setCustomFilters([])
   const clearAdvancedFilters = () => setAdvancedFilters({})
 
+  // Grid filter handlers
+  const [activeColumnFilter, setActiveColumnFilter] = useState<string | null>(null)
+  const [cardsPerRow, setCardsPerRow] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('content-cards-per-row')
+      return saved ? parseInt(saved, 10) : 4
+    }
+    return 4
+  })
+
+  // Save cards per row preference to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('content-cards-per-row', cardsPerRow.toString())
+    }
+  }, [cardsPerRow])
+  
+  const toggleColumnFilter = (column: string) => {
+    setActiveColumnFilter(activeColumnFilter === column ? null : column)
+  }
+  
+  const handleColumnFilterChange = (column: string, value: any) => {
+    setColumnFilters({ ...columnFilters, [column]: value })
+  }
+  
+  const getUniqueValuesForField = (field: string) => {
+    return Array.from(new Set(currentData.map((item: any) => item[field]).filter(Boolean)))
+  }
+
   // Update data table when server data changes - always sync to ensure cache loads properly
   useEffect(() => {
     if (serverData.length > 0) {
@@ -806,8 +849,38 @@ function ContentLibraryClientContent({
         data={currentData}
       loading={loading}
       error={error}
-        GridHeaderComponent={ContentGridCardFilterHeader}
-        CardHeaderComponent={ContentGridCardFilterHeader}
+        GridHeaderComponent={() => (
+          <GridCardFilterHeader
+            selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+            currentItems={currentData}
+            onSelectAll={handleSelectAll}
+            activeColumnFilter={activeColumnFilter}
+            columnFilters={columnFilters}
+            onFilterClick={toggleColumnFilter}
+            onColumnFilterChange={handleColumnFilterChange}
+            getUniqueValues={getUniqueValuesForField}
+            cardsPerRow={cardsPerRow}
+            onCardsPerRowChange={setCardsPerRow}
+            columns={gridFilterColumns}
+            itemType="content"
+          />
+        )}
+        CardHeaderComponent={() => (
+          <GridCardFilterHeader
+            selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+            currentItems={currentData}
+            onSelectAll={handleSelectAll}
+            activeColumnFilter={activeColumnFilter}
+            columnFilters={columnFilters}
+            onFilterClick={toggleColumnFilter}
+            onColumnFilterChange={handleColumnFilterChange}
+            getUniqueValues={getUniqueValuesForField}
+            cardsPerRow={cardsPerRow}
+            onCardsPerRowChange={setCardsPerRow}
+            columns={gridFilterColumns}
+            itemType="content"
+          />
+        )}
       searchQuery={searchQuery}
       setSearchQuery={setSearchQuery}
       searchConditions={searchConditions}
@@ -846,6 +919,8 @@ function ContentLibraryClientContent({
       clearColumnFilters={clearColumnFilters}
       clearCustomFilters={clearCustomFilters}
       clearAdvancedFilters={clearAdvancedFilters}
+      cardsPerRow={cardsPerRow}
+      onCardsPerRowChange={setCardsPerRow}
       />
     </div>
   )

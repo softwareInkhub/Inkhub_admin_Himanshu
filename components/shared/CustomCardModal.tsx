@@ -3,9 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Plus, Calculator, Palette, Type, Hash } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Product } from '../types'
-import { calculateCustomValue, formatCardValue } from '../utils/customCardCalculations'
 import CalculatorInterface from './CalculatorInterface'
+import { calculateCustomValue, formatCardValue } from '@/app/(admin)/apps/shopify/products/utils/customCardCalculations'
 
 interface CustomCard {
   id: string
@@ -443,13 +442,13 @@ export default function CustomCardModal({
             </div>
           </div>
 
-                     {/* Preview */}
-           <div className="bg-gray-50 rounded-lg p-4">
-             <h3 className="text-sm font-medium text-gray-700 mb-3">Preview</h3>
-             <div className={cn(
-               "border border-gray-200 rounded-lg p-3 max-w-xs",
-               card.color ? `bg-gradient-to-r ${card.color}` : "bg-white"
-             )}>
+          {/* Preview */}
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">Preview</h3>
+            <div className={cn(
+              "border border-gray-200 rounded-lg p-3 max-w-xs",
+              card.color ? `bg-gradient-to-r ${card.color}` : "bg-white"
+            )}>
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center space-x-2">
                   <span className="text-base">{card.icon}</span>
@@ -458,12 +457,12 @@ export default function CustomCardModal({
                   </span>
                 </div>
               </div>
-                                                           <div className={cn(
-                  "text-lg font-bold",
-                  card.color ? "text-white" : "text-gray-900"
-                )}>
-                  {formatCardValue(previewValue, card.field || 'price')}
-                </div>
+              <div className={cn(
+                "text-lg font-bold",
+                card.color ? "text-white" : "text-gray-900"
+              )}>
+                {formatCardValue(previewValue, card.field || 'price')}
+              </div>
             </div>
           </div>
         </div>

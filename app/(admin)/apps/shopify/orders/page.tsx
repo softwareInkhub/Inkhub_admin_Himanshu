@@ -10,21 +10,25 @@ import { X, Columns } from 'lucide-react'
 import { debounce } from '../products/utils/advancedSearch'
 import { debouncedAlgoliaSearch, searchOrdersWithAdvancedFilters } from './utils/algoliaSearch'
 import { parseAdvancedSearchQuery, applyAdvancedSearch } from './utils/advancedSearch'
-import HighlightedText from '../products/components/HighlightedText'
 import { SearchHistory, saveSearchToHistory, SearchSuggestion, getSearchSuggestions } from './utils/searchSuggestions'
 
-import KPIGrid from '../products/components/KPIGrid'
 import OrderKPIGrid from './components/OrderKPIGrid'
 import OrderTable from './components/OrderTable'
 import OrderCardView from './components/OrderCardView'
-import GridCardFilterHeader from './components/GridCardFilterHeader'
 import OrdersGrid from './components/OrdersGrid'
-import Pagination from './components/Pagination'
 import SearchControls from './components/SearchControls'
-import ProductImage from '../products/components/ProductImage'
-import BulkActionsBar from '../products/components/BulkActionsBar'
-import ExportModal from '../products/components/ExportModal'
-import { EnhancedDetailModal } from '@/components/shared'
+// Using enhanced shared components for better consistency across all pages
+import { 
+  GridCardFilterHeader, 
+  Pagination, 
+  BulkActionsBar, 
+  ExportModal,
+  EnhancedDetailModal,
+  KPIGrid,
+  HighlightedText,
+  ImageDisplay,
+  type GridFilterColumn 
+} from '@/components/shared'
 import { Order, SearchCondition, CustomFilter } from './types'
 import { 
   generateOrders as generateOrdersData,
@@ -85,6 +89,22 @@ function OrdersClientContent({
     scrollY, setScrollY,
     reset: resetPageState
   } = useOrdersPageStore()
+
+  // Grid filter columns configuration for shared component
+  const gridFilterColumns: GridFilterColumn[] = [
+    { key: 'serialNumber', label: 'S.NO', filterType: 'numeric' },
+    { key: 'orderNumber', label: 'ORDER', filterType: 'text' },
+    { key: 'customerName', label: 'CUSTOMER', filterType: 'text' },
+    { key: 'status', label: 'STATUS', filterType: 'select', options: ['pending', 'paid', 'refunded', 'partial', 'unfulfilled'] },
+    { key: 'fulfillmentStatus', label: 'FULFILLMENT', filterType: 'select', options: ['fulfilled', 'partial', 'unfulfilled'] },
+    { key: 'financialStatus', label: 'PAYMENT', filterType: 'select', options: ['paid', 'pending', 'refunded', 'partial'] },
+    { key: 'total', label: 'TOTAL', filterType: 'numeric' },
+    { key: 'channel', label: 'CHANNEL', filterType: 'multi-select' },
+    { key: 'deliveryMethod', label: 'DELIVERY', filterType: 'multi-select' },
+    { key: 'tags', label: 'TAGS', filterType: 'multi-select' },
+    { key: 'createdAt', label: 'CREATED', filterType: 'date' },
+    { key: 'updatedAt', label: 'UPDATED', filterType: 'date' },
+  ]
 
   // Hydrate from URL on first mount (only page, size for simplicity)
   useEffect(() => {
@@ -476,6 +496,12 @@ function OrdersClientContent({
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
+  
+  // Export handler for shared component
+  const handleExportAction = (config: { format: string; columns: string[]; selectedOnly: boolean; includeImages: boolean }) => {
+    console.log('Export action triggered:', config)
+    setShowExportModal(false)
+  }
   const fullScreenScrollRef = useRef<HTMLDivElement>(null)
   const tableScrollRef = useRef<HTMLDivElement>(null)
   
@@ -2933,6 +2959,8 @@ onClick={() => setShowExportModal(true)}
                   onItemsPerPageChange={handleItemsPerPageChange}
                   scrollGroupId="orders-table"
                   tableScrollRef={tableScrollRef}
+                  showScrollbar={true}
+                  itemType="orders"
                 />
               </div>
             </div>
@@ -2940,16 +2968,18 @@ onClick={() => setShowExportModal(true)}
             <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
               {/* Grid Header */}
               <GridCardFilterHeader
-                selectedOrders={selectedRowIds}
-                currentOrders={currentData}
+                selectedItems={selectedRowIds}
+                currentItems={currentData}
                 onSelectAll={handleSelectAll}
-             activeColumnFilter={activeColumnFilter}
+                activeColumnFilter={activeColumnFilter}
                 columnFilters={columnFilters}
                 onFilterClick={setActiveColumnFilter}
-             onColumnFilterChange={handleColumnFilter}
-             getUniqueValues={getUniqueValues}
+                onColumnFilterChange={handleColumnFilter}
+                getUniqueValues={getUniqueValues}
                 cardsPerRow={cardsPerRow}
                 onCardsPerRowChange={setCardsPerRow}
+                columns={gridFilterColumns}
+                itemType="orders"
               />
               <div className="p-4">
               <OrdersGrid
@@ -2999,14 +3029,16 @@ onClick={() => setShowExportModal(true)}
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             {/* Card/List Header (no per row control) */}
             <GridCardFilterHeader
-              selectedOrders={selectedRowIds}
-              currentOrders={currentData}
+              selectedItems={selectedRowIds}
+              currentItems={currentData}
               onSelectAll={handleSelectAll}
               activeColumnFilter={activeColumnFilter}
               columnFilters={columnFilters}
               onFilterClick={setActiveColumnFilter}
               onColumnFilterChange={handleColumnFilter}
               getUniqueValues={getUniqueValues}
+              columns={gridFilterColumns}
+              itemType="orders"
             />
             <div className="p-4">
           <OrderCardView
@@ -3101,6 +3133,7 @@ onClick={() => setShowExportModal(true)}
           onClose={() => setShowExportModal(false)}
           products={filteredData as any}
           selectedProducts={selectedRowIds}
+          onExport={handleExportAction}
         />
       )}
 

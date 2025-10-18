@@ -58,7 +58,7 @@ export interface TableColumn {
 }
 
 // View Modes
-export type ViewMode = 'table' | 'grid' | 'card' | 'list'
+export type ViewMode = 'table' | 'grid' | 'card'
 
 // Page Configuration Types
 export interface PageConfig {

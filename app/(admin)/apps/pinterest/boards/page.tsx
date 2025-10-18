@@ -5,9 +5,10 @@ import { useAppStore } from '@/lib/store'
 import { usePinterestBoardsPageStore } from '@/lib/stores/pinterest-boards-page-store'
 import { 
   PageTemplate, 
-  useDataTable
+  useDataTable,
+  GridCardFilterHeader,
+  type GridFilterColumn
 } from '@/components/shared'
-import BoardsGridCardFilterHeader from './components/BoardsGridCardFilterHeader'
 import { Board } from './types'
 import { fetchBoards, calculateBoardsKPIs } from './services/boardService'
 
@@ -235,6 +236,18 @@ const boardFilters = [
   { key: 'trending', label: 'Trending' }
 ]
 
+// Define grid filter columns for boards
+const gridFilterColumns: GridFilterColumn[] = [
+  { key: 'status', label: 'Status', filterType: 'select', options: ['active', 'archived'] },
+  { key: 'privacy', label: 'Privacy', filterType: 'select', options: ['public', 'private', 'secret'] },
+  { key: 'category', label: 'Category', filterType: 'text' },
+  { key: 'owner', label: 'Owner', filterType: 'text' },
+  { key: 'pinCount', label: 'Pin Count', filterType: 'numeric' },
+  { key: 'followers', label: 'Followers', filterType: 'numeric' },
+  { key: 'createdAt', label: 'Created', filterType: 'date' },
+  { key: 'updatedAt', label: 'Updated', filterType: 'date' }
+]
+
 function BoardsClient() {
   const { addTab } = useAppStore()
   const hasAddedTab = useRef(false)
@@ -357,6 +370,12 @@ function BoardsClient() {
     totalPages,
     currentData,
     setData: setBoardData,
+    currentPage,
+    setCurrentPage,
+    itemsPerPage,
+    setItemsPerPage,
+    handlePageChange,
+    handleItemsPerPageChange
   } = useDataTable<Board>({
     initialData: boardsData,
     columns: boardColumns,
@@ -370,14 +389,7 @@ function BoardsClient() {
   const selectedItems = selectedRowIds
   const setSelectedItems = setSelectedRowIds
   const viewMode = storedViewMode
-  const setViewMode = (mode: 'table' | 'grid' | 'card' | 'list') => setStoredViewMode(mode)
-  const currentPage = pageIndex + 1 // Convert 0-based to 1-based
-  const setCurrentPage = (page: number) => setPageIndex(page - 1)
-  const itemsPerPage = pageSize
-  const setItemsPerPage = (size: number) => {
-    setPageSize(size)
-    setPageIndex(0)
-  }
+  const setViewMode = (mode: 'table' | 'grid' | 'card') => setStoredViewMode(mode)
   
   // ✅ Handlers using Zustand state
   const [searchConditions, setSearchConditions] = useState<any[]>([])
@@ -414,8 +426,7 @@ function BoardsClient() {
     }
   }
   
-  const handlePageChange = (page: number) => setCurrentPage(page)
-  const handleItemsPerPageChange = (items: number) => setItemsPerPage(items)
+  // Pagination handlers are now provided by useDataTable hook
   const handleSort = (column: string) => {
     if (sortColumn === column) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
@@ -440,6 +451,35 @@ function BoardsClient() {
   const clearColumnFilters = () => setColumnFilters({})
   const clearCustomFilters = () => setCustomFilters([])
   const clearAdvancedFilters = () => setAdvancedFilters({})
+
+  // Grid filter handlers
+  const [activeColumnFilter, setActiveColumnFilter] = useState<string | null>(null)
+  const [cardsPerRow, setCardsPerRow] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('boards-cards-per-row')
+      return saved ? parseInt(saved, 10) : 4
+    }
+    return 4
+  })
+
+  // Save cards per row preference to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('boards-cards-per-row', cardsPerRow.toString())
+    }
+  }, [cardsPerRow])
+  
+  const toggleColumnFilter = (column: string) => {
+    setActiveColumnFilter(activeColumnFilter === column ? null : column)
+  }
+  
+  const handleColumnFilterChange = (column: string, value: any) => {
+    setColumnFilters({ ...columnFilters, [column]: value })
+  }
+  
+  const getUniqueValuesForField = (field: string) => {
+    return Array.from(new Set(currentData.map((item: any) => item[field]).filter(Boolean)))
+  }
 
   // Filter boards data based on search query
   const filteredBoardsData = useMemo(() => {
@@ -571,8 +611,38 @@ function BoardsClient() {
       data={currentData}
       loading={isLoading}
       error={error}
-      GridHeaderComponent={BoardsGridCardFilterHeader}
-      CardHeaderComponent={BoardsGridCardFilterHeader}
+      GridHeaderComponent={() => (
+        <GridCardFilterHeader
+          selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+          currentItems={currentData}
+          onSelectAll={handleSelectAll}
+          activeColumnFilter={activeColumnFilter}
+          columnFilters={columnFilters}
+          onFilterClick={toggleColumnFilter}
+          onColumnFilterChange={handleColumnFilterChange}
+          getUniqueValues={getUniqueValuesForField}
+          cardsPerRow={cardsPerRow}
+          onCardsPerRowChange={setCardsPerRow}
+          columns={gridFilterColumns}
+          itemType="boards"
+        />
+      )}
+      CardHeaderComponent={() => (
+        <GridCardFilterHeader
+          selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+          currentItems={currentData}
+          onSelectAll={handleSelectAll}
+          activeColumnFilter={activeColumnFilter}
+          columnFilters={columnFilters}
+          onFilterClick={toggleColumnFilter}
+          onColumnFilterChange={handleColumnFilterChange}
+          getUniqueValues={getUniqueValuesForField}
+          cardsPerRow={cardsPerRow}
+          onCardsPerRowChange={setCardsPerRow}
+          columns={gridFilterColumns}
+          itemType="boards"
+        />
+      )}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         searchConditions={searchConditions}
@@ -611,6 +681,8 @@ function BoardsClient() {
       clearColumnFilters={clearColumnFilters}
       clearCustomFilters={clearCustomFilters}
       clearAdvancedFilters={clearAdvancedFilters}
+      cardsPerRow={cardsPerRow}
+      onCardsPerRowChange={setCardsPerRow}
     />
   )
 }

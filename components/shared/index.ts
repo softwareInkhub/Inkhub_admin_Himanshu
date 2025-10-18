@@ -28,6 +28,11 @@ export { default as BulkEditModal } from './BulkEditModal'
 export { default as BulkDeleteModal } from './BulkDeleteModal'
 export { default as EnhancedDetailModal } from './EnhancedDetailModal'
 
+// Enhanced Analytics Components (from Products page)
+export { default as CustomCardModal } from './CustomCardModal'
+export { default as CardManagerModal } from './CardManagerModal'
+export { default as CalculatorInterface } from './CalculatorInterface'
+
 // Display Components
 export { default as StatusBadge } from './StatusBadge'
 export { default as ImageDisplay } from './ImageDisplay'
@@ -38,6 +43,7 @@ export { default as Pagination } from './Pagination'
 export { default as PageHeader } from './PageHeader'
 export { default as ViewToggle } from './ViewToggle'
 export { default as CardsPerRowDropdown } from './CardsPerRowDropdown'
+export { default as GridCardFilterHeader, type GridFilterColumn } from './GridCardFilterHeader'
 export { default as TablePreferencesModal } from './TablePreferencesModal'
 
 // Page Template

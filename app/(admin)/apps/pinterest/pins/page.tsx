@@ -5,10 +5,12 @@ import { useAppStore } from '@/lib/store'
 import { usePinterestPinsPageStore } from '@/lib/stores/pinterest-pins-page-store'
 import { 
   PageTemplate,
-  useDataTable
+  useDataTable,
+  GridCardFilterHeader,
+  BulkActionsBar,
+  ExportModal,
+  type GridFilterColumn
 } from '@/components/shared'
-import PinsGridCardFilterHeader from './components/PinsGridCardFilterHeader'
-import ExportModal from './components/ExportModal'
 import { Pin } from './types'
 // Server services are not used when loading from local JSON
 
@@ -284,6 +286,19 @@ const pinFilters = [
   { key: 'recent', label: 'Recent' }
 ]
 
+// Define grid filter columns for pins
+const gridFilterColumns: GridFilterColumn[] = [
+  { key: 'status', label: 'Status', filterType: 'select', options: ['active', 'archived'] },
+  { key: 'type', label: 'Type', filterType: 'select', options: ['image', 'video', 'article'] },
+  { key: 'board', label: 'Board', filterType: 'text' },
+  { key: 'owner', label: 'Owner', filterType: 'text' },
+  { key: 'likes', label: 'Likes', filterType: 'numeric' },
+  { key: 'comments', label: 'Comments', filterType: 'numeric' },
+  { key: 'repins', label: 'Repins', filterType: 'numeric' },
+  { key: 'createdAt', label: 'Created', filterType: 'date' },
+  { key: 'updatedAt', label: 'Updated', filterType: 'date' }
+]
+
 function PinsClient() {
   const { addTab } = useAppStore()
   const hasAddedTab = useRef(false)
@@ -371,7 +386,13 @@ function PinsClient() {
     filteredData,
     totalPages,
     currentData,
-    setData
+    setData,
+    currentPage,
+    setCurrentPage,
+    itemsPerPage,
+    setItemsPerPage,
+    handlePageChange,
+    handleItemsPerPageChange
   } = useDataTable<Pin>({
     initialData: [],
     columns: pinColumns,
@@ -386,13 +407,6 @@ function PinsClient() {
   const setSelectedItems = setSelectedRowIds
   const viewMode = storedViewMode
   const setViewMode = setStoredViewMode
-  const currentPage = pageIndex + 1 // Convert 0-based to 1-based
-  const setCurrentPage = (page: number) => setPageIndex(page - 1)
-  const itemsPerPage = pageSize
-  const setItemsPerPage = (size: number) => {
-    setPageSize(size)
-    setPageIndex(0)
-  }
   
   // ✅ Handlers using Zustand state
   const [searchConditions, setSearchConditions] = useState<any[]>([])
@@ -429,8 +443,7 @@ function PinsClient() {
     }
   }
   
-  const handlePageChange = (page: number) => setCurrentPage(page)
-  const handleItemsPerPageChange = (items: number) => setItemsPerPage(items)
+  // Pagination handlers are now provided by useDataTable hook
   const handleSort = (column: string) => {
     if (sortColumn === column) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
@@ -455,6 +468,40 @@ function PinsClient() {
   const clearColumnFilters = () => setColumnFilters({})
   const clearCustomFilters = () => setCustomFilters([])
   const clearAdvancedFilters = () => setAdvancedFilters({})
+
+  // Grid filter handlers
+  const [activeColumnFilter, setActiveColumnFilter] = useState<string | null>(null)
+  const [cardsPerRow, setCardsPerRow] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('pins-cards-per-row')
+      return saved ? parseInt(saved, 10) : 4
+    }
+    return 4
+  })
+
+  // Save cards per row preference to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pins-cards-per-row', cardsPerRow.toString())
+    }
+  }, [cardsPerRow])
+  
+  const toggleColumnFilter = (column: string) => {
+    setActiveColumnFilter(activeColumnFilter === column ? null : column)
+  }
+  
+  const handleColumnFilterChange = (column: string, value: any) => {
+    setColumnFilters({ ...columnFilters, [column]: value })
+  }
+  
+  const getUniqueValuesForField = (field: string) => {
+    return Array.from(new Set(currentData.map((item: any) => item[field]).filter(Boolean)))
+  }
+
+  // Export handlers
+  const handleExportAction = () => {
+    setShowExportModal(true)
+  }
 
   // Load all pins once on initial load (cache-first + parallel chunks)
   useEffect(() => {
@@ -748,8 +795,38 @@ function PinsClient() {
         data={currentData}
         loading={loading || loadingPins}
         error={error || pinsError}
-        GridHeaderComponent={PinsGridCardFilterHeader}
-        CardHeaderComponent={PinsGridCardFilterHeader}
+        GridHeaderComponent={() => (
+          <GridCardFilterHeader
+            selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+            currentItems={currentData}
+            onSelectAll={handleSelectAll}
+            activeColumnFilter={activeColumnFilter}
+            columnFilters={columnFilters}
+            onFilterClick={toggleColumnFilter}
+            onColumnFilterChange={handleColumnFilterChange}
+            getUniqueValues={getUniqueValuesForField}
+            cardsPerRow={cardsPerRow}
+            onCardsPerRowChange={setCardsPerRow}
+            columns={gridFilterColumns}
+            itemType="pins"
+          />
+        )}
+        CardHeaderComponent={() => (
+          <GridCardFilterHeader
+            selectedItems={Array.from(selectedRowIds as any as Set<string>)}
+            currentItems={currentData}
+            onSelectAll={handleSelectAll}
+            activeColumnFilter={activeColumnFilter}
+            columnFilters={columnFilters}
+            onFilterClick={toggleColumnFilter}
+            onColumnFilterChange={handleColumnFilterChange}
+            getUniqueValues={getUniqueValuesForField}
+            cardsPerRow={cardsPerRow}
+            onCardsPerRowChange={setCardsPerRow}
+            columns={gridFilterColumns}
+            itemType="pins"
+          />
+        )}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
           searchConditions={searchConditions}
@@ -788,14 +865,18 @@ function PinsClient() {
         clearColumnFilters={clearColumnFilters}
         clearCustomFilters={clearCustomFilters}
         clearAdvancedFilters={clearAdvancedFilters}
+        cardsPerRow={cardsPerRow}
+        onCardsPerRowChange={setCardsPerRow}
       />
 
       {/* Export Modal */}
       <ExportModal
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
-        pins={filteredData}
-        selectedPins={selectedItems}
+        data={filteredData}
+        selectedItems={selectedItems}
+        onExport={handleExportAction}
+        title="Export Pins"
       />
     </>
   )

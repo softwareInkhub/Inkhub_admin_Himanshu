@@ -1,4 +1,5 @@
-import { Product, KPIMetrics } from '../types'
+import { Product } from '../types'
+import { KPIMetrics, KPIMetric } from '@/components/shared/types'
 import { parseAdvancedSearchQuery, applyAdvancedSearch } from './advancedSearch'
 
 // Generate optimized image URLs with compression
@@ -130,32 +131,50 @@ export const calculateKPIMetrics = (products: Product[]): KPIMetrics => {
     totalProducts: {
       value: totalProducts,
       change: totalProductsChange,
-      trend: totalProductsChange >= 0 ? 'up' : 'down'
+      trend: totalProductsChange >= 0 ? 'up' : 'down',
+      label: 'Total Products',
+      icon: '📦',
+      color: 'blue'
     },
     activeProducts: {
       value: activeProducts,
       change: activeProductsChange,
-      trend: activeProductsChange >= 0 ? 'up' : 'down'
+      trend: activeProductsChange >= 0 ? 'up' : 'down',
+      label: 'Active Products',
+      icon: '✅',
+      color: 'green'
     },
     draftProducts: {
       value: draftProducts,
       change: draftProductsChange,
-      trend: draftProductsChange >= 0 ? 'up' : 'down'
+      trend: draftProductsChange >= 0 ? 'up' : 'down',
+      label: 'Draft Products',
+      icon: '📝',
+      color: 'yellow'
     },
     totalValue: {
       value: totalValue,
       change: totalValueChange,
-      trend: totalValueChange >= 0 ? 'up' : 'down'
+      trend: totalValueChange >= 0 ? 'up' : 'down',
+      label: 'Total Value',
+      icon: '💰',
+      color: 'purple'
     },
     averagePrice: {
       value: averagePrice,
       change: averagePriceChange,
-      trend: averagePriceChange >= 0 ? 'up' : 'down'
+      trend: averagePriceChange >= 0 ? 'up' : 'down',
+      label: 'Average Price',
+      icon: '📊',
+      color: 'indigo'
     },
     lowStock: {
       value: lowStock,
       change: lowStockChange,
-      trend: lowStockChange >= 0 ? 'up' : 'down'
+      trend: lowStockChange >= 0 ? 'up' : 'down',
+      label: 'Low Stock',
+      icon: '⚠️',
+      color: 'red'
     }
   }
 }
