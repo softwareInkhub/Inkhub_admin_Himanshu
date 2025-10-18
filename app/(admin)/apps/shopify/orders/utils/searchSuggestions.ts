@@ -21,7 +21,7 @@ export const getSearchSuggestions = (
   searchHistory: SearchHistory[],
   maxSuggestions: number = 8 // Reduced for faster processing
 ): SearchSuggestion[] => {
-  if (!query.trim()) {
+  if (!query || !query.trim()) {
     return getRecentSearches(searchHistory, 5)
   }
 
@@ -218,7 +218,7 @@ export const createDebouncedSearch = (delay: number = 200) => { // Reduced delay
       }
 
       // Check suggestion cache first for instant response
-      const cacheKey = query.toLowerCase()
+      const cacheKey = (query || '').toLowerCase()
       const cachedSuggestions = suggestionCache.get(cacheKey)
       
       let suggestions: SearchSuggestion[]
@@ -233,7 +233,7 @@ export const createDebouncedSearch = (delay: number = 200) => { // Reduced delay
         setTimeout(() => suggestionCache.delete(cacheKey), SUGGESTION_CACHE_TTL)
       }
       
-      if (query.trim().length === 0) {
+      if (!query || query.trim().length === 0) {
         callback([], suggestions)
         return
       }

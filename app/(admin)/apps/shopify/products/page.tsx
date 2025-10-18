@@ -205,7 +205,7 @@ function ProductsClientContent({
 
   const handleSaveToSearchViews = useCallback(() => {
     setShowSaveModal(true)
-    if (searchQuery.trim()) setViewName(searchQuery.trim())
+    if (searchQuery && searchQuery.trim()) setViewName(searchQuery.trim())
   }, [searchQuery])
 
   // handler moved below pagination state to avoid linter hoisting issues
@@ -482,14 +482,23 @@ function ProductsClientContent({
 
   // Apply a saved view (now that pagination state exists)
   const handleApplySavedSearch = useCallback((saved: any) => {
-    setSearchQuery(saved.searchQuery || '')
-    setSearchConditions(saved.searchConditions || [])
-    setColumnFilters(saved.columnFilters || {})
-    setCustomFilters(saved.customFilters || [])
-    setSorting(saved.sortColumn ? [{ id: saved.sortColumn, desc: saved.sortDirection === 'desc' }] : [])
-    setViewMode((saved.viewMode as any) || 'table')
-    setItemsPerPage(saved.itemsPerPage || itemsPerPage)
-  }, [itemsPerPage, setSorting])
+    console.log('💾 Products: Applying saved search:', saved.viewName);
+    // Support both old format and new format with searchState
+    const safeSearchQuery = saved.searchQuery || saved.searchState?.searchQuery || '';
+    setSearchQuery(safeSearchQuery);
+    setSearchConditions(saved.searchConditions || saved.searchState?.searchConditions || []);
+    setColumnFilters(saved.columnFilters || saved.searchState?.columnFilters || {});
+    setCustomFilters(saved.customFilters || saved.searchState?.customFilters || []);
+    setSorting((saved.sortColumn || saved.searchState?.sortColumn) ? [{ id: saved.sortColumn || saved.searchState?.sortColumn, desc: (saved.sortDirection || saved.searchState?.sortDirection) === 'desc' }] : []);
+    setViewMode((saved.viewMode || saved.searchState?.viewMode || 'table') as any);
+    setItemsPerPage(saved.itemsPerPage || saved.searchState?.itemsPerPage || itemsPerPage);
+    
+    // Trigger search if there's a query
+    if (safeSearchQuery && safeSearchQuery.trim()) {
+      console.log('🔍 Products: Triggering search with query:', safeSearchQuery);
+      // The search will be handled by the existing search effects
+    }
+  }, [itemsPerPage, setSorting]);
   
   // Keep local currentPage in sync with Zustand store
   useEffect(() => {

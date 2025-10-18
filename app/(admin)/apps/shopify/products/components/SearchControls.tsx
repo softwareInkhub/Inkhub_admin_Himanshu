@@ -169,9 +169,9 @@ export default function SearchControls({
 
   // Generate suggestions when search query changes
   useEffect(() => {
-    const newSuggestions = getLocalSearchSuggestions(searchQuery, currentProducts, searchHistory)
+    const newSuggestions = getLocalSearchSuggestions(searchQuery || '', currentProducts, searchHistory)
     setSuggestions(newSuggestions)
-    setShowSuggestions(searchQuery.length > 0 || searchHistory.length > 0)
+    setShowSuggestions((searchQuery?.length || 0) > 0 || searchHistory.length > 0)
   }, [searchQuery, currentProducts, searchHistory])
 
   // Handle search
@@ -470,7 +470,7 @@ export default function SearchControls({
                   
                   {/* Inline Cancel / Save controls + Saved chips */}
                   <div className="relative flex items-center space-x-2 ml-2">
-                    {searchQuery.trim().length > 0 && (
+                    {searchQuery?.trim().length > 0 && (
                       <button
                         onClick={() => { onClearSearch() }}
                         className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded-md hover:bg-gray-100"
@@ -481,7 +481,7 @@ export default function SearchControls({
                     <button
                       onClick={handleSaveCurrentSearch}
                       className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                      disabled={!(searchQuery.trim().length > 0 || searchConditions.length > 0)}
+                      disabled={!((searchQuery?.trim().length || 0) > 0 || searchConditions.length > 0)}
                     >
                       Save
                     </button>
@@ -492,13 +492,23 @@ export default function SearchControls({
                             <span
                               key={savedSearch.id || `saved-search-${index}`}
                               className="group inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-blue-100 transition-all duration-200"
-                              onClick={() => onApplySavedSearch?.(savedSearch)}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                console.log('🔍 Products: Applying saved search:', savedSearch.viewName)
+                                onApplySavedSearch?.(savedSearch)
+                              }}
                               title={`Apply saved search: ${savedSearch.viewName}`}
                             >
                               <span className="font-medium">{savedSearch.viewName}</span>
                               <button
                                 className="text-blue-500 hover:text-red-600 hover:bg-red-50 rounded-full w-4 h-4 flex items-center justify-center transition-all duration-200 ml-1"
-                                onClick={(e) => { e.stopPropagation(); onDeleteSavedSearch?.(savedSearch.id) }}
+                                onClick={(e) => { 
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  console.log('🗑️ Products: Deleting saved search:', savedSearch.viewName)
+                                  onDeleteSavedSearch?.(savedSearch.id) 
+                                }}
                                 aria-label={`Remove saved search ${savedSearch.viewName}`}
                                 title="Delete this saved search"
                               >

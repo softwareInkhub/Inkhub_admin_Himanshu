@@ -164,9 +164,9 @@ export default function SearchControls({
 
   // Generate suggestions when search query changes
   useEffect(() => {
-    const newSuggestions = getLocalSearchSuggestions(searchQuery, currentOrders, searchHistory)
+    const newSuggestions = getLocalSearchSuggestions(searchQuery || '', currentOrders, searchHistory)
     setSuggestions(newSuggestions)
-    setShowSuggestions(searchQuery.length > 0 || searchHistory.length > 0)
+    setShowSuggestions((searchQuery?.length || 0) > 0 || searchHistory.length > 0)
   }, [searchQuery, currentOrders, searchHistory])
 
   // Handle search - this should trigger the main search logic
@@ -413,7 +413,7 @@ export default function SearchControls({
 
           {/* Inline Cancel / Save controls to the right of Search (always visible) */}
           <div className="relative flex items-center space-x-2 ml-2">
-            {searchQuery.trim().length > 0 && (
+            {searchQuery?.trim().length > 0 && (
               <button
                 onClick={() => { onClearSearch() }}
                 className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded-md hover:bg-gray-100"
@@ -424,7 +424,7 @@ export default function SearchControls({
             <button
               onClick={handleSaveCurrentSearch}
               className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-              disabled={!(searchQuery.trim().length > 0 || searchConditions.length > 0)}
+              disabled={!((searchQuery?.trim().length || 0) > 0 || searchConditions.length > 0)}
             >
               Save
             </button>

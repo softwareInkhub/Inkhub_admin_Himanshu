@@ -513,7 +513,7 @@ function OrdersClientContent({
     console.log('💾 Orders page: Opening save modal');
     setShowSaveModal(true)
     // Auto-fill the view name with the current search query
-    if (searchQuery.trim()) {
+    if (searchQuery && searchQuery.trim()) {
       setViewName(searchQuery.trim())
     }
   }, [searchQuery]);
@@ -671,29 +671,37 @@ function OrdersClientContent({
   const handleApplySavedSearch = useCallback((savedSearch: any) => {
     console.log('💾 Applying saved search:', savedSearch.viewName);
     // 1) Apply locally for instant UI
-    setSearchQuery(savedSearch.searchQuery);
-    setSearchConditions(savedSearch.searchConditions || []);
-    setColumnFilters(savedSearch.columnFilters || {});
-    setCustomFilters(savedSearch.customFilters || []);
-    setSorting(savedSearch.sortColumn ? [{ id: savedSearch.sortColumn, desc: savedSearch.sortDirection === 'desc' }] : []);
-    setViewMode(savedSearch.viewMode || 'table');
-    setItemsPerPage(savedSearch.itemsPerPage || 50);
+    const safeSearchQuery = savedSearch.searchQuery || savedSearch.searchState?.searchQuery || '';
+    setSearchQuery(safeSearchQuery);
+    setSearchConditions(savedSearch.searchConditions || savedSearch.searchState?.searchConditions || []);
+    setColumnFilters(savedSearch.columnFilters || savedSearch.searchState?.columnFilters || {});
+    setCustomFilters(savedSearch.customFilters || savedSearch.searchState?.customFilters || []);
+    setSorting((savedSearch.sortColumn || savedSearch.searchState?.sortColumn) ? [{ id: savedSearch.sortColumn || savedSearch.searchState?.sortColumn, desc: (savedSearch.sortDirection || savedSearch.searchState?.sortDirection) === 'desc' }] : []);
+    setViewMode(savedSearch.viewMode || savedSearch.searchState?.viewMode || 'table');
+    setItemsPerPage(savedSearch.itemsPerPage || savedSearch.searchState?.itemsPerPage || 50);
     // 2) Kick off cross-chunk Algolia search in background to upgrade results to full set
-    setUseAlgoliaSearch(true)
-    setIsAlgoliaSearching(true)
-    try {
-      debouncedAlgoliaSearch(
-        savedSearch.searchQuery,
-        orderData,
-        (orders: Order[]) => {
-          setAlgoliaSearchResults(orders)
-          setIsAlgoliaSearching(false)
-        },
-        (loading) => setIsAlgoliaSearching(loading),
-        500
-      )
-    } catch {}
-  }, [setSearchQuery, setSearchConditions, setColumnFilters, setCustomFilters, setSorting, setViewMode, setItemsPerPage]);
+    if (safeSearchQuery && safeSearchQuery.trim()) {
+      setUseAlgoliaSearch(true)
+      setIsAlgoliaSearching(true)
+      try {
+        debouncedAlgoliaSearch(
+          safeSearchQuery,
+          orderData,
+          (orders: Order[]) => {
+            setAlgoliaSearchResults(orders)
+            setIsAlgoliaSearching(false)
+          },
+          (loading) => setIsAlgoliaSearching(loading),
+          500
+        )
+      } catch {}
+    } else {
+      // No search query, just apply filters
+      setUseAlgoliaSearch(false)
+      setIsAlgoliaSearching(false)
+      setAlgoliaSearchResults([])
+    }
+  }, [setSearchQuery, setSearchConditions, setColumnFilters, setCustomFilters, setSorting, setViewMode, setItemsPerPage, orderData]);
   
   // Handle deleting a saved search
   const handleDeleteSavedSearch = useCallback(async (id: string) => {
@@ -1867,7 +1875,7 @@ function OrdersClientContent({
 
   // Generate search suggestions
   useEffect(() => {
-    if (searchQuery.trim()) {
+    if (searchQuery && searchQuery.trim()) {
       const newSuggestions = getSearchSuggestions(searchQuery, orderData, searchHistory)
       setSuggestions(newSuggestions)
       setShowSuggestions(true)
@@ -3521,7 +3529,7 @@ onClick={() => setShowExportModal(true)}
               </div>
               
               <div className="text-sm text-gray-600">
-                <p><strong>Search Query:</strong> {searchQuery || 'None'}</p>
+                <p><strong>Search Query:</strong> {(searchQuery && searchQuery.trim()) ? searchQuery : 'None'}</p>
                 <p><strong>Filters:</strong> {Object.keys(columnFilters || {}).length} active</p>
                 <p><strong>View Mode:</strong> {viewMode}</p>
               </div>
@@ -3548,7 +3556,7 @@ onClick={() => setShowExportModal(true)}
                       updatedAt: nowTs,
                       userId: useAppStore.getState().currentUser?.id || 'anonymous',
                       searchState: {
-                        searchQuery,
+                        searchQuery: searchQuery || '',
                         searchConditions,
                         columnFilters,
                         customFilters,

@@ -21,7 +21,7 @@ export const getSearchSuggestions = (
   searchHistory: SearchHistory[],
   maxSuggestions: number = 10
 ): SearchSuggestion[] => {
-  if (!query.trim()) {
+  if (!query || !query.trim()) {
     return getRecentSearches(searchHistory, 5)
   }
 
@@ -128,7 +128,7 @@ export const saveSearchToHistory = (
   searchHistory: SearchHistory[]
 ): SearchHistory[] => {
   const newHistory: SearchHistory = {
-    query: query.trim(),
+    query: (query || '').trim(),
     timestamp: Date.now(),
     resultCount
   }
@@ -182,7 +182,7 @@ export const createDebouncedSearch = (delay: number = 300) => {
       // Always show suggestions immediately
       const suggestions = getSearchSuggestions(query, products, searchHistory)
       
-      if (query.trim().length === 0) {
+      if (!query || query.trim().length === 0) {
         callback([], suggestions)
         return
       }
