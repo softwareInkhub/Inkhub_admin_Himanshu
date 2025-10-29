@@ -10,7 +10,7 @@ import { generateProducts } from '@/app/(admin)/apps/shopify/products/utils'
 import { generatePins } from '@/app/(admin)/apps/pinterest/pins/utils'
 import { generateBoards } from '@/app/(admin)/apps/pinterest/boards/utils'
 import { generateDesigns } from '@/app/(admin)/design-library/designs/utils'
-import { getTransformedOrders, getOrdersForPage } from '@/app/(admin)/apps/shopify/orders/services/orderService'
+import { getTransformedOrders, getOrdersForPage, getTotalChunks as getOrderTotalChunks } from '@/app/(admin)/apps/shopify/orders/services/orderService'
 import { getPinsForPage, getTotalChunks } from '@/app/(admin)/apps/pinterest/pins/services/pinService'
 import { fetchBoards } from '@/app/(admin)/apps/pinterest/boards/services/boardService'
 import { useAppStore } from '@/lib/store'
@@ -34,6 +34,14 @@ type DashboardData = {
     designs: number
     sales: number
   }
+  analytics: {
+    salesGrowthPct: number
+    ordersGrowthPct: number
+    averageOrderValue: number
+    refundRatePct: number
+    topChannel: string
+  }
+  chartSeries?: { labels: string[]; sales: number[]; orders: number[] }
 }
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
@@ -126,38 +134,17 @@ async function fetchProductsOrFallback(): Promise<Product[]> {
 async function fetchRealPinsOrFallback(): Promise<Pin[]> {
   try {
     if (shouldLog()) console.log('📌 Dashboard: Fetching real Pinterest pins data...')
-    const totalChunks = await getTotalChunks()
-    const allPins: Pin[] = []
-    
-    // Load all chunks to get real pin count
-    for (let i = 0; i < totalChunks; i++) {
-      try {
-        const { pins } = await getPinsForPage(i + 1)
-        if (pins && pins.length > 0) {
-          // Validate real Pinterest data
-          const validPins = pins.filter(pin => 
-            pin.id && 
-            pin.id.length > 5 && 
-            !pin.id.startsWith('pin-')
-          )
-          allPins.push(...validPins)
-        }
-      } catch (e) {
-        if (shouldLog()) console.warn(`Dashboard: Failed to load pins chunk ${i + 1}:`, e)
-      }
-    }
-    
-    if (allPins.length > 0) {
-      if (shouldLog()) console.log(`✅ Dashboard: Loaded ${allPins.length} real Pinterest pins`)
-      return allPins
+    // Only fetch first chunk to validate structure; totals computed via cache keys
+    const { pins } = await getPinsForPage(1)
+    if (pins && pins.length > 0) {
+      const validPins = pins.filter(p => p?.id)
+      return validPins
     }
   } catch (error) {
     if (shouldLog()) console.warn('Dashboard: Error fetching real Pinterest pins:', error)
   }
-  
-  // Fallback to generated data only if no real data available
-  if (shouldLog()) console.warn('⚠️ Dashboard: Using fallback generated pins data')
-  return generatePins(6100) // Generate 6.1K pins to match the expected count
+  // Fallback to generated sample data
+  return generatePins(25)
 }
 
 async function fetchRealBoardsOrFallback(): Promise<Board[]> {
@@ -211,6 +198,41 @@ async function fetchOrdersOrFallback(): Promise<Order[]> {
   return generateOrders(69811) // Generate 69,811 orders to match the expected count
 }
 
+async function fetchRecentOrdersWindow(days: number = 30): Promise<{ labels: string[]; sales: number[]; orders: number[] }> {
+  try {
+    const totalChunks = await getOrderTotalChunks()
+    const now = Date.now()
+    const cutoff = now - days * 24 * 60 * 60 * 1000
+    const buckets = Array.from({ length: days }, () => ({ sales: 0, orders: 0 }))
+    const labelDates: string[] = []
+    // Precompute labels as local dates for last N days
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now - i * 24 * 60 * 60 * 1000)
+      labelDates.push(d.toISOString().slice(0, 10))
+    }
+
+    const maxPagesToScan = Math.min(totalChunks, 10)
+    for (let page = 1; page <= maxPagesToScan; page++) {
+      const result = await getOrdersForPage(page, 500)
+      for (const o of result.orders) {
+        const ts = new Date((o as any)?.createdAt || (o as any)?.created_at || (o as any)?.processedAt || o as any).getTime()
+        if (isNaN(ts) || ts < cutoff) continue
+        const dayKey = new Date(ts).toISOString().slice(0, 10)
+        const idx = labelDates.indexOf(dayKey)
+        if (idx >= 0) {
+          const total = Number((o as any)?.total || (o as any)?.current_total_price || 0) || 0
+          buckets[idx].sales += total
+          buckets[idx].orders += 1
+        }
+      }
+    }
+
+    return { labels: labelDates, sales: buckets.map(b => b.sales), orders: buckets.map(b => b.orders) }
+  } catch {
+    return { labels: [], sales: [], orders: [] }
+  }
+}
+
 export function useDashboardData() {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<DashboardData | null>(null)
@@ -220,21 +242,106 @@ export function useDashboardData() {
   const refreshData = async () => {
     setLoading(true)
     try {
-      const [products, orders, pins, boards, designs] = await Promise.all([
+      // Compute pins total from MAIN table by estimating: keys.length * firstChunkSize
+      const fetchPinsCountFromCache = async (): Promise<number> => {
+        try {
+          const keysUrl = `${BACKEND_URL}/cache/data?project=my-app&table=pinterest_inkhub_main_get_pins`
+          const keysRes = await fetch(keysUrl, { signal: AbortSignal.timeout(2000) })
+          if (!keysRes.ok) throw new Error('pins keys request failed')
+          const keysJson = await keysRes.json()
+          const keys: string[] = Array.isArray(keysJson?.keys) ? keysJson.keys : []
+          if (keys.length === 0) return 0
+          // Get first chunk size to estimate total, avoids loading all chunks
+          let perChunk = 0
+          try {
+            const sampleUrl = `${BACKEND_URL}/cache/data?project=my-app&table=pinterest_inkhub_main_get_pins&key=chunk:0`
+            const r = await fetch(sampleUrl, { signal: AbortSignal.timeout(2000) })
+            if (r.ok) {
+              const j = await r.json()
+              const arr = Array.isArray(j?.data) ? j.data : []
+              perChunk = arr.length || 0
+            }
+          } catch {}
+          if (!perChunk) perChunk = 25 // conservative fallback if sample unavailable
+          return keys.length * perChunk
+        } catch (e) {
+          if (shouldLog()) console.warn('Dashboard: pins count via cache failed', e)
+          return 0
+        }
+      }
+
+      const [products, orders, pins, boards, designs, pinsTotalFromCache, recentSeries] = await Promise.all([
         fetchProductsOrFallback(),
         fetchOrdersOrFallback(),
         fetchRealPinsOrFallback(),
         fetchRealBoardsOrFallback(),
         fetchRealDesignsOrFallback(),
+        fetchPinsCountFromCache(),
+        fetchRecentOrdersWindow(30),
       ])
+
+      // Derive accurate totals (orders from total chunks, others from dataset lengths)
+      let estimatedOrdersTotal = orders.length
+      try {
+        const orderChunks = await getOrderTotalChunks()
+        if (orderChunks && orderChunks > 0) {
+          // Match Orders page KPI estimate to stay consistent
+          estimatedOrdersTotal = (orderChunks - 1) * 500 + 311
+        }
+      } catch {}
 
       const totals = {
         products: products.length,
-        orders: orders.length,
-        pins: pins.length,
+        orders: estimatedOrdersTotal,
+        pins: pinsTotalFromCache || pins.length,
         boards: boards.length,
         designs: designs.length,
         sales: orders.reduce((sum, o) => sum + (o.total || 0), 0),
+      }
+
+      // Compute trending analytics based on last 30 days vs previous 30 days
+      const now = Date.now()
+      const dayMs = 24 * 60 * 60 * 1000
+      const currStart = now - 30 * dayMs
+      const prevStart = now - 60 * dayMs
+
+      const parseDate = (v: any): number => {
+        const d = new Date((v as any)?.createdAt || (v as any)?.created_at || (v as any)?.processedAt || v)
+        const t = d.getTime()
+        return isNaN(t) ? now : t
+      }
+
+      let currSales = 0
+      let prevSales = 0
+      let currOrders = 0
+      let prevOrders = 0
+      let refunds = 0
+
+      for (const o of orders) {
+        const ts = parseDate((o as any))
+        const total = Number((o as any)?.total || (o as any)?.current_total_price || 0) || 0
+        const refunded = Boolean((o as any)?.cancelledAt || (o as any)?.cancelled_at || (o as any)?.refunds?.length)
+        if (refunded) refunds += 1
+        if (ts >= currStart) {
+          currSales += total
+          currOrders += 1
+        } else if (ts >= prevStart && ts < currStart) {
+          prevSales += total
+          prevOrders += 1
+        }
+      }
+
+      const pct = (curr: number, prev: number) => {
+        if (!prev) return curr ? 100 : 0
+        return ((curr - prev) / prev) * 100
+      }
+
+      const analytics = {
+        salesGrowthPct: Number(pct(currSales, prevSales).toFixed(1)),
+        ordersGrowthPct: Number(pct(currOrders, prevOrders).toFixed(1)),
+        averageOrderValue: Number((totals.sales && totals.orders ? totals.sales / totals.orders : 0).toFixed(0)),
+        refundRatePct: Number(((orders.length ? refunds / orders.length : 0) * 100).toFixed(1)),
+        topChannel: 'Online',
       }
 
       const topProducts = [...products]
@@ -250,6 +357,8 @@ export function useDashboardData() {
         designs,
         topProducts,
         totals,
+        analytics,
+        chartSeries: recentSeries,
       }
 
       setData(payload)

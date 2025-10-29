@@ -2,8 +2,8 @@ import { Pin } from '../types'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
 
-// Pinterest cache table and chunk behavior
-const TABLE = 'pinterest_inkhub_get_pins'
+// Pinterest cache table and chunk behavior (updated to MAIN table)
+const TABLE = 'pinterest_inkhub_main_get_pins'
 const CHUNK_TTL_MS = 5 * 60 * 1000 // 5 minutes
 const TOTAL_CHUNKS_TTL_MS = 10 * 60 * 1000 // 10 minutes
 const CHUNK_TIMEOUT_MS = 30000
