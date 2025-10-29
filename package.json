@@ -24,7 +24,7 @@
     "clsx": "^2.0.0",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
-    "echarts": "^6.0.0",
+    "echarts": "^5.5.0",
     "echarts-for-react": "^3.0.2",
     "ffmpeg": "^0.0.4",
     "framer-motion": "^10.16.0",

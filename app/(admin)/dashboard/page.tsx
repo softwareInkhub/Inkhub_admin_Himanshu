@@ -381,7 +381,7 @@ export default function DashboardPage() {
                   }
                 ]
               }
-              return <ReactECharts option={option} style={{ height: 140, width: '100%' }} notMerge={false} lazyUpdate={true} opts={{ renderer: 'canvas' }} />
+              return <ReactECharts option={option} style={{ height: 220, width: '100%' }} notMerge={false} lazyUpdate={true} opts={{ renderer: 'canvas' }} />
             })()}
             <div className="mt-1 grid grid-cols-2 gap-2 text-[11px]">
               <div className="flex items-center space-x-2"><span className="h-2 w-2 rounded-full bg-blue-600"></span><span className="text-secondary-700">Sales</span><span className="font-semibold text-secondary-900">₹{(data?.totals?.sales || 0).toLocaleString()}</span></div>
@@ -390,20 +390,21 @@ export default function DashboardPage() {
           </div>
         </div>
         {/* Recent Activity */}
-        <div className="card lg:col-span-1 p-3 hover-lift animate-slide-in-left">
+        <div className="card lg:col-span-1 p-3 hover-lift animate-slide-in-left h-full flex flex-col">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-semibold text-secondary-900 dark:text-secondary-100">
               Recent Activity
             </h3>
             <Activity className="h-4 w-4 text-secondary-400" />
           </div>
-          <div className="mt-1 space-y-1.5">
+          <div className="mt-1 space-y-1.5 flex-1 overflow-auto pr-1">
             {[
               { action: 'New order received', time: '2 minutes ago', type: 'order' },
               { action: 'Product updated', time: '15 minutes ago', type: 'product' },
               { action: 'Pinterest pin created', time: '1 hour ago', type: 'pinterest' },
               { action: 'User registered', time: '2 hours ago', type: 'user' },
               { action: 'System backup completed', time: '3 hours ago', type: 'system' },
+              { action: 'Inventory sync completed', time: 'just now', type: 'system' },
             ].map((activity, index) => (
               <div key={index} className="flex items-center space-x-2 hover-lift">
                 <div className="h-2 w-2 rounded-full bg-primary-500 animate-pulse-slow" />
@@ -457,6 +458,9 @@ export default function DashboardPage() {
               { name: 'Online Store', pct: 56, color: 'bg-blue-500' },
               { name: 'Pinterest', pct: 28, color: 'bg-rose-500' },
               { name: 'Wholesale', pct: 12, color: 'bg-emerald-500' },
+              { name: 'Marketplaces', pct: 10, color: 'bg-cyan-500' },
+              { name: 'Instagram', pct: 7, color: 'bg-fuchsia-500' },
+              { name: 'Retail Partners', pct: 5, color: 'bg-teal-500' },
               { name: 'Other', pct: 4, color: 'bg-amber-500' },
             ].map((ch) => (
               <div key={ch.name}>
@@ -507,6 +511,15 @@ export default function DashboardPage() {
                   <div className="h-2 w-12 rounded-full bg-yellow-500 progress-animate"></div>
                 </div>
                 <span className="text-xs font-medium text-secondary-900 dark:text-secondary-100">45%</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-secondary-600 dark:text-secondary-400">CPU Usage</span>
+              <div className="flex items-center space-x-2">
+                <div className="h-2 w-24 rounded-full bg-secondary-200 dark:bg-secondary-700">
+                  <div className="h-2 w-14 rounded-full bg-purple-500 progress-animate"></div>
+                </div>
+                <span className="text-xs font-medium text-secondary-900 dark:text-secondary-100">58%</span>
               </div>
             </div>
           </div>
@@ -589,12 +602,16 @@ export default function DashboardPage() {
         </div>
         {/* Counters */}
         <div className="card p-3">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-2 gap-y-3">
             {[
               { label: 'New Orders', value: '182', color: 'bg-blue-100 text-blue-700' },
               { label: 'New Users', value: '67', color: 'bg-purple-100 text-purple-700' },
               { label: 'Refunds', value: '5', color: 'bg-red-100 text-red-700' },
               { label: 'Support Tickets', value: '14', color: 'bg-amber-100 text-amber-700' },
+              { label: 'New Reviews', value: '38', color: 'bg-emerald-100 text-emerald-700' },
+              { label: 'Pending Shipments', value: '23', color: 'bg-cyan-100 text-cyan-700' },
+              { label: 'Abandoned Carts', value: '41', color: 'bg-pink-100 text-pink-700' },
+              { label: 'Open Tasks', value: '12', color: 'bg-slate-100 text-slate-700' },
             ].map((s) => (
               <div key={s.label} className={cn('rounded-md p-2.5 text-center', s.color)}>
                 <div className="text-lg font-semibold">{s.value}</div>
