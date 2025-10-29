@@ -42,6 +42,10 @@ type DashboardData = {
     topChannel: string
   }
   chartSeries?: { labels: string[]; sales: number[]; orders: number[] }
+  channels?: { name: string; pct: number }[]
+  counters?: { newOrders7d: number; refunds7d: number }
+  activities?: { action: string; time: string }[]
+  health?: { systemLoad: number; memoryUsage: number; storage: number; cpuUsage: number }
 }
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://brmh.in'
@@ -233,6 +237,15 @@ async function fetchRecentOrdersWindow(days: number = 30): Promise<{ labels: str
   }
 }
 
+async function fetchHealth(): Promise<{ systemLoad: number; memoryUsage: number; storage: number; cpuUsage: number } | null> {
+  try {
+    const res = await fetch('/api/health', { headers: { Accept: 'application/json' }, cache: 'no-store' })
+    if (!res.ok) return null
+    const j = await res.json()
+    return j
+  } catch { return null }
+}
+
 export function useDashboardData() {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<DashboardData | null>(null)
@@ -270,7 +283,7 @@ export function useDashboardData() {
         }
       }
 
-      const [products, orders, pins, boards, designs, pinsTotalFromCache, recentSeries] = await Promise.all([
+      const [products, orders, pins, boards, designs, pinsTotalFromCache, recentSeries, health] = await Promise.all([
         fetchProductsOrFallback(),
         fetchOrdersOrFallback(),
         fetchRealPinsOrFallback(),
@@ -278,6 +291,7 @@ export function useDashboardData() {
         fetchRealDesignsOrFallback(),
         fetchPinsCountFromCache(),
         fetchRecentOrdersWindow(30),
+        fetchHealth(),
       ])
 
       // Derive accurate totals (orders from total chunks, others from dataset lengths)
@@ -359,6 +373,49 @@ export function useDashboardData() {
         totals,
         analytics,
         chartSeries: recentSeries,
+        channels: (function(){
+          const map: Record<string, number> = {}
+          for (const o of orders) {
+            const ch = String((o as any)?.channel || (o as any)?.sourceName || 'Other')
+            map[ch] = (map[ch] || 0) + 1
+          }
+          const entries = Object.entries(map).sort((a,b)=>b[1]-a[1])
+          const total = entries.reduce((a, [,v])=>a+v, 0) || 1
+          const top = entries.slice(0,5).map(([name, v])=>({ name, pct: Math.round((v/total)*100) }))
+          const others = entries.slice(5).reduce((a, [,v])=>a+v, 0)
+          if (others>0) top.push({ name: 'Other', pct: Math.max(1, Math.round((others/total)*100)) })
+          return top
+        })(),
+        counters: (function(){
+          const now = Date.now()
+          const cut = now - 7*24*60*60*1000
+          let newOrders7d = 0, refunds7d = 0
+          for (const o of orders){
+            const ts = new Date((o as any)?.createdAt || (o as any)?.created_at || (o as any)?.processedAt || o as any).getTime()
+            if (!isNaN(ts) && ts>=cut){
+              newOrders7d++
+              const fs = String((o as any)?.financialStatus || '').toLowerCase()
+              if (fs==='refunded') refunds7d++
+            }
+          }
+          return { newOrders7d, refunds7d }
+        })(),
+        activities: (function(){
+          const now = Date.now()
+          const items = [...orders].sort((a,b) => {
+            const tb = new Date((b as any)?.createdAt || (b as any)?.created_at || 0).getTime()
+            const ta = new Date((a as any)?.createdAt || (a as any)?.created_at || 0).getTime()
+            return tb - ta
+          }).slice(0,6).map((o:any) => {
+            const ts = new Date(o?.createdAt || o?.created_at || now).getTime()
+            const mins = Math.max(0, Math.round((now - ts)/60000))
+            const time = mins < 60 ? `${mins} minutes ago` : `${Math.round(mins/60)} hours ago`
+            const name = o?.name || o?.orderNumber || o?.id || ''
+            return { action: `Order ${name} created`, time }
+          })
+          return items
+        })(),
+        health: health || undefined
       }
 
       setData(payload)

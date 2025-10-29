@@ -398,14 +398,14 @@ export default function DashboardPage() {
             <Activity className="h-4 w-4 text-secondary-400" />
           </div>
           <div className="mt-1 space-y-1.5 flex-1 overflow-auto pr-1">
-            {[
-              { action: 'New order received', time: '2 minutes ago', type: 'order' },
-              { action: 'Product updated', time: '15 minutes ago', type: 'product' },
-              { action: 'Pinterest pin created', time: '1 hour ago', type: 'pinterest' },
-              { action: 'User registered', time: '2 hours ago', type: 'user' },
-              { action: 'System backup completed', time: '3 hours ago', type: 'system' },
-              { action: 'Inventory sync completed', time: 'just now', type: 'system' },
-            ].map((activity, index) => (
+            {(data?.activities && data.activities.length>0 ? data.activities : [
+              { action: 'New order received', time: '2 minutes ago' },
+              { action: 'Product updated', time: '15 minutes ago' },
+              { action: 'Pinterest pin created', time: '1 hour ago' },
+              { action: 'User registered', time: '2 hours ago' },
+              { action: 'System backup completed', time: '3 hours ago' },
+              { action: 'Inventory sync completed', time: 'just now' },
+            ]).map((activity, index) => (
               <div key={index} className="flex items-center space-x-2 hover-lift">
                 <div className="h-2 w-2 rounded-full bg-primary-500 animate-pulse-slow" />
                 <div className="flex-1">
@@ -454,25 +454,24 @@ export default function DashboardPage() {
             <DollarSign className="h-4 w-4 text-secondary-400" />
           </div>
           <div className="mt-1 space-y-2.5">
-            {[
-              { name: 'Online Store', pct: 56, color: 'bg-blue-500' },
-              { name: 'Pinterest', pct: 28, color: 'bg-rose-500' },
-              { name: 'Wholesale', pct: 12, color: 'bg-emerald-500' },
-              { name: 'Marketplaces', pct: 10, color: 'bg-cyan-500' },
-              { name: 'Instagram', pct: 7, color: 'bg-fuchsia-500' },
-              { name: 'Retail Partners', pct: 5, color: 'bg-teal-500' },
-              { name: 'Other', pct: 4, color: 'bg-amber-500' },
-            ].map((ch) => (
-              <div key={ch.name}>
+            {(data?.channels && data.channels.length>0 ? data.channels : [
+              { name: 'Online Store', pct: 56 },
+              { name: 'Pinterest', pct: 28 },
+              { name: 'Wholesale', pct: 12 },
+              { name: 'Other', pct: 4 },
+            ]).map((ch, idx) => {
+              const palette = ['bg-blue-500','bg-rose-500','bg-emerald-500','bg-cyan-500','bg-fuchsia-500','bg-teal-500','bg-amber-500']
+              const color = palette[idx % palette.length]
+              return (<div key={ch.name}>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-secondary-700 dark:text-secondary-300">{ch.name}</span>
                   <span className="font-medium text-secondary-900 dark:text-secondary-100">{ch.pct}%</span>
                 </div>
                 <div className="mt-1 h-2 w-full rounded-full bg-secondary-200 dark:bg-secondary-700">
-                  <div className={cn('h-2 rounded-full', ch.color)} style={{ width: `${ch.pct}%` }} />
+                  <div className={cn('h-2 rounded-full', color)} style={{ width: `${ch.pct}%` }} />
                 </div>
-              </div>
-            ))}
+              </div>)
+            })}
           </div>
         </div>
       </div>
@@ -490,36 +489,36 @@ export default function DashboardPage() {
               <span className="text-xs text-secondary-600 dark:text-secondary-400">System Load</span>
               <div className="flex items-center space-x-2">
                 <div className="h-2 w-24 rounded-full bg-secondary-200 dark:bg-secondary-700">
-                  <div className="h-2 w-16 rounded-full bg-green-500 progress-animate"></div>
+                  <div className="h-2 rounded-full bg-green-500 progress-animate" style={{ width: `${data?.health?.systemLoad ?? 67}%` }}></div>
                 </div>
-                <span className="text-xs font-medium text-secondary-900 dark:text-secondary-100">67%</span>
+                <span className="text-xs font-medium text-secondary-900 dark:text-secondary-100">{data?.health?.systemLoad ?? 67}%</span>
               </div>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-secondary-600 dark:text-secondary-400">Memory Usage</span>
               <div className="flex items-center space-x-2">
                 <div className="h-2 w-24 rounded-full bg-secondary-200 dark:bg-secondary-700">
-                  <div className="h-2 w-20 rounded-full bg-blue-500 progress-animate"></div>
+                  <div className="h-2 rounded-full bg-blue-500 progress-animate" style={{ width: `${data?.health?.memoryUsage ?? 83}%` }}></div>
                 </div>
-                <span className="text-xs font-medium text-secondary-900 dark:text-secondary-100">83%</span>
+                <span className="text-xs font-medium text-secondary-900 dark:text-secondary-100">{data?.health?.memoryUsage ?? 83}%</span>
               </div>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-secondary-600 dark:text-secondary-400">Storage</span>
               <div className="flex items-center space-x-2">
                 <div className="h-2 w-24 rounded-full bg-secondary-200 dark:bg-secondary-700">
-                  <div className="h-2 w-12 rounded-full bg-yellow-500 progress-animate"></div>
+                  <div className="h-2 rounded-full bg-yellow-500 progress-animate" style={{ width: `${data?.health?.storage ?? 45}%` }}></div>
                 </div>
-                <span className="text-xs font-medium text-secondary-900 dark:text-secondary-100">45%</span>
+                <span className="text-xs font-medium text-secondary-900 dark:text-secondary-100">{data?.health?.storage ?? 45}%</span>
               </div>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-secondary-600 dark:text-secondary-400">CPU Usage</span>
               <div className="flex items-center space-x-2">
                 <div className="h-2 w-24 rounded-full bg-secondary-200 dark:bg-secondary-700">
-                  <div className="h-2 w-14 rounded-full bg-purple-500 progress-animate"></div>
+                  <div className="h-2 rounded-full bg-purple-500 progress-animate" style={{ width: `${data?.health?.cpuUsage ?? 58}%` }}></div>
                 </div>
-                <span className="text-xs font-medium text-secondary-900 dark:text-secondary-100">58%</span>
+                <span className="text-xs font-medium text-secondary-900 dark:text-secondary-100">{data?.health?.cpuUsage ?? 58}%</span>
               </div>
             </div>
           </div>
@@ -531,22 +530,24 @@ export default function DashboardPage() {
             <DollarSign className="h-4 w-4 text-secondary-400" />
           </div>
           <div className="mt-1 space-y-2.5">
-            {[
-              { name: 'Online Store', pct: 56, color: 'bg-blue-500' },
-              { name: 'Pinterest', pct: 28, color: 'bg-rose-500' },
-              { name: 'Wholesale', pct: 12, color: 'bg-emerald-500' },
-              { name: 'Other', pct: 4, color: 'bg-amber-500' },
-            ].map((ch) => (
-              <div key={ch.name}>
+            {(data?.channels && data.channels.length>0 ? data.channels : [
+              { name: 'Online Store', pct: 56 },
+              { name: 'Pinterest', pct: 28 },
+              { name: 'Wholesale', pct: 12 },
+              { name: 'Other', pct: 4 },
+            ]).map((ch, idx) => {
+              const palette = ['bg-blue-500','bg-rose-500','bg-emerald-500','bg-cyan-500','bg-fuchsia-500','bg-teal-500','bg-amber-500']
+              const color = palette[idx % palette.length]
+              return (<div key={ch.name}>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-secondary-700 dark:text-secondary-300">{ch.name}</span>
                   <span className="font-medium text-secondary-900 dark:text-secondary-100">{ch.pct}%</span>
                 </div>
                 <div className="mt-1 h-2 w-full rounded-full bg-secondary-200 dark:bg-secondary-700">
-                  <div className={cn('h-2 rounded-full', ch.color)} style={{ width: `${ch.pct}%` }} />
+                  <div className={cn('h-2 rounded-full', color)} style={{ width: `${ch.pct}%` }} />
                 </div>
-              </div>
-            ))}
+              </div>)
+            })}
           </div>
         </div>
         {/* System Health (shown below on small screens) */}
@@ -604,9 +605,9 @@ export default function DashboardPage() {
         <div className="card p-3">
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-2 gap-y-3">
             {[
-              { label: 'New Orders', value: '182', color: 'bg-blue-100 text-blue-700' },
+              { label: 'New Orders', value: String(data?.counters?.newOrders7d ?? 182), color: 'bg-blue-100 text-blue-700' },
               { label: 'New Users', value: '67', color: 'bg-purple-100 text-purple-700' },
-              { label: 'Refunds', value: '5', color: 'bg-red-100 text-red-700' },
+              { label: 'Refunds', value: String(data?.counters?.refunds7d ?? 5), color: 'bg-red-100 text-red-700' },
               { label: 'Support Tickets', value: '14', color: 'bg-amber-100 text-amber-700' },
               { label: 'New Reviews', value: '38', color: 'bg-emerald-100 text-emerald-700' },
               { label: 'Pending Shipments', value: '23', color: 'bg-cyan-100 text-cyan-700' },
