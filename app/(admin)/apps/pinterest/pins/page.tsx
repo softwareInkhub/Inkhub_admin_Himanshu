@@ -777,7 +777,7 @@ function PinsClient() {
         error={error || pinsError}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
-         searchConditions={searchConditions}
+          searchConditions={searchConditions}
         setSearchConditions={setSearchConditions}
         selectedItems={selectedItems}
         setSelectedItems={setSelectedItems}

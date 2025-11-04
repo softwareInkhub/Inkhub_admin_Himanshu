@@ -84,18 +84,18 @@ export default function Pagination({
         )}
         
         {onItemsPerPageChange && (
-          <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2">
             <span className="text-sm text-gray-600">Show:</span>
-            <select
+          <select
               className="border border-gray-300 rounded px-2 py-1 text-sm bg-white text-gray-700 hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors cursor-pointer"
-              value={itemsPerPage}
-              onChange={(e) => onItemsPerPageChange(parseInt(e.target.value))}
+            value={itemsPerPage}
+            onChange={(e) => onItemsPerPageChange(parseInt(e.target.value))}
               aria-label="Items per page"
-            >
-              {[10, 25, 50, 100, 200, 500].map(n => (
+          >
+            {[10, 25, 50, 100, 200, 500].map(n => (
                 <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
+            ))}
+          </select>
             <span className="text-sm text-gray-600">per page</span>
           </div>
         )}

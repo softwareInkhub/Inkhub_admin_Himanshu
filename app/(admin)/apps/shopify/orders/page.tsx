@@ -1180,7 +1180,7 @@ function OrdersClientContent({
   } | null>(null)
   const [isCalculatingKPIs, setIsCalculatingKPIs] = useState(false)
   const [kpisCachedAge, setKpisCachedAge] = useState<number | null>(null)
-
+  
   // Keep local currentPage in sync with Zustand store
   useEffect(() => {
     const storePage = pageIndex + 1 // Convert 0-based to 1-based
@@ -2854,69 +2854,69 @@ onClick={() => setShowExportModal(true)}
                 className="flex-1 min-h-0 overflow-x-auto overflow-y-auto"
                 style={thinScrollbarStyles}
               >
-                <div 
-                  ref={tableScrollRef}
+              <div 
+                ref={tableScrollRef}
                   className="min-w-max"
-                  data-scroll-group="orders-table"
-                >
-                  <OrderTable
-                    currentOrders={currentData}
-                    selectedItems={selectedRowIds}
-                    onSelectItem={handleSelectItem}
-                    onSelectAll={handleSelectAll}
-                    onRowClick={(order: Order, e: React.MouseEvent) => {
-                      if ((e.target as HTMLElement).closest('input,button')) return
-                      setPreviewOrder(order)
-                      setShowPreviewModal(true)
-                    }}
-                    columns={(function(){
-                      // Reorder columns to match the requested sequence
-                      const priority: Record<string, number> = {
-                        // 1. S.NO is added separately as serialNumberColumn
-                        name: 1, // 2. order (order name)
-                        'customer.firstName': 2, // 3. customer first name
-                        fulfillmentStatus: 3, // 4. fulfillment status
-                        currentTotalPrice: 4, // 5. current total price
-                        createdAt: 5, // 6. created date
-                        updatedAt: 6, // 7. updated date
-                        deliveryStatus: 7, // 8. delivery status
-                        tags: 8, // 9. tags
-                        sourceName: 9, // 10. channels
-                        financialStatus: 10, // 11. payment status
-                        email: 11 // 12. email
-                      }
+                data-scroll-group="orders-table"
+              >
+                <OrderTable
+                  currentOrders={currentData}
+                  selectedItems={selectedRowIds}
+                  onSelectItem={handleSelectItem}
+                  onSelectAll={handleSelectAll}
+                  onRowClick={(order: Order, e: React.MouseEvent) => {
+                    if ((e.target as HTMLElement).closest('input,button')) return
+                    setPreviewOrder(order)
+                    setShowPreviewModal(true)
+                  }}
+                  columns={(function(){
+                    // Reorder columns to match the requested sequence
+                    const priority: Record<string, number> = {
+                      // 1. S.NO is added separately as serialNumberColumn
+                      name: 1, // 2. order (order name)
+                      'customer.firstName': 2, // 3. customer first name
+                      fulfillmentStatus: 3, // 4. fulfillment status
+                      currentTotalPrice: 4, // 5. current total price
+                      createdAt: 5, // 6. created date
+                      updatedAt: 6, // 7. updated date
+                      deliveryStatus: 7, // 8. delivery status
+                      tags: 8, // 9. tags
+                      sourceName: 9, // 10. channels
+                      financialStatus: 10, // 11. payment status
+                      email: 11 // 12. email
+                    }
 
-                      const orderedJson = [...jsonColumns].sort((a, b) => {
-                        const pa = priority[a.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
-                        const pb = priority[b.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
-                        if (pa === pb) return 0
-                        return pa - pb
-                      })
+                    const orderedJson = [...jsonColumns].sort((a, b) => {
+                      const pa = priority[a.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
+                      const pb = priority[b.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
+                      if (pa === pb) return 0
+                      return pa - pb
+                    })
 
-                      const allOrderColumns = [serialNumberColumn, ...orderedJson]
-                      return allOrderColumns
-                    })()}
-                    loading={loading}
-                    error={error}
-                    searchQuery={searchQuery}
-                    isFullScreen={isFullScreen}
-                    activeColumnFilter={activeColumnFilter}
-                    columnFilters={columnFilters}
-                    onFilterClick={setActiveColumnFilter}
-                    onColumnFilterChange={handleColumnFilter}
-                    getUniqueValues={getUniqueValues}
-                    showImages={false}
-                    onClearSearch={clearSearch}
-                    isSearching={isAlgoliaSearching}
-                    sortState={sortState}
-                    onRequestSort={handleRequestSort}
-                    compact={rowDensity === 'compact'}
-                    showActions={false}
-                    columnWidths={{ serialNumber: 88 }}
-                    renderHeader
-                    scrollGroupId="orders-table"
-                    tableScrollRef={tableScrollRef}
-                  />
+                    const allOrderColumns = [serialNumberColumn, ...orderedJson]
+                    return allOrderColumns
+                  })()}
+                  loading={loading}
+                  error={error}
+                  searchQuery={searchQuery}
+                  isFullScreen={isFullScreen}
+                  activeColumnFilter={activeColumnFilter}
+                  columnFilters={columnFilters}
+                  onFilterClick={setActiveColumnFilter}
+                  onColumnFilterChange={handleColumnFilter}
+                  getUniqueValues={getUniqueValues}
+                  showImages={false}
+                  onClearSearch={clearSearch}
+                  isSearching={isAlgoliaSearching}
+                  sortState={sortState}
+                  onRequestSort={handleRequestSort}
+                  compact={rowDensity === 'compact'}
+                  showActions={false}
+                  columnWidths={{ serialNumber: 88 }}
+                  renderHeader
+                  scrollGroupId="orders-table"
+                  tableScrollRef={tableScrollRef}
+                />
                 </div>
               </div>
               
@@ -2942,11 +2942,11 @@ onClick={() => setShowExportModal(true)}
               <div className="flex-shrink-0">
                 <GridColumnHeader
                   columns={generateOrderColumnHeaders()}
-                  activeColumnFilter={activeColumnFilter}
-                  columnFilters={columnFilters}
-                  onFilterClick={setActiveColumnFilter}
-                  onColumnFilterChange={handleColumnFilter}
-                  getUniqueValues={getUniqueValues}
+                activeColumnFilter={activeColumnFilter}
+                columnFilters={columnFilters}
+                onFilterClick={setActiveColumnFilter}
+                onColumnFilterChange={handleColumnFilter}
+                getUniqueValues={getUniqueValues}
                   sortColumn={sorting[0]?.id}
                   sortDirection={sorting[0]?.desc ? 'desc' : 'asc'}
                   onSortClick={(column) => {
@@ -2955,7 +2955,7 @@ onClick={() => setShowExportModal(true)}
                   }}
                   allSelected={selectedRowIds.length === currentData.length && currentData.length > 0}
                   onSelectAll={handleSelectAll}
-                />
+              />
               </div>
               {/* Scrollable grid content */}
               <div 
@@ -3024,11 +3024,11 @@ onClick={() => setShowExportModal(true)}
             <div className="flex-shrink-0">
               <GridColumnHeader
                 columns={generateOrderColumnHeaders()}
-                activeColumnFilter={activeColumnFilter}
-                columnFilters={columnFilters}
-                onFilterClick={setActiveColumnFilter}
-                onColumnFilterChange={handleColumnFilter}
-                getUniqueValues={getUniqueValues}
+              activeColumnFilter={activeColumnFilter}
+              columnFilters={columnFilters}
+              onFilterClick={setActiveColumnFilter}
+              onColumnFilterChange={handleColumnFilter}
+              getUniqueValues={getUniqueValues}
                 sortColumn={sorting[0]?.id}
                 sortDirection={sorting[0]?.desc ? 'desc' : 'asc'}
                 onSortClick={(column) => {
@@ -3037,7 +3037,7 @@ onClick={() => setShowExportModal(true)}
                 }}
                 allSelected={selectedRowIds.length === currentData.length && currentData.length > 0}
                 onSelectAll={handleSelectAll}
-              />
+            />
             </div>
             {/* Scrollable card content */}
             <div 
@@ -3084,7 +3084,7 @@ onClick={() => setShowExportModal(true)}
                 onPageChange={handlePageChange}
                 onItemsPerPageChange={handleItemsPerPageChange}
                 itemType="orders"
-              />
+          />
             </div>
           </div>
         )}

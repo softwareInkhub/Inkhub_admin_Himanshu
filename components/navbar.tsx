@@ -102,7 +102,7 @@ export function Navbar() {
   }, [])
 
   return (
-    <nav className="flex h-16 items-center justify-between border-b border-secondary-200 bg-white/95 backdrop-blur-sm px-6 dark:border-secondary-700 dark:bg-secondary-800/95 shadow-sm relative z-40">
+    <nav className="flex h-16 items-center justify-between border-b border-secondary-200 bg-white backdrop-blur-sm px-6 dark:border-secondary-700 dark:bg-secondary-800 shadow-sm relative z-[100]">
       {/* Brand */}
       <div className="flex items-center space-x-3">
         <div className="transition-all duration-300 hover:scale-105">
@@ -150,7 +150,7 @@ export function Navbar() {
           </button>
 
           {showProfileDropdown && (
-            <div className="profile-dropdown-fix w-56 rounded-lg border border-secondary-200 bg-white/95 backdrop-blur-sm py-3 shadow-xl dark:border-secondary-700 dark:bg-secondary-800/95 animate-fade-in">
+            <div className="profile-dropdown-fix absolute right-0 top-full mt-2 w-56 rounded-lg border border-secondary-200 bg-white py-3 shadow-2xl dark:border-secondary-700 dark:bg-secondary-800 animate-fade-in z-[9999]" style={{ zIndex: 9999 }}>
               <div className="px-4 py-2 text-xs font-medium text-secondary-500 dark:text-secondary-400 uppercase tracking-wide">
                 Signed in as
               </div>
@@ -183,7 +183,7 @@ export function Navbar() {
       {/* Overlay to close dropdowns */}
       {showProfileDropdown && (
         <div
-          className="fixed inset-0 z-[90]"
+          className="fixed inset-0 z-[9998]"
           onClick={() => {
             setShowProfileDropdown(false)
           }}

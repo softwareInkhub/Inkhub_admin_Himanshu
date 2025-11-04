@@ -1364,8 +1364,8 @@ export default function PageTemplate<T extends BaseEntity>({
         )}
 
         {viewMode === 'grid' && (
-            <>
-              {/* Grid Header - Fixed */}
+          <>
+            {/* Grid Header - Fixed */}
               <div className="flex-shrink-0 bg-white">
                 {GridHeaderComponent ? (
                   <GridHeaderComponent
@@ -1400,7 +1400,7 @@ export default function PageTemplate<T extends BaseEntity>({
                     )}
                   </>
                 )}
-              </div>
+                </div>
             {/* Grid Content - Scrollable */}
             <div className={cn(
               getGridClasses(effectiveGridCardsPerRow).className, 
@@ -1481,26 +1481,26 @@ export default function PageTemplate<T extends BaseEntity>({
         )}
 
         {viewMode === 'card' && (
-            <>
-              {/* Card Header - Fixed */}
+          <>
+            {/* Card Header - Fixed */}
               <div className="flex-shrink-0 bg-white">
                 {(CardHeaderComponent || GridHeaderComponent) ? (
                   (() => {
-                    const HeaderComp = CardHeaderComponent || GridHeaderComponent
-                    if (!HeaderComp) return null
-                    return (
-                      <HeaderComp
-                        selectedProducts={selectedItems}
+              const HeaderComp = CardHeaderComponent || GridHeaderComponent
+              if (!HeaderComp) return null
+              return (
+                  <HeaderComp
+                    selectedProducts={selectedItems}
                         currentProducts={sortedFilteredData}
-                        onSelectAll={handleSelectAll}
-                        activeColumnFilter={activeColumnFilter}
-                        columnFilters={localColumnFilters}
+                    onSelectAll={handleSelectAll}
+                    activeColumnFilter={activeColumnFilter}
+                    columnFilters={localColumnFilters}
                         onFilterClick={(c: string) => onFilterClickHeader(c as any)}
-                        onColumnFilterChange={onColumnFilterChangeHeader}
-                        getUniqueValues={getUniqueValues}
-                        cardsPerRow={effectiveCardCardsPerRow}
-                        onCardsPerRowChange={onCardsPerRowChange ?? ((v: number) => setCardCardsPerRow(v))}
-                      />
+                    onColumnFilterChange={onColumnFilterChangeHeader}
+                    getUniqueValues={getUniqueValues}
+                    cardsPerRow={effectiveCardCardsPerRow}
+                    onCardsPerRowChange={onCardsPerRowChange ?? ((v: number) => setCardCardsPerRow(v))}
+                  />
                     )
                   })()
                 ) : (

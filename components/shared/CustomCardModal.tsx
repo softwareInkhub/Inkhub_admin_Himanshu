@@ -224,7 +224,7 @@ export default function CustomCardModal({ isOpen, onClose, onSave, products, ite
                             if (t==='=') { setOperation('custom'); return }
                             add(t)
                           }
-                          return (
+  return (
                             <button key={`${ri}-${ci}`} onClick={onClick} className={`rounded py-1.5 text-center text-[13px] ${cls}`}>{t}</button>
                           )
                         })
