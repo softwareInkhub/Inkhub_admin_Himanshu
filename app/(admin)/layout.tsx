@@ -33,7 +33,7 @@ export default function AdminLayout({
   return (
     <QueryClientProvider client={queryClient}>
       <RequireAuth>
-        <div className="flex h-full">
+        <div className="flex h-screen overflow-hidden">
           {/* Sidebar */}
           <Sidebar />
           
@@ -46,7 +46,7 @@ export default function AdminLayout({
             <TabBar />
             
             {/* Page Content */}
-            <main className="flex-1 overflow-auto bg-secondary-50 p-6 dark:bg-secondary-900">
+            <main className="flex-1 overflow-hidden bg-secondary-50 p-0 dark:bg-secondary-900">
               {children}
             </main>
           </div>

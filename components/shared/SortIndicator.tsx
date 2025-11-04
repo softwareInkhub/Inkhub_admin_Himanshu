@@ -22,8 +22,3 @@ export default function SortIndicator({ columnKey, sortColumn, sortDirection }: 
     </div>
   )
 }
-
-
-
-
-

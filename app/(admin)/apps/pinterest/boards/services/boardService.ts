@@ -29,7 +29,8 @@ const mapApiResponseToBoard = (item: any, index: number): Board => {
     privacy: (boardData.privacy || 'PUBLIC').toLowerCase() as 'public' | 'private',
     pinCount: boardData.pin_count || 0,
     followers: boardData.follower_count || 0,
-    image: boardData.media?.image_cover_url || boardData.media?.pin_thumbnail_urls?.[0] || '',
+    // Prefer already-normalized top-level image if present; otherwise derive from media fields
+    image: item.image || boardData.media?.image_cover_url || boardData.media?.pin_thumbnail_urls?.[0] || '',
     createdAt: boardData.created_at || new Date().toISOString(),
     updatedAt: boardData.board_pins_modified_at || new Date().toISOString(),
     tags: [], // Pinterest API doesn't provide tags in this response
@@ -59,7 +60,8 @@ export const fetchBoards = async (): Promise<Board[]> => {
         try {
           const parsed = JSON.parse(ls)
           if (parsed?.timestamp && (Date.now() - parsed.timestamp) < BOARDS_CONFIG.cacheTimeout && Array.isArray(parsed.data)) {
-            const lsBoards: Board[] = parsed.data
+            // Normalize cached data to Board[] shape in case older cache stored raw API items
+            const lsBoards: Board[] = (parsed.data as any[]).map((item: any, index: number) => mapApiResponseToBoard(item, index))
             boardsCache.set(cacheKey, { data: lsBoards, timestamp: parsed.timestamp })
             if (shouldLog()) console.log('⚡ Using cached boards data (localStorage)')
             // Trigger background refresh without blocking

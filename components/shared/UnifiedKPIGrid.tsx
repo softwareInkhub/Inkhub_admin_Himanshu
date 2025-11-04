@@ -224,7 +224,20 @@ export default function UnifiedKPIGrid<T extends TableItem>({
 
         {/* Custom KPI Cards */}
         {visibleCustomCards.map((card) => {
-          const calculatedValue = calculateCustomValue(card, data)
+          // Extract values from data based on card field
+          const values = (data || [])
+            .map((item: any) => {
+              const value = item[card.field]
+              return typeof value === 'number' ? value : parseFloat(value)
+            })
+            .filter((v: number) => !isNaN(v))
+          
+          const calculatedValue = calculateCustomValue(
+            values,
+            card.operation,
+            undefined,
+            data?.length || 0
+          )
           
           return (
             <UnifiedKPICard

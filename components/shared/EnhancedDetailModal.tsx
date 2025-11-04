@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { X, Edit, Trash, Save, Upload, Eye, Image as ImageIcon, Braces, Clipboard } from 'lucide-react'
-import JsonViewer from './JsonViewer'
+import JsonViewer from '@/components/shared/JsonViewer'
 import { cn } from '@/lib/utils'
 
 interface EnhancedDetailModalProps {
@@ -220,10 +220,7 @@ export default function EnhancedDetailModal({
     setImageError(true)
   }
 
-  const handleImageLoadStart = () => {
-    setImageLoading(true)
-    setImageError(false)
-  }
+  // Removed non-standard onLoadStart for <img>
 
   const getItemTypeConfig = () => {
     switch (itemType) {
@@ -507,7 +504,7 @@ export default function EnhancedDetailModal({
                               decoding="async"
                               onLoad={handleImageLoad}
                               onError={handleImageError}
-                              onLoadStart={handleImageLoadStart}
+                              
                             />
                           )
                         })()}

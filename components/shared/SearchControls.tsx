@@ -1,28 +1,92 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
-import { 
-  Search, 
-  Filter, 
-  Grid, 
-  List, 
-  Download,
-  X,
-  ChevronUp,
-  Eye,
-  Edit,
-  Trash2,
-  Pin,
-  PinOff,
-  Maximize2,
-  Minimize2
-} from 'lucide-react'
+import { Search, Filter, X, ChevronDown, Edit, Trash2, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SearchControlsProps, ViewMode } from './types'
-import AdvancedSearchBuilder from './AdvancedSearchBuilder'
-import FilterPanel from './FilterPanel'
-import ColumnFilter from './ColumnFilter'
-import GoogleStyleSearch, { SharedSearchSuggestion } from './GoogleStyleSearch'
+import { useEffect, useRef, useState } from 'react'
+import { parseAdvancedSearchQuery, getSearchSuggestions, debounce } from './utils/advancedSearch'
+import GoogleStyleSearch from './GoogleStyleSearch'
+import { SearchSuggestion, SearchHistory, getSearchSuggestions as getLocalSearchSuggestions, saveSearchToHistory } from './utils/searchSuggestions'
+
+interface SearchControlsProps {
+  searchQuery: string
+  setSearchQuery: (query: string) => void
+  searchConditions: Array<{
+    field: string
+    operator: 'contains' | 'equals' | 'starts_with' | 'ends_with'
+    value: string
+    connector: 'AND' | 'OR'
+  }>
+  showSearchBuilder: boolean
+  setShowSearchBuilder: (show: boolean) => void
+  showAdditionalControls: boolean
+  setShowAdditionalControls: (show: boolean) => void
+  activeFilter: string
+  setActiveFilter: (filter: string) => void
+  customFilters: Array<{
+    id: string
+    name: string
+    field: string
+    operator: string
+    value: string
+  }>
+  onAddCustomFilter: (filter: { name: string; field: string; operator: string; value: string }) => void
+  onRemoveCustomFilter: (filterId: string) => void
+  showCustomFilterDropdown: boolean
+  setShowCustomFilterDropdown: (show: boolean) => void
+  hiddenDefaultFilters: Set<string>
+  onShowAllFilters: () => void
+  onClearSearch: () => void
+  onClearSearchConditions: () => void
+  selectedProducts: string[]
+  onBulkEdit: () => void
+  onExportSelected: () => void
+  onBulkDelete: () => void
+  // Column filter props
+  currentProducts: any[]
+  onSelectAll: () => void
+  activeColumnFilter: string | null
+  columnFilters: Record<string, any>
+  onFilterClick: (column: string) => void
+  onColumnFilterChange: (column: string, value: any) => void
+  getUniqueValues: (field: string) => string[]
+  // Header action props
+  onExport: () => void
+  onImport: () => void
+  onPrint: () => void
+  onSettings: () => void
+  showHeaderDropdown: boolean
+  setShowHeaderDropdown: (show: boolean) => void
+  // View and control props
+  viewMode: 'table' | 'grid' | 'card'
+  setViewMode: (mode: 'table' | 'grid' | 'card') => void
+  showAdvancedFilter: boolean
+  setShowAdvancedFilter: (show: boolean) => void
+  isFullScreen: boolean
+  onToggleFullScreen: () => void
+  // Algolia search props
+  isAlgoliaSearching?: boolean
+  useAlgoliaSearch?: boolean
+  // Algolia filter props
+  isAlgoliaFiltering?: boolean
+  useAlgoliaFilters?: boolean
+  // Saved Search Views integration
+  onSaveToSearchViews?: () => void
+  savedSearches?: Array<{
+    id: string
+    viewName: string
+    searchQuery: string
+    searchConditions: any[]
+    columnFilters: any
+    customFilters: any[]
+    sortColumn: string
+    sortDirection: string
+    viewMode: string
+    itemsPerPage: number
+    updatedAt?: string
+  }>
+  onApplySavedSearch?: (savedSearch: any) => void
+  onDeleteSavedSearch?: (id: string) => void
+}
 
 export default function SearchControls({
   searchQuery,
@@ -37,158 +101,287 @@ export default function SearchControls({
   customFilters,
   onAddCustomFilter,
   onRemoveCustomFilter,
+  showCustomFilterDropdown,
+  setShowCustomFilterDropdown,
   hiddenDefaultFilters,
   onShowAllFilters,
   onClearSearch,
   onClearSearchConditions,
-  selectedItems,
+  selectedProducts,
   onBulkEdit,
   onExportSelected,
   onBulkDelete,
-  currentItems,
+  // Column filter props
+  currentProducts,
   onSelectAll,
   activeColumnFilter,
   columnFilters,
   onFilterClick,
   onColumnFilterChange,
   getUniqueValues,
+  // Header action props
+  onExport,
+  // Algolia search props
+  isAlgoliaSearching = false,
+  useAlgoliaSearch = false,
+  // Algolia filter props
+  isAlgoliaFiltering = false,
+  useAlgoliaFilters = false,
+  onImport,
+  onPrint,
+  onSettings,
+  showHeaderDropdown,
+  setShowHeaderDropdown,
+  onSaveToSearchViews,
+  savedSearches,
+  onApplySavedSearch,
+  onDeleteSavedSearch,
+  // View and control props
   viewMode,
   setViewMode,
   showAdvancedFilter,
   setShowAdvancedFilter,
   isFullScreen,
-  onToggleFullScreen,
-  isAlgoliaSearching,
-  useAlgoliaSearch
+  onToggleFullScreen
 }: SearchControlsProps) {
-  // Search state - always visible
-  const searchInputRef = useRef<HTMLInputElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [searchHistory, setSearchHistory] = useState<SharedSearchSuggestion[]>([])
-  const [suggestions, setSuggestions] = useState<SharedSearchSuggestion[]>([])
+  // Search state
+  const [searchHistory, setSearchHistory] = useState<SearchHistory[]>([])
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
-  const prevSigRef = useRef<string>('')
-  const prevShowRef = useRef<boolean>(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
-  const handleClearSearch = () => {
-    setSearchQuery('')
-    onClearSearch()
-    searchInputRef.current?.focus()
-  }
-
-  const handleResetAll = () => {
-    setActiveFilter('')
-    setShowAdvancedFilter(false)
-    if (searchQuery) handleClearSearch()
-    onClearSearchConditions()
-    // Reset all column filters generically
-    const keys = Object.keys(columnFilters || {})
-    keys.forEach((key) => {
-      const val = (columnFilters as any)[key]
-      onColumnFilterChange(key, Array.isArray(val) ? [] : '')
-    })
-    onFilterClick('')
-  }
-
-  // Load and save simple history (shared across pages)
+  // Load search history from localStorage
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('shared-search-history')
-      if (raw) setSearchHistory(JSON.parse(raw))
-    } catch {}
+    const savedHistory = localStorage.getItem('product-search-history')
+    if (savedHistory) {
+      try {
+        setSearchHistory(JSON.parse(savedHistory))
+      } catch (error) {
+        console.error('Failed to load search history:', error)
+      }
+    }
   }, [])
 
+  // Save search history to localStorage
   useEffect(() => {
-    try {
-      localStorage.setItem('shared-search-history', JSON.stringify(searchHistory.slice(0, 10)))
-    } catch {}
+    localStorage.setItem('product-search-history', JSON.stringify(searchHistory))
   }, [searchHistory])
 
-  // Click outside detection to close dropdown
-
-  const pushHistory = (text: string, count: number) => {
-    if (!text.trim()) return
-    const item: SharedSearchSuggestion = { id: `h-${Date.now()}`, text, type: 'history', count }
-    setSearchHistory(prev => [item, ...prev.filter(h => h.text !== text)].slice(0, 10))
-  }
-
-  const clearHistory = () => {
-    setSearchHistory([])
-    localStorage.removeItem('shared-search-history')
-  }
-
-  // Build lightweight suggestions from current items and query
+  // Generate suggestions when search query changes (guard against infinite loops)
+  const prevSigRef = useRef<string>('')
+  const prevShowRef = useRef<boolean>(false)
   useEffect(() => {
-    const query = (searchQuery || '').toLowerCase().trim()
-    const items = Array.isArray(currentItems) ? currentItems : []
-    const max = 6
-    const make = (arr: string[], type: SharedSearchSuggestion['type']) =>
-      Array.from(new Set(arr.filter(Boolean))).slice(0, max).map((t, i) => ({ id: `${type}-${i}-${t}`, text: t, type }))
+    const products = Array.isArray(currentProducts) ? currentProducts : []
+    const newSuggestions = getLocalSearchSuggestions(searchQuery || '', products, searchHistory)
+    const signature = `${searchQuery}|${products.length}|${searchHistory.length}|${newSuggestions.length}`
+    const shouldShow = ((searchQuery?.length || 0) > 0) || searchHistory.length > 0
 
-    const nameLike = items
-      .map((it: any) => String(it.title || it.name || '').trim())
-      .filter(t => t && (!query || t.toLowerCase().includes(query)))
-
-    const vendorLike = items
-      .map((it: any) => String(it.vendor || it.owner || '').trim())
-      .filter(t => t && (!query || t.toLowerCase().includes(query)))
-
-    const categoryLike = items
-      .map((it: any) => String(it.category || it.board || '').trim())
-      .filter(t => t && (!query || t.toLowerCase().includes(query)))
-
-    const tagsLike = items
-      .flatMap((it: any) => Array.isArray(it.tags) ? it.tags : [])
-      .map((t: any) => String(t).trim())
-      .filter(t => t && (!query || t.toLowerCase().includes(query)))
-
-    const next: SharedSearchSuggestion[] = [
-      ...make(nameLike, 'item'),
-      ...make(vendorLike, 'vendor'),
-      ...make(categoryLike, 'category'),
-      ...make(tagsLike, 'tag')
-    ]
-
-    // Append recent history if no query
-    const hist = !query ? searchHistory.slice(0, 4) : []
-    
-    // Deduplicate suggestions by text to avoid showing the same item twice
-    const allSuggestions = [...next.slice(0, 20), ...hist]
-    const seen = new Set<string>()
-    const nextCombined = allSuggestions.filter(suggestion => {
-      if (seen.has(suggestion.text)) {
-        return false
-      }
-      seen.add(suggestion.text)
-      return true
-    })
-
-    // Build a stable signature to avoid redundant state updates
-    const signature = `${query}|${items.length}|${searchHistory.length}|${nextCombined.length}`
-    const shouldShow = Boolean(query) || hist.length > 0
-
-    // Only update if suggestions content length or show flag meaningfully changed
     if (signature !== prevSigRef.current) {
       prevSigRef.current = signature
-      setSuggestions(nextCombined)
+      setSuggestions(newSuggestions)
     }
     if (shouldShow !== prevShowRef.current) {
       prevShowRef.current = shouldShow
       setShowSuggestions(shouldShow)
     }
-  }, [searchQuery, currentItems, searchHistory])
+  }, [searchQuery, currentProducts, searchHistory])
 
-  const handleSearch = (q: string) => {
-    const count = Array.isArray(currentItems) ? currentItems.length : 0
-    pushHistory(q, count)
+  // Handle search
+  const handleSearch = (query: string) => {
+    if (query.trim()) {
+      // Save to history
+      const newHistory = saveSearchToHistory(query, currentProducts.length, searchHistory)
+      setSearchHistory(newHistory)
+    }
     setShowSuggestions(false)
   }
 
+  // Handle suggestion click
+  const handleSuggestionClick = (suggestion: SearchSuggestion) => {
+    setSearchQuery(suggestion.text)
+    handleSearch(suggestion.text)
+  }
+
+  // Handle clear history
+  const handleClearHistory = () => {
+    setSearchHistory([])
+    localStorage.removeItem('product-search-history')
+  }
+
+  // Save current search to Saved Search Views system
+  const handleSaveCurrentSearch = () => {
+    const query = (searchQuery || '').trim()
+    if (!query && (!searchConditions || searchConditions.length === 0)) return
+    if (onSaveToSearchViews) onSaveToSearchViews()
+  }
+  const dropdownRefs = useRef<Record<string, HTMLDivElement | null>>({})
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.column-filter-dropdown')) {
+        onFilterClick('')
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [onFilterClick])
+
+
+
+  const getCustomFilterOptions = () => {
+    const options: Array<{
+      key: string
+      label: string
+      field: string
+      operator: string
+      value: string
+    }> = []
+    
+    // Dynamic options based on table headers and their values
+    const columnMappings = [
+      { 
+        field: 'title', 
+        label: 'Product Name', 
+        operators: ['contains', 'equals', 'starts_with', 'ends_with'],
+        sampleValues: getUniqueValues('title').slice(0, 5)
+      },
+      { 
+        field: 'status', 
+        label: 'Status', 
+        operators: ['equals'],
+        sampleValues: ['active', 'draft', 'archived']
+      },
+      { 
+        field: 'inventoryQuantity', 
+        label: 'Inventory', 
+        operators: ['greater_than', 'less_than', 'equals'],
+        sampleValues: ['0', '10', '50', '100']
+      },
+      { 
+        field: 'price', 
+        label: 'Price', 
+        operators: ['greater_than', 'less_than', 'equals'],
+        sampleValues: ['100', '500', '1000', '2000']
+      },
+      { 
+        field: 'productType', 
+        label: 'Product Type', 
+        operators: ['contains', 'equals'],
+        sampleValues: getUniqueValues('productType').slice(0, 5)
+      },
+      { 
+        field: 'vendor', 
+        label: 'Vendor', 
+        operators: ['contains', 'equals'],
+        sampleValues: getUniqueValues('vendor').slice(0, 5)
+      },
+      { 
+        field: 'category', 
+        label: 'Category', 
+        operators: ['contains', 'equals'],
+        sampleValues: getUniqueValues('category').slice(0, 5)
+      },
+      { 
+        field: 'tags', 
+        label: 'Tags', 
+        operators: ['contains'],
+        sampleValues: getUniqueValues('tags').slice(0, 5)
+      },
+      { 
+        field: 'createdAt', 
+        label: 'Created Date', 
+        operators: ['last_7_days', 'last_30_days', 'last_90_days'],
+        sampleValues: ['last_7_days', 'last_30_days', 'last_90_days']
+      },
+      { 
+        field: 'updatedAt', 
+        label: 'Updated Date', 
+        operators: ['last_7_days', 'last_30_days', 'last_90_days'],
+        sampleValues: ['last_7_days', 'last_30_days', 'last_90_days']
+      }
+    ]
+
+    // Generate options for each column
+    columnMappings.forEach((column, index) => {
+      column.operators.forEach((operator, opIndex) => {
+        column.sampleValues.forEach((value, valIndex) => {
+          const key = `${column.field}-${operator}-${valIndex}`
+          const label = `${column.label} ${operator.replace('_', ' ')} ${value}`
+          
+          options.push({
+            key,
+            label,
+            field: column.field,
+            operator,
+            value: value.toString()
+          })
+        })
+      })
+    })
+
+    // Add some common predefined filters
+    const predefinedFilters = [
+    { key: 'high-value', label: 'High-value products', field: 'price', operator: 'greater_than', value: '1000' },
+    { key: 'low-stock', label: 'Low stock products', field: 'inventoryQuantity', operator: 'less_than', value: '10' },
+    { key: 'recent', label: 'Recently added', field: 'createdAt', operator: 'last_7_days', value: '' },
+    { key: 'featured', label: 'Featured products', field: 'tags', operator: 'contains', value: 'featured' },
+      { key: 'on-sale', label: 'On sale products', field: 'compareAtPrice', operator: 'not_null', value: '' },
+      { key: 'active-products', label: 'Active products', field: 'status', operator: 'equals', value: 'active' },
+      { key: 'draft-products', label: 'Draft products', field: 'status', operator: 'equals', value: 'draft' },
+      { key: 'archived-products', label: 'Archived products', field: 'status', operator: 'equals', value: 'archived' }
+  ]
+
+    return [...predefinedFilters, ...options.slice(0, 20)] // Limit to first 20 dynamic options + predefined
+  }
+
+  const columns = [
+    { key: 'product', title: 'PRODUCT', width: 'w-64', filterType: 'text' },
+    { key: 'status', title: 'STATUS', width: 'w-24', filterType: 'select', options: ['active', 'draft', 'archived'] },
+    { key: 'inventory', title: 'INVENTORY', width: 'w-24', filterType: 'text' },
+    { key: 'price', title: 'PRICE', width: 'w-24', filterType: 'text' },
+    { key: 'type', title: 'TYPE', width: 'w-24', filterType: 'multi-select', options: getUniqueValues('productType') },
+    { key: 'vendor', title: 'VENDOR', width: 'w-32', filterType: 'multi-select', options: getUniqueValues('vendor') },
+    { key: 'category', title: 'CATEGORY', width: 'w-32', filterType: 'multi-select', options: getUniqueValues('category') },
+    { key: 'created', title: 'CREATED', width: 'w-24', filterType: 'date' },
+    { key: 'updated', title: 'UPDATED', width: 'w-24', filterType: 'date' }
+  ]
+
+  const handleFilterClick = (column: string, event: React.MouseEvent) => {
+    event.stopPropagation()
+    onFilterClick(column)
+  }
+
+  const handleFilterChange = (column: string, value: any) => {
+    onColumnFilterChange(column, value)
+  }
+
+  const handleClearFilter = (column: string) => {
+    const columnConfig = columns.find(col => col.key === column)
+    if (columnConfig) {
+      if (columnConfig.filterType === 'text' || columnConfig.filterType === 'date') {
+        onColumnFilterChange(column, '')
+      } else {
+        onColumnFilterChange(column, [])
+      }
+    }
+    onFilterClick(column)
+  }
+
+  const isFilterActive = (column: string) => {
+    const value = columnFilters[column]
+    if (Array.isArray(value)) {
+      return value.length > 0
+    }
+    return value && value !== ''
+  }
 
   return (
-    <div className="px-3 py-0.5 border-b-0 bg-white shadow-sm">
+    <div className="px-3 py-0.5 border-b-0 bg-white shadow-sm overflow-visible relative z-50">
       {/* Main Search Bar Layout - Single Horizontal Row */}
-      <div className="flex items-center justify-between space-x-2">
+      <div className="flex items-center justify-between space-x-2 overflow-visible">
         
         {/* LEFT SECTION: Add Filter and Search Bar */}
         <div className="flex items-center space-x-2">
@@ -228,47 +421,125 @@ export default function SearchControls({
           ))}
 
           {/* Search Bar - Always Visible */}
-          <div className="relative">
+          <div className="relative z-50">
             <div className="flex items-center animate-fade-in">
-              <div className="relative flex items-center">
-                <GoogleStyleSearch
-                  value={searchQuery}
-                  onChange={setSearchQuery}
-                  onSearch={handleSearch}
-                  placeholder={searchConditions.length > 0 ? "Advanced search active..." : "Search items... (e.g., Love)"}
-                  className={cn(
-                    "transition-all duration-200",
-                    searchQuery.length > 60 ? "w-[600px]" :
-                    searchQuery.length > 50 ? "w-[580px]" :
-                    searchQuery.length > 40 ? "w-[560px]" : 
-                    searchQuery.length > 30 ? "w-[540px]" : 
-                    searchQuery.length > 20 ? "w-[520px]" : 
-                    searchQuery.length > 10 ? "w-[500px]" : "w-[480px]"
+                <div className="relative flex items-center z-50">
+                  <GoogleStyleSearch
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    onSearch={handleSearch}
+                    placeholder={searchConditions.length > 0 ? "Advanced search active..." : "Search products... (e.g., Love)"}
+                    className={cn(
+                      "transition-all duration-200",
+                      searchQuery.length > 60 ? "w-[600px]" :
+                      searchQuery.length > 50 ? "w-[580px]" :
+                      searchQuery.length > 40 ? "w-[560px]" : 
+                      searchQuery.length > 30 ? "w-[540px]" : 
+                      searchQuery.length > 20 ? "w-[520px]" : 
+                      searchQuery.length > 10 ? "w-[500px]" : "w-[480px]"
+                    )}
+                    suggestions={suggestions}
+                    isLoading={isAlgoliaSearching}
+                    showSuggestions={showSuggestions && !searchConditions.length}
+                    onSuggestionClick={handleSuggestionClick}
+                    onClearHistory={handleClearHistory}
+                  />
+                  
+                  {/* Advanced Search Indicator */}
+                  {searchConditions.length > 0 && (
+                    <div className="absolute -top-1 -right-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center shadow-md animate-pulse z-10">
+                      {searchConditions.length}
+                    </div>
                   )}
-                  suggestions={suggestions}
-                  isLoading={isAlgoliaSearching}
-                  showSuggestions={showSuggestions && !searchConditions.length}
-                  onSuggestionClick={(s) => { setSearchQuery(s.text); handleSearch(s.text) }}
-                  onClearHistory={clearHistory}
-                />
-                
-                {/* Advanced Search Indicator */}
-                {searchConditions.length > 0 && (
-                  <div className="absolute -top-1 -right-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center shadow-md animate-pulse z-10">
-                    {searchConditions.length}
+                  
+                  {/* Custom Filter Dropdown */}
+                   {showCustomFilterDropdown && (
+                    <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-30 custom-filter-dropdown">
+                      <div className="p-3">
+                        <div className="text-sm font-medium text-gray-700 mb-3">Add Custom Filter</div>
+                        <div className="max-h-64 overflow-y-auto space-y-1">
+                          {getCustomFilterOptions().map((option) => (
+                            <button
+                              key={option.key}
+                              onClick={() => {
+                                onAddCustomFilter({
+                                name: option.label,
+                                field: option.field,
+                                operator: option.operator,
+                                value: option.value
+                                })
+                                setShowCustomFilterDropdown(false)
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Inline Cancel / Save controls + Saved chips */}
+                  <div className="relative flex items-center space-x-2 ml-2">
+                    {searchQuery?.trim().length > 0 && (
+                      <button
+                        onClick={() => { onClearSearch() }}
+                        className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded-md hover:bg-gray-100"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <button
+                      onClick={handleSaveCurrentSearch}
+                      className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                      disabled={!((searchQuery?.trim().length || 0) > 0 || searchConditions.length > 0)}
+                    >
+                      Save
+                    </button>
+                    {savedSearches && savedSearches.length > 0 && (
+                      <div className="ml-2 max-w-[50vw] overflow-x-auto">
+                        <div className="flex items-center gap-1 flex-nowrap whitespace-nowrap pr-2">
+                          {savedSearches.map((savedSearch, index) => (
+                            <span
+                              key={savedSearch.id || `saved-search-${index}`}
+                              className="group inline-flex items-center space-x-1 bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full text-xs cursor-pointer hover:bg-blue-100 transition-all duration-200"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                console.log('🔍 Products: Applying saved search:', savedSearch.viewName)
+                                onApplySavedSearch?.(savedSearch)
+                              }}
+                              title={`Apply saved search: ${savedSearch.viewName}`}
+                            >
+                              <span className="font-medium">{savedSearch.viewName}</span>
+                              <button
+                                className="text-blue-500 hover:text-red-600 hover:bg-red-50 rounded-full w-4 h-4 flex items-center justify-center transition-all duration-200 ml-1"
+                                onClick={(e) => { 
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  console.log('🗑️ Products: Deleting saved search:', savedSearch.viewName)
+                                  onDeleteSavedSearch?.(savedSearch.id) 
+                                }}
+                                aria-label={`Remove saved search ${savedSearch.viewName}`}
+                                title="Delete this saved search"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-
-
-                
-
+                </div>
               </div>
-            </div>
           </div>
         </div>
 
         {/* RIGHT SECTION: Filter, View, Full Screen */}
-        <div className="flex items-center space-x-2 flex-shrink-0">
+        <div className="flex items-center space-x-2">
+          {/* More actions dropdown removed; actions will appear in a persistent row below */}
 
           {/* Advanced Filter Button */}
           <button
@@ -276,14 +547,23 @@ export default function SearchControls({
             className={cn(
               "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
               showAdvancedFilter
-                ? "bg-gradient-to-r from-orange-50 to-orange-100 border-orange-300 text-orange-600 shadow-md hover:shadow-lg"
-                : "text-gray-700 hover:text-orange-700 hover:bg-gradient-to-r hover:from-orange-50 hover:to-orange-100 hover:border-orange-400"
+                ? "bg-gradient-to-r from-orange-50 to-orange-100 border-orange-300 text-orange-600 hover:shadow-lg"
+                : "text-gray-700 hover:text-orange-700 hover:bg-gradient-to-r hover:from-orange-50 hover:to-orange-100 hover:border-orange-400",
+              isAlgoliaFiltering && "opacity-75 cursor-not-allowed"
             )}
-            title="Advanced Filter"
+            title={isAlgoliaFiltering ? "Filtering with Algolia..." : "Advanced Filter"}
+            disabled={isAlgoliaFiltering}
           >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
-            </svg>
+            {isAlgoliaFiltering ? (
+              <div className="flex items-center space-x-1">
+                <div className="w-3 h-3 border border-orange-600 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-xs">Filtering...</span>
+              </div>
+            ) : (
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z" />
+              </svg>
+            )}
           </button>
           
           {/* View Mode Button */}
@@ -299,19 +579,19 @@ export default function SearchControls({
               }
             }}
             className={cn(
-              "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
-              viewMode === 'grid'
-                ? "bg-gradient-to-r from-indigo-50 to-indigo-100 border-indigo-300 text-indigo-600 shadow-md hover:shadow-lg"
-                : viewMode === 'card'
-                ? "bg-gradient-to-r from-pink-50 to-pink-100 border-pink-300 text-pink-600 shadow-md hover:shadow-lg"
-                : "text-gray-700 hover:text-indigo-700 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-indigo-100 hover:border-indigo-400"
+              "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
+              "text-gray-700 hover:text-indigo-700 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-indigo-100 hover:border-indigo-400"
             )}
-            title={`Switch to ${viewMode === 'table' ? 'grid' : viewMode === 'grid' ? 'card' : 'table'} view`}
+            title={`Switch to ${viewMode === 'table' ? 'Grid' : viewMode === 'grid' ? 'Card' : 'Table'} View`}
           >
             {viewMode === 'table' ? (
-              <Grid className="h-4 w-4" />
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M3 18h18M3 6h18" />
+              </svg>
             ) : viewMode === 'grid' ? (
-              <List className="h-4 w-4" />
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z" />
+              </svg>
             ) : (
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z" />
@@ -325,7 +605,7 @@ export default function SearchControls({
             className={cn(
               "px-3 py-2 border border-gray-300 rounded-md transition-all duration-200 text-sm group bg-white shadow-sm hover:shadow-md transform hover:scale-105 h-10",
               isFullScreen
-                ? "bg-gradient-to-r from-teal-50 to-teal-100 border-teal-300 text-teal-600 shadow-md hover:shadow-lg"
+                ? "bg-gradient-to-r from-teal-50 to-teal-100 border-teal-300 text-teal-600 hover:shadow-lg"
                 : "text-gray-700 hover:text-teal-700 hover:bg-gradient-to-r hover:from-teal-50 hover:to-teal-100 hover:border-teal-400"
             )}
             title={isFullScreen ? "Exit Full Screen" : "Enter Full Screen"}
@@ -343,71 +623,7 @@ export default function SearchControls({
         </div>
       </div>
 
-      {/* Additional Controls */}
-      {showAdditionalControls && (
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-600">
-              {selectedItems.length} of {currentItems.length} selected
-            </span>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={onBulkEdit}
-                className="flex items-center space-x-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors"
-              >
-                <Edit className="h-4 w-4" />
-                <span>Edit</span>
-              </button>
-              <button
-                onClick={onExportSelected}
-                className="flex items-center space-x-2 px-3 py-1.5 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors"
-              >
-                <Download className="h-4 w-4" />
-                <span>Export</span>
-              </button>
-              <button
-                onClick={onBulkDelete}
-                className="flex items-center space-x-2 px-3 py-1.5 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition-colors"
-              >
-                <Trash2 className="h-4 w-4" />
-                <span>Delete</span>
-              </button>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowAdditionalControls(false)}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Advanced Search Builder */}
-      {showSearchBuilder && (
-        <AdvancedSearchBuilder
-          searchConditions={searchConditions}
-          onClearConditions={onClearSearchConditions}
-          onClose={() => setShowSearchBuilder(false)}
-        />
-      )}
-
-      {/* Advanced Filter Panel */}
-      {showAdvancedFilter && (
-        <FilterPanel
-          activeFilter={activeFilter}
-          setActiveFilter={setActiveFilter}
-          customFilters={customFilters}
-          onAddCustomFilter={onAddCustomFilter}
-          onRemoveCustomFilter={onRemoveCustomFilter}
-          hiddenDefaultFilters={hiddenDefaultFilters}
-          onShowAllFilters={onShowAllFilters}
-          getUniqueValues={getUniqueValues}
-          columnFilters={columnFilters}
-          onColumnFilterChange={onColumnFilterChange}
-          onClose={() => setShowAdvancedFilter(false)}
-        />
-      )}
+      
     </div>
   )
 }

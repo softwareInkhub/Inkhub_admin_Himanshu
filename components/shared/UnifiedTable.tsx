@@ -1,8 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import { TableItem, ColumnDef, KPICardConfig, AlgoliaConfig, ColumnCustomizationConfig, SavedViewsConfig, BulkActionConfig } from './types/unified-table'
-import { CustomFilter } from './types'
+import { TableItem, ColumnDef, KPICardConfig, AlgoliaConfig, ColumnCustomizationConfig, SavedViewsConfig, BulkActionConfig, CustomFilter } from './types/unified-table'
 import { useUnifiedTable } from './hooks/useUnifiedTable'
 import UnifiedDataTable from './UnifiedDataTable'
 import UnifiedSearchControls from './UnifiedSearchControls'
@@ -236,9 +235,12 @@ export default function UnifiedTable<T extends TableItem>({
   
   // Handle custom filter actions
   const handleCustomFilter = (filter: { name: string; field: string; operator: string; value: string }) => {
-    const newFilter = {
+    const newFilter: CustomFilter = {
       id: `custom-${Date.now()}`,
-      ...filter
+      name: filter.name,
+      field: filter.field,
+      operator: filter.operator,
+      values: [filter.value]
     }
     setCustomFilters([...customFilters, newFilter])
   }

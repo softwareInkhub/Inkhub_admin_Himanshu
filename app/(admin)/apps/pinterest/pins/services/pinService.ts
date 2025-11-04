@@ -16,10 +16,19 @@ let cachedTotalChunks: { value: number; timestamp: number } | null = null
 // Map raw pinterest item to Pin type
 function mapRecordToPin(raw: any, idx: number): Pin {
   const item = raw?.Item || raw
-  const media = item?.media || {}
-  const images = media?.images || {}
-  const imageUrl = images?.['600x']?.url || images?.['1200x']?.url || images?.['400x300']?.url || ''
-  const owner = item?.board_owner?.username || ''
+  const media = item?.media || item?.pin_media || {}
+  const images = media?.images || item?.images || {}
+  const imageUrl = images?.['1200x']?.url
+    || images?.['600x']?.url
+    || images?.['400x300']?.url
+    || images?.orig?.url
+    || media?.image?.url
+    || item?.image_url
+    || item?.imageUrl
+    || item?.image
+    || raw?.image
+    || ''
+  const owner = item?.board_owner?.username || item?.owner || ''
 
   // Handle potential pin_id object
   let pinId = item?.id || raw?.id || item?.pin_id || raw?.pin_id
@@ -28,11 +37,16 @@ function mapRecordToPin(raw: any, idx: number): Pin {
   }
 
   // Ensure all string fields are properly converted
-  const title = item?.title || ''
-  const description = item?.description || item?.note || ''
+  const title = item?.title || item?.name || raw?.title || ''
+  const description = item?.description || item?.note || raw?.description || ''
   const boardId = item?.board_id || ''
-  const createdAt = item?.created_at || ''
-  const updatedAt = raw?.timestamp || item?.updated_at || ''
+  const createdAtRaw = item?.created_at || item?.createdAt || raw?.createdAt || ''
+  const updatedAtRaw = raw?.timestamp || item?.updated_at || item?.updatedAt || ''
+  const toIso = (v: any) => {
+    if (!v) return ''
+    const d = new Date(typeof v === 'number' ? v : String(v))
+    return isNaN(d.getTime()) ? '' : d.toISOString()
+  }
 
   return {
     id: String(pinId || `pin-${Date.now()}-${idx}`),
@@ -41,8 +55,8 @@ function mapRecordToPin(raw: any, idx: number): Pin {
     board: String(boardId),
     owner: String(owner),
     image: String(imageUrl),
-    createdAt: String(createdAt),
-    updatedAt: String(updatedAt),
+    createdAt: toIso(createdAtRaw) || new Date().toISOString(),
+    updatedAt: toIso(updatedAtRaw) || toIso(createdAtRaw) || new Date().toISOString(),
     tags: Array.isArray(item?.product_tags) ? item.product_tags.map((tag: any) => String(tag)) : [],
     likes: Number(item?.likes || 0),
     comments: Number(item?.comments || 0),

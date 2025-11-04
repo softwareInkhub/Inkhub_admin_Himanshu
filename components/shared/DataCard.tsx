@@ -105,7 +105,7 @@ export default function DataCard<T extends { id: string }>({
         {searchQuery ? (
           <HighlightedText
             text={String(title)}
-            searchQuery={searchQuery}
+            highlight={searchQuery}
             className="text-gray-900"
           />
         ) : (

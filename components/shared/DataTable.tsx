@@ -4,11 +4,11 @@ import React, { useState, useMemo } from 'react'
 import { 
   ChevronUp, 
   ChevronDown, 
-  MoreHorizontal
+  MoreHorizontal,
+  Filter
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { DataTableProps, TableColumn, BaseEntity } from './types'
-import ProductsColumnHeader from '@/app/(admin)/apps/shopify/products/components/ColumnHeader'
 import StatusBadge from './StatusBadge'
 import ImageDisplay from './ImageDisplay'
 import HighlightedText from './HighlightedText'
@@ -29,8 +29,9 @@ export default function DataTable<T extends BaseEntity>({
   columnFilters = {},
   activeColumnFilter = null,
   onFilterClick = () => {},
-  onColumnFilterChange = () => {}
-}: DataTableProps<T>) {
+  onColumnFilterChange = () => {},
+  hideHeader = false
+}: DataTableProps<T> & { hideHeader?: boolean }) {
   const inferFilterType = (key: string): 'text' | 'select' | 'multi-select' | 'date' => {
     if (key === 'createdAt' || key === 'updatedAt' || key.toLowerCase().includes('date')) return 'date'
     if (key === 'price' || key === 'inventoryQuantity') return 'text'
@@ -137,8 +138,8 @@ export default function DataTable<T extends BaseEntity>({
       >
         <table className="min-w-full divide-y divide-gray-200">
           <thead className={cn(
-            "bg-gray-50 relative",
-            isFullScreen ? "sticky top-0 z-10" : ""
+            hideHeader ? "hidden" : "bg-gray-50 relative",
+            isFullScreen && !hideHeader ? "sticky top-0 z-10" : ""
           )}>
             <tr>
               <th className="px-2 py-1.5 text-left relative">
@@ -159,18 +160,50 @@ export default function DataTable<T extends BaseEntity>({
                 </div>
               </th>
               {columns.map((column) => (
-                <ProductsColumnHeader
+                <th
                   key={column.key}
-                  title={column.label}
-                  column={column.key}
-                  hasFilter={true}
-                  filterType={(column.filterType as any) || inferFilterType(column.key)}
-                  options={[]}
-                  columnFilters={columnFilters}
-                  activeColumnFilter={activeColumnFilter}
-                  onFilterClick={onFilterClick}
-                  onColumnFilterChange={onColumnFilterChange}
-                />
+                  className={cn(
+                    "px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 relative",
+                    column.align === 'center' && "text-center",
+                    column.align === 'right' && "text-right"
+                  )}
+                >
+                  <div className="flex items-center justify-between space-x-2">
+                    <span>{column.label}</span>
+                    <div className="flex items-center space-x-1">
+                      {column.sortable !== false && (
+                        <button
+                          onClick={() => handleSort(column.key)}
+                          className={cn(
+                            "p-1 rounded-md transition-colors",
+                            sortColumn === column.key ? "text-blue-600" : "text-gray-400 hover:text-gray-600"
+                          )}
+                          title={`Sort by ${column.label}`}
+                        >
+                          {sortColumn === column.key && sortDirection === 'desc' ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronUp className="h-3 w-3" />
+                          )}
+                        </button>
+                      )}
+                      {onFilterClick && (
+                        <button
+                          onClick={() => onFilterClick(column.key)}
+                          className={cn(
+                            "p-1 rounded-md transition-colors",
+                            activeColumnFilter === column.key
+                              ? "bg-blue-50 text-blue-600"
+                              : "text-gray-400 hover:text-gray-600"
+                          )}
+                          title={`Filter ${column.label}`}
+                        >
+                          <Filter className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </th>
               ))}
             </tr>
           </thead>
@@ -234,7 +267,7 @@ export default function DataTable<T extends BaseEntity>({
             <div className="flex items-center space-x-2">
               <select
                 value={pagination.itemsPerPage}
-                onChange={(e) => pagination.onItemsPerPageChange(Number(e.target.value))}
+                onChange={(e) => pagination.onItemsPerPageChange?.(Number(e.target.value))}
                 className="border border-gray-300 rounded px-2 py-1 text-sm"
               >
                 <option value={10}>10</option>

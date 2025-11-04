@@ -9,6 +9,8 @@ import {
   GridCardFilterHeader,
   type GridFilterColumn
 } from '@/components/shared'
+import CardsPerRowDropdown from '@/components/shared/CardsPerRowDropdown'
+import GridColumnHeader from '@/components/shared/GridColumnHeader'
 import { Board } from './types'
 import { fetchBoards, calculateBoardsKPIs } from './services/boardService'
 
@@ -611,38 +613,6 @@ function BoardsClient() {
       data={currentData}
       loading={isLoading}
       error={error}
-      GridHeaderComponent={() => (
-        <GridCardFilterHeader
-          selectedItems={Array.from(selectedRowIds as any as Set<string>)}
-          currentItems={currentData}
-          onSelectAll={handleSelectAll}
-          activeColumnFilter={activeColumnFilter}
-          columnFilters={columnFilters}
-          onFilterClick={toggleColumnFilter}
-          onColumnFilterChange={handleColumnFilterChange}
-          getUniqueValues={getUniqueValuesForField}
-          cardsPerRow={cardsPerRow}
-          onCardsPerRowChange={setCardsPerRow}
-          columns={gridFilterColumns}
-          itemType="boards"
-        />
-      )}
-      CardHeaderComponent={() => (
-        <GridCardFilterHeader
-          selectedItems={Array.from(selectedRowIds as any as Set<string>)}
-          currentItems={currentData}
-          onSelectAll={handleSelectAll}
-          activeColumnFilter={activeColumnFilter}
-          columnFilters={columnFilters}
-          onFilterClick={toggleColumnFilter}
-          onColumnFilterChange={handleColumnFilterChange}
-          getUniqueValues={getUniqueValuesForField}
-          cardsPerRow={cardsPerRow}
-          onCardsPerRowChange={setCardsPerRow}
-          columns={gridFilterColumns}
-          itemType="boards"
-        />
-      )}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         searchConditions={searchConditions}
@@ -688,9 +658,5 @@ function BoardsClient() {
 }
 
 export default function PinterestBoardsPage() {
-  return (
-    <div className="h-full">
-      <BoardsClient />
-    </div>
-  )
+  return <BoardsClient />
 }

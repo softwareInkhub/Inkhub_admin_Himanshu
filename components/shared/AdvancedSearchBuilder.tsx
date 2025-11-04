@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { X } from 'lucide-react'
-import { SearchCondition } from './types'
+import type { SearchCondition } from './types/unified-table'
 
 interface AdvancedSearchBuilderProps {
   searchConditions: SearchCondition[]

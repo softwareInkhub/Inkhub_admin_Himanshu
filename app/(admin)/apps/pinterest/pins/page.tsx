@@ -11,6 +11,8 @@ import {
   ExportModal,
   type GridFilterColumn
 } from '@/components/shared'
+import CardsPerRowDropdown from '@/components/shared/CardsPerRowDropdown'
+import GridColumnHeader from '@/components/shared/GridColumnHeader'
 import { Pin } from './types'
 // Server services are not used when loading from local JSON
 
@@ -185,36 +187,8 @@ const pinColumns = [
         }) : 'No date'}
       </span>
     )
-  },
-  {
-    key: 'tags',
-    label: 'TAGS',
-    sortable: false,
-    render: (value: any, pin: Pin) => {
-      const tags = Array.isArray(pin.tags) ? pin.tags : []
-      return (
-        <div className="flex flex-wrap gap-1">
-          {tags.length > 0 ? (
-            tags.slice(0, 2).map((tag, index) => (
-              <span
-                key={index}
-                className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800"
-              >
-                {String(tag)}
-              </span>
-            ))
-          ) : (
-            <span className="text-xs text-gray-500">No tags</span>
-          )}
-          {tags.length > 2 && (
-            <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-800">
-              +{tags.length - 2}
-            </span>
-          )}
-        </div>
-      )
-    }
   }
+  // Tags column removed as per user request
 ]
 
 // Define KPI metrics for pins
@@ -535,24 +509,30 @@ function PinsClient() {
         if (!Array.isArray(localJson)) throw new Error('pins.json must be a JSON array')
 
         const normalized: Pin[] = localJson.map((pin: any, idx: number) => {
-          const rawType = String(pin.type || 'image').toLowerCase()
+          const imageSrc = pin.image || pin.imageUrl || pin.url || pin.src || (pin.media && (pin.media.image_url || pin.media.url)) || ''
+          const rawType = String(pin.type || pin.media_type || 'image').toLowerCase()
           const type: 'image' | 'video' | 'article' = rawType === 'video' ? 'video' : rawType === 'article' ? 'article' : 'image'
-          const rawStatus = String(pin.status || 'active').toLowerCase()
+          const rawStatus = String(pin.status || pin.state || 'active').toLowerCase()
           const status: 'active' | 'archived' = rawStatus === 'archived' ? 'archived' : 'active'
+          const toIso = (v: any) => {
+            if (!v) return ''
+            const d = new Date(typeof v === 'number' ? v : String(v))
+            return isNaN(d.getTime()) ? '' : d.toISOString()
+          }
           return {
             id: String(pin.id || `pin-${idx}`),
             title: String(pin.title || 'Untitled Pin'),
             description: String(pin.description || ''),
-            image: String(pin.image || ''),
-            board: String(pin.board || pin.boardName || 'Unknown Board'),
-            owner: String(pin.owner || pin.ownerName || 'Unknown'),
+            image: String(imageSrc),
+            board: String(pin.board || pin.boardName || pin.board_id || 'No Board'),
+            owner: String(pin.owner || pin.ownerName || pin.username || '' || 'Unknown'),
             status,
             type,
             likes: Number(pin.likes || 0),
             comments: Number(pin.comments || 0),
             repins: Number(pin.repins || 0),
-            createdAt: String(pin.createdAt || new Date().toISOString()),
-            updatedAt: String(pin.updatedAt || pin.createdAt || new Date().toISOString()),
+            createdAt: toIso(pin.createdAt) || toIso(pin.created_at) || new Date().toISOString(),
+            updatedAt: toIso(pin.updatedAt) || toIso(pin.updated_at) || toIso(pin.createdAt) || toIso(pin.created_at) || new Date().toISOString(),
             tags: Array.isArray(pin.tags) ? pin.tags : [],
             link: String(pin.link || ''),
             boardId: String(pin.boardId || ''),
@@ -738,8 +718,8 @@ function PinsClient() {
       { key: 'description', label: 'Description', type: 'text' },
       { key: 'board', label: 'Board', type: 'text' },
       { key: 'owner', label: 'Owner', type: 'text' },
-      { key: 'tags', label: 'Tags', type: 'text' },
       { key: 'type', label: 'Type', type: 'text' }
+      // Tags removed as per user request
     ],
     actions: {
       create: () => console.log('Create pin'),
@@ -795,41 +775,9 @@ function PinsClient() {
         data={currentData}
         loading={loading || loadingPins}
         error={error || pinsError}
-        GridHeaderComponent={() => (
-          <GridCardFilterHeader
-            selectedItems={Array.from(selectedRowIds as any as Set<string>)}
-            currentItems={currentData}
-            onSelectAll={handleSelectAll}
-            activeColumnFilter={activeColumnFilter}
-            columnFilters={columnFilters}
-            onFilterClick={toggleColumnFilter}
-            onColumnFilterChange={handleColumnFilterChange}
-            getUniqueValues={getUniqueValuesForField}
-            cardsPerRow={cardsPerRow}
-            onCardsPerRowChange={setCardsPerRow}
-            columns={gridFilterColumns}
-            itemType="pins"
-          />
-        )}
-        CardHeaderComponent={() => (
-          <GridCardFilterHeader
-            selectedItems={Array.from(selectedRowIds as any as Set<string>)}
-            currentItems={currentData}
-            onSelectAll={handleSelectAll}
-            activeColumnFilter={activeColumnFilter}
-            columnFilters={columnFilters}
-            onFilterClick={toggleColumnFilter}
-            onColumnFilterChange={handleColumnFilterChange}
-            getUniqueValues={getUniqueValuesForField}
-            cardsPerRow={cardsPerRow}
-            onCardsPerRowChange={setCardsPerRow}
-            columns={gridFilterColumns}
-            itemType="pins"
-          />
-        )}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
-          searchConditions={searchConditions}
+         searchConditions={searchConditions}
         setSearchConditions={setSearchConditions}
         selectedItems={selectedItems}
         setSelectedItems={setSelectedItems}
@@ -883,9 +831,5 @@ function PinsClient() {
 }
 
 export default function PinterestPinsPage() {
-  return (
-    <div className="h-full">
-      <PinsClient />
-    </div>
-  )
+  return <PinsClient />
 }

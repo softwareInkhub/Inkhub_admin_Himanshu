@@ -3,26 +3,29 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { LucideIcon, Package, ShoppingCart, Image, Palette, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { BaseEntity, PageConfig, ViewMode, KPIMetrics } from './types'
+import { thinScrollbarStyles } from './styles/scrollbarStyles'
+// Local generic types to avoid external coupling
+type BaseEntity = { id: string; [key: string]: any }
+type ViewMode = 'table' | 'grid' | 'card'
+type KPIMetrics = Record<string, any>
+type PageConfig = { title: string; description?: string; icon: string; columns?: Array<{ key: string; label?: string }>; kpis: Array<{ key: string; [k: string]: any }>; }
 import { 
-  DataTable, 
-  DataGrid, 
-  DataCard,
   KPIGrid,
-  BulkActionsBar,
   Pagination,
   ExportModal,
-  ImportModal,
-  BulkEditModal,
-  BulkDeleteModal,
   EnhancedDetailModal,
-  SearchControls,
-  ViewToggle,
-  CardsPerRowDropdown,
-  TablePreferencesModal,
-  GridCardFilterHeader
+  SearchControls
 } from './index'
-import { useDataTable } from './hooks/useDataTable'
+import CardsPerRowDropdown from './CardsPerRowDropdown'
+import TablePreferencesModal from './TablePreferencesModal'
+import UnifiedDataTable from './UnifiedDataTable'
+import DataTable from './DataTable'
+import GridCardFilterHeader from './GridCardFilterHeader'
+import GridColumnHeader from './GridColumnHeader'
+import SaveViewModal from './SaveViewModal'
+import AdvancedFiltersPanel from './AdvancedFiltersPanel'
+import { useSavedViews } from './hooks/useSavedViews'
+// Note: using UnifiedDataTable below instead of a custom hook
 
 // Reusable props contract for grid/card header components
 interface GridHeaderComponentProps {
@@ -86,6 +89,8 @@ interface PageTemplateProps<T extends BaseEntity> {
   clearAdvancedFilters?: () => void
   cardsPerRow?: number
   onCardsPerRowChange?: (value: number) => void
+  // Optional actions to render inside the KPI container (top-right)
+  KPIHeaderRight?: React.ReactNode
 }
 
 // Icon mapping function
@@ -107,6 +112,65 @@ const getIconComponent = (iconName: string): LucideIcon => {
     default:
       return Package
   }
+}
+
+// Helper function to auto-generate column header configuration from table columns
+const generateColumnHeadersFromConfig = (columns: any[] = []) => {
+  return columns
+    .filter((col: any) => col.key !== 'actions' && col.key !== 'select') // Skip action columns
+    .map((col: any) => {
+      const key = col.key
+      const label = (col.label || key).toUpperCase()
+      
+      // Auto-detect filter type based on column key and configuration
+      let filterType: 'text' | 'select' | 'multi-select' | 'numeric' | 'date' = 'text'
+      let options: string[] | undefined = undefined
+      
+      // Numeric fields
+      if (['price', 'quantity', 'inventory', 'inventoryQuantity', 'stock', 'total', 'totalPrice', 
+           'likes', 'comments', 'repins', 'pinCount', 'followerCount', 'collaborators', 
+           'fileSize', 'size', 'views', 'downloads'].includes(key)) {
+        filterType = 'numeric'
+      }
+      // Date fields
+      else if (['createdAt', 'updatedAt', 'publishedAt', 'date', 'created', 'updated'].includes(key)) {
+        filterType = 'date'
+      }
+      // Status fields (single select)
+      else if (key === 'status') {
+        filterType = 'select'
+        options = ['active', 'draft', 'archived']
+      }
+      else if (key === 'privacy') {
+        filterType = 'select'
+        options = ['public', 'private', 'protected']
+      }
+      else if (key === 'paymentStatus') {
+        filterType = 'select'
+        options = ['pending', 'paid', 'refunded', 'failed']
+      }
+      else if (key === 'fulfillmentStatus') {
+        filterType = 'select'
+        options = ['pending', 'fulfilled', 'shipped', 'delivered']
+      }
+      else if (key === 'type' && !key.includes('product')) {
+        filterType = 'select'
+        options = ['image', 'video', 'document', 'audio']
+      }
+      // Multi-select fields
+      else if (['productType', 'vendor', 'category', 'tags', 'board', 'channel'].includes(key)) {
+        filterType = 'multi-select'
+      }
+      
+      return {
+        key,
+        label,
+        hasFilter: true,
+        sortable: true,
+        filterType,
+        options
+      }
+    })
 }
 
 export default function PageTemplate<T extends BaseEntity>({
@@ -156,14 +220,42 @@ export default function PageTemplate<T extends BaseEntity>({
   clearAdvancedFilters = () => {},
   cardsPerRow,
   onCardsPerRowChange
+  ,KPIHeaderRight
 }: PageTemplateProps<T>) {
   // Modal states
   const [showExportModal, setShowExportModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
-  const [showBulkEditModal, setShowBulkEditModal] = useState(false)
-  const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false)
+
+  // Saved Views functionality (generic for all pages)
+  const storageKey = `${config.title.toLowerCase().replace(/\s+/g, '-')}-saved-views`
+  const savedViews = useSavedViews({
+    storageKey,
+    currentState: {
+      searchQuery,
+      searchConditions,
+      columnFilters: _unusedColumnFilters,
+      customFilters,
+      advancedFilters,
+      sortColumn: sortColumn || undefined,
+      sortDirection,
+      viewMode,
+      itemsPerPage
+    },
+    onApply: (state) => {
+      // Apply saved view state
+      if (state.searchQuery !== undefined && setSearchQuery) setSearchQuery(state.searchQuery)
+      if (state.searchConditions !== undefined && setSearchConditions) setSearchConditions(state.searchConditions)
+      if (state.columnFilters !== undefined && _unusedSetColumnFilters) _unusedSetColumnFilters(state.columnFilters)
+      if (state.customFilters !== undefined && setCustomFilters) setCustomFilters(state.customFilters)
+      if (state.advancedFilters !== undefined && setAdvancedFilters) setAdvancedFilters(state.advancedFilters)
+      if (state.sortColumn !== undefined && setSortColumn) setSortColumn(state.sortColumn)
+      if (state.sortDirection !== undefined && setSortDirection) setSortDirection(state.sortDirection)
+      if (state.viewMode !== undefined && setViewMode) setViewMode(state.viewMode as ViewMode)
+      if (state.itemsPerPage !== undefined && setItemsPerPage) setItemsPerPage(state.itemsPerPage)
+    }
+  })
 
   // Get the icon component
   const IconComponent = getIconComponent(config.icon)
@@ -171,10 +263,71 @@ export default function PageTemplate<T extends BaseEntity>({
   // Cards-per-row controls for grid and card views
   const [gridCardsPerRow, setGridCardsPerRow] = useState<number>(4)
   const [cardCardsPerRow, setCardCardsPerRow] = useState<number>(6)
+  const [kpiOverridesTick, setKpiOverridesTick] = useState(0)
   
   // Use prop values if provided, otherwise use internal state
+  // React to KPI updates coming from header actions (localStorage-backed)
+  useEffect(() => {
+    const onUpdate = () => setKpiOverridesTick(t => t + 1)
+    window.addEventListener('kpi-cards-updated', onUpdate as any)
+    return () => window.removeEventListener('kpi-cards-updated', onUpdate as any)
+  }, [])
+
+  const computedKpiMap = useMemo(() => {
+    // Base KPIs from config
+    const base: any = (config.kpis || []).reduce((acc: any, k) => { acc[k.key] = { ...k }; return acc }, {})
+    // DON'T delete invisible cards - KPIGrid will handle filtering
+    // This ensures CardManagerModal can show ALL cards including hidden ones
+    
+    // Merge in custom cards
+    try {
+      const ccRaw = localStorage.getItem('shared-custom-cards')
+      if (ccRaw) {
+        const custom = JSON.parse(ccRaw)
+        if (Array.isArray(custom)) {
+          for (const c of custom) {
+            const key = `custom:${c.id || c.title}`
+            base[key] = { key, label: c.title || c.name || 'Custom', custom: true, icon: c.icon || '⭐', operation: c.operation }
+          }
+        }
+      }
+    } catch {}
+
+    // Normalize to KPIGrid schema: ensure metric object exists
+    const title = String(config.title || '').toLowerCase()
+    const primary = ['pins', 'boards', 'designs', 'orders', 'products'].find(w => title.includes(w)) || ''
+    for (const k of Object.keys(base)) {
+      const item: any = base[k]
+      const label = String(item.label || k).toLowerCase()
+      if (!item.metric) {
+        const value = item.value ?? undefined
+        const change = item.change ?? 0
+        const trend = item.trend ?? 'neutral'
+        item.metric = { value: value as any, change, trend }
+      }
+      // Fallbacks: if value is undefined/null, populate sensible defaults from data length
+      if (item.metric.value == null) {
+        const isTotal = label.includes('total')
+        const mentionsPrimary = primary && (label.includes(primary) || k.toLowerCase().includes(primary))
+        if (isTotal && mentionsPrimary) {
+          item.metric.value = Array.isArray(data) ? data.length : 0
+        }
+      }
+      // Ensure numeric
+      if (typeof item.metric.value !== 'number') {
+        item.metric.value = Number(item.metric.value || 0)
+      }
+    }
+    return base
+    // tick dependency ensures recompute on header actions
+  }, [config.kpis, config.title, data, kpiOverridesTick])
   const effectiveGridCardsPerRow = cardsPerRow ?? gridCardsPerRow
   const effectiveCardCardsPerRow = cardsPerRow ?? cardCardsPerRow
+
+  // Auto-generate column headers configuration from table columns
+  const autoGeneratedColumnHeaders = useMemo(() => {
+    return generateColumnHeadersFromConfig(config.columns || [])
+  }, [config.columns])
 
   // Client-side export helper (CSV/JSON)
   const handleClientExport = useCallback(async (exportConfig: any) => {
@@ -431,10 +584,10 @@ export default function PageTemplate<T extends BaseEntity>({
   const [showAdvancedFilter, setShowAdvancedFilter] = useState<boolean>(false)
 
   // Table settings: page size and column visibility (persisted per page)
-  const storageKey = `table-settings:${config.title.toLowerCase().replace(/\s+/g, '-')}`
+  const tableStorageKey = `table-settings:${config.title.toLowerCase().replace(/\s+/g, '-')}`
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
     try {
-      const saved = typeof window !== 'undefined' ? localStorage.getItem(storageKey) : null
+      const saved = typeof window !== 'undefined' ? localStorage.getItem(tableStorageKey) : null
       if (saved) {
         const parsed = JSON.parse(saved)
         return parsed.columnVisibility || {}
@@ -465,6 +618,8 @@ export default function PageTemplate<T extends BaseEntity>({
   // Column filter state (shared across views)
   const [activeColumnFilter, setActiveColumnFilter] = useState<string | null>(null)
   const [localColumnFilters, setLocalColumnFilters] = useState<Record<string, any>>({})
+  const [showHeaderDropdown, setShowHeaderDropdown] = useState<boolean>(false)
+  const [showCustomFilterDropdown, setShowCustomFilterDropdown] = useState<boolean>(false)
 
   const onFilterClickHeader = (column: string) => {
     setActiveColumnFilter(prev => (prev === column ? null : column))
@@ -480,6 +635,105 @@ export default function PageTemplate<T extends BaseEntity>({
     return Array.from(new Set(flat.map(v => String(v))))
   }
 
+  // Helper functions for Advanced Filters
+  const getAvailableTags = (): string[] => {
+    // Try different field names that might contain tags
+    const tagsFromField = getUniqueValues('tags')
+    if (tagsFromField.length > 0) return tagsFromField
+    
+    // Try 'tag' (singular)
+    const tagFromField = getUniqueValues('tag')
+    if (tagFromField.length > 0) return tagFromField
+    
+    // Try 'categories' as fallback
+    const categoriesFromField = getUniqueValues('categories')
+    if (categoriesFromField.length > 0) return categoriesFromField
+    
+    return []
+  }
+
+  const getAvailableVendors = (): string[] => {
+    const title = String(config.title || '').toLowerCase()
+    
+    // For Pins: use 'board' and 'owner'
+    if (title.includes('pin')) {
+      const boards = getUniqueValues('board')
+      const owners = getUniqueValues('owner')
+      // Combine both
+      const combined = new Set([...boards, ...owners])
+      return Array.from(combined).filter(v => v && v !== 'No Board' && v !== 'Unknown')
+    }
+    
+    // For Boards: use 'owner' or 'creator'
+    if (title.includes('board')) {
+      const owners = getUniqueValues('owner')
+      const creators = getUniqueValues('creator')
+      const combined = new Set([...owners, ...creators])
+      return Array.from(combined).filter(Boolean)
+    }
+    
+    // For Designs: use 'designer' or 'creator'
+    if (title.includes('design')) {
+      const designers = getUniqueValues('designer')
+      const creators = getUniqueValues('creator')
+      const artists = getUniqueValues('artist')
+      const combined = new Set([...designers, ...creators, ...artists])
+      return Array.from(combined).filter(Boolean)
+    }
+    
+    // For Content Library: use 'source' or 'author'
+    if (title.includes('content')) {
+      const sources = getUniqueValues('source')
+      const authors = getUniqueValues('author')
+      const creators = getUniqueValues('creator')
+      const combined = new Set([...sources, ...authors, ...creators])
+      return Array.from(combined).filter(Boolean)
+    }
+    
+    // Default: try 'vendor'
+    return getUniqueValues('vendor').filter(Boolean)
+  }
+
+  const getAvailableStatuses = (): string[] => {
+    // First, try to get actual statuses from data
+    const statusesFromData = getUniqueValues('status')
+    if (statusesFromData.length > 0) return statusesFromData
+    
+    // Fallback to defaults based on entity type
+    const title = String(config.title || '').toLowerCase()
+    if (title.includes('product')) {
+      return ['active', 'draft', 'archived']
+    } else if (title.includes('order')) {
+      return ['paid', 'unpaid', 'refunded', 'pending', 'processing', 'shipped', 'delivered', 'cancelled']
+    } else if (title.includes('pin')) {
+      return ['active', 'pending', 'failed']
+    } else if (title.includes('board')) {
+      return ['active', 'draft', 'archived']
+    } else if (title.includes('design')) {
+      return ['active', 'draft', 'archived', 'published']
+    } else if (title.includes('content')) {
+      return ['published', 'draft', 'archived']
+    }
+    return ['active', 'inactive']
+  }
+
+  const getAvailableTypes = (): string[] => {
+    // For Pins
+    const types = getUniqueValues('type')
+    return types.length > 0 ? types : ['image', 'video', 'article']
+  }
+
+  const getAvailablePrivacy = (): string[] => {
+    // For Boards
+    const privacy = getUniqueValues('privacy')
+    return privacy.length > 0 ? privacy : ['public', 'private', 'secret']
+  }
+
+  const getAvailableCategories = (): string[] => {
+    // For all entities
+    return getUniqueValues('category').filter(Boolean)
+  }
+
   const applyColumnFilters = (items: T[]): T[] => {
     const filters = localColumnFilters
     const entries = Object.entries(filters).filter(([key, v]) => {
@@ -488,9 +742,33 @@ export default function PageTemplate<T extends BaseEntity>({
       return v !== '' && v !== undefined && v !== null
     })
 
+    // Check if advanced filters are active
+    const advFilters = advancedFilters || {}
+    
+    // Debug log (only when filters are active)
+    if (Object.keys(advFilters).length > 0 && process.env.NODE_ENV === 'development') {
+      console.log('🔍 PageTemplate Advanced Filters Active:', {
+        advFilters,
+        itemsCount: items.length,
+        page: config.title
+      })
+    }
+    const hasAdvancedFilters = Boolean(
+      (advFilters.status?.length > 0) ||
+      (advFilters.productStatus?.length > 0) ||
+      (advFilters.orderStatus?.length > 0) ||
+      (advFilters.tags?.length > 0) ||
+      (advFilters.vendors?.length > 0) ||
+      (advFilters.channels?.length > 0) ||
+      advFilters.priceRange?.min ||
+      advFilters.priceRange?.max ||
+      advFilters.dateRange?.start ||
+      advFilters.dateRange?.end
+    )
+
     // Fast path when nothing to filter
     const hasSpecial = Boolean(filters.minPrice || filters.maxPrice || filters.startDate || filters.endDate || (Array.isArray(filters.entity) && filters.entity.length > 0))
-    if (!hasSpecial && entries.length === 0) return items
+    if (!hasSpecial && entries.length === 0 && !hasAdvancedFilters) return items
 
     const matches = (item: any, key: string, value: any) => {
       const raw = item?.[key]
@@ -546,6 +824,60 @@ export default function PageTemplate<T extends BaseEntity>({
         if (!anyMatch) return false
       }
 
+      // Advanced Filters - Status
+      const statusFilter = advFilters.status || advFilters.productStatus || advFilters.orderStatus
+      if (statusFilter && statusFilter.length > 0) {
+        const itemStatus = String(item.status || '').toLowerCase()
+        const matchesStatus = statusFilter.some((s: string) => String(s).toLowerCase() === itemStatus)
+        if (!matchesStatus) return false
+      }
+
+      // Advanced Filters - Tags
+      if (advFilters.tags && advFilters.tags.length > 0) {
+        const itemTags = Array.isArray(item.tags) ? item.tags : []
+        const hasSomeTag = itemTags.some((tag: any) => 
+          advFilters.tags.includes(String(tag))
+        )
+        if (!hasSomeTag && itemTags.length === 0) return false
+        if (!hasSomeTag) return false
+      }
+
+      // Advanced Filters - Vendors/Boards/Owners/Creators
+      const vendorsFilter = advFilters.vendors || advFilters.channels
+      if (vendorsFilter && vendorsFilter.length > 0) {
+        const itemVendor = String(item.vendor || item.board || item.owner || item.creator || item.designer || item.source || item.author || '')
+        const matchesVendor = vendorsFilter.some((v: string) => 
+          itemVendor.toLowerCase().includes(String(v).toLowerCase())
+        )
+        if (!matchesVendor) return false
+      }
+
+      // Advanced Filters - Price Range
+      if (advFilters.priceRange) {
+        const itemPrice = Number(item.price || item.total || 0)
+        if (advFilters.priceRange.min) {
+          const minPrice = parseFloat(advFilters.priceRange.min)
+          if (itemPrice < minPrice) return false
+        }
+        if (advFilters.priceRange.max) {
+          const maxPrice = parseFloat(advFilters.priceRange.max)
+          if (itemPrice > maxPrice) return false
+        }
+      }
+
+      // Advanced Filters - Date Range
+      if (advFilters.dateRange) {
+        const itemDate = new Date(item.createdAt || item.updatedAt || 0).getTime()
+        if (advFilters.dateRange.start) {
+          const startDate = new Date(advFilters.dateRange.start).getTime()
+          if (itemDate < startDate) return false
+        }
+        if (advFilters.dateRange.end) {
+          const endDate = new Date(advFilters.dateRange.end).getTime()
+          if (itemDate > endDate) return false
+        }
+      }
+
       return true
     })
   }
@@ -587,7 +919,58 @@ export default function PageTemplate<T extends BaseEntity>({
     )
   }
 
-  const filteredData = applyColumnFilters(data)
+  // Apply all filters (column filters + advanced filters)
+  const filteredData = useMemo(() => {
+    return applyColumnFilters(data)
+  }, [data, localColumnFilters, advancedFilters])
+
+  // Apply sorting based on selected column and direction
+  const sortedFilteredData = useMemo(() => {
+    const arr = Array.isArray(filteredData) ? [...filteredData] : []
+    
+    // If no sort column specified, default to newest first (createdAt desc)
+    if (!sortColumn) {
+      return arr.sort((a: any, b: any) => {
+        const da = new Date(a.createdAt || a.updatedAt || 0).getTime()
+        const db = new Date(b.createdAt || b.updatedAt || 0).getTime()
+        return db - da
+      })
+    }
+    
+    // Sort by the selected column
+    return arr.sort((a: any, b: any) => {
+      const aValue = a[sortColumn]
+      const bValue = b[sortColumn]
+      
+      // Handle null/undefined values
+      if (aValue === undefined || aValue === null) return 1
+      if (bValue === undefined || bValue === null) return -1
+      
+      let comparison = 0
+      
+      // String comparison
+      if (typeof aValue === 'string' && typeof bValue === 'string') {
+        comparison = aValue.localeCompare(bValue)
+      }
+      // Number comparison
+      else if (typeof aValue === 'number' && typeof bValue === 'number') {
+        comparison = aValue - bValue
+      }
+      // Date comparison
+      else if (sortColumn.includes('At') || sortColumn.includes('date') || sortColumn.includes('Date')) {
+        const da = new Date(aValue).getTime()
+        const db = new Date(bValue).getTime()
+        comparison = da - db
+      }
+      // Default: convert to string and compare
+      else {
+        comparison = String(aValue).localeCompare(String(bValue))
+      }
+      
+      // Apply sort direction
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
+  }, [filteredData, sortColumn, sortDirection])
   const visibleColumns = (config.columns || []).filter((c: any) => columnVisibility[c.key] !== false)
 
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false)
@@ -604,6 +987,24 @@ export default function PageTemplate<T extends BaseEntity>({
     setShowPreviewModal(true)
   }
 
+  // Helper to get column min width (same logic as GridColumnHeader)
+  const getColumnMinWidth = (key: string) => {
+    if (key === 'title' || key === 'product' || key === 'name' || key === 'board') return '130px'
+    if (key === 'description' || key === 'notes') return '160px'
+    if (key === 'category' || key === 'vendor' || key === 'owner') return '95px'
+    if (key === 'tags' || key === 'productType') return '95px'
+    if (key === 'orderNumber' || key === 'customer') return '110px'
+    if (key === 'status' || key === 'privacy' || key === 'type') return '80px'
+    if (key === 'channel' || key === 'paymentStatus' || key === 'fulfillmentStatus') return '90px'
+    if (key === 'price' || key === 'total' || key === 'totalPrice') return '75px'
+    if (key === 'inventory' || key === 'inventoryQuantity' || key === 'stock') return '80px'
+    if (key === 'likes' || key === 'comments' || key === 'repins' || key === 'pins' || key === 'pinCount') return '70px'
+    if (key === 'followers' || key === 'followerCount' || key === 'collaborators') return '80px'
+    if (key === 'fileSize' || key === 'size' || key === 'dimensions') return '75px'
+    if (key === 'createdAt' || key === 'updatedAt' || key === 'created' || key === 'updated') return '90px'
+    return '80px'
+  }
+
   const getItemTypeFromConfig = (config: PageConfig) => {
     if (config.title.toLowerCase().includes('product')) return 'product'
     if (config.title.toLowerCase().includes('order')) return 'order'
@@ -615,12 +1016,12 @@ export default function PageTemplate<T extends BaseEntity>({
 
   return (
     <div className={cn(
-      "min-h-screen bg-gray-50",
-      isFullScreen ? "fixed inset-0 z-50 bg-white flex flex-col" : ""
+      "h-full bg-white flex flex-col overflow-hidden",
+      isFullScreen ? "fixed inset-0 z-50" : ""
     )}>
       {/* Full Screen Header - Fixed at top */}
       {isFullScreen && (
-        <div className="sticky top-0 z-30 bg-white border-b border-gray-200 p-4 flex justify-between items-center flex-shrink-0">
+        <div className="flex-shrink-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-gray-900">{config.title} - Full Screen View</h2>
           <button
             onClick={() => setIsFullScreen(false)}
@@ -633,19 +1034,21 @@ export default function PageTemplate<T extends BaseEntity>({
       )}
 
       {/* Unified Header Section - KPI, Search, and Actions in one container */}
-      <div className={cn(
-        "bg-white",
-        isFullScreen ? "flex-shrink-0 border-b border-gray-200" : ""
-      )}>
+      <div className="flex-shrink-0 bg-white">
+        {/* Header right actions inside KPI container */}
+        {KPIHeaderRight && (
+          <div className="px-4 pt-2">
+            <div className="flex justify-end">
+              {KPIHeaderRight}
+            </div>
+          </div>
+        )}
         {/* KPI Grid */}
         <div className="px-4 py-3">
           <KPIGrid 
-            kpiMetrics={config.kpis.reduce((acc, kpi) => {
-              acc[kpi.key] = kpi
-              return acc
-            }, {} as KPIMetrics)} 
-            data={data} 
-            compact
+            kpiMetrics={computedKpiMap as any}
+            items={data}
+            loading={loading}
             onRefresh={(kpiKey) => {
               console.log(`Refreshing ${kpiKey} KPI...`)
               // Here you can implement actual refresh logic
@@ -681,15 +1084,15 @@ export default function PageTemplate<T extends BaseEntity>({
             onShowAllFilters={() => {}}
             onClearSearch={clearSearch}
             onClearSearchConditions={() => {}}
-            selectedItems={selectedItems}
-            onBulkEdit={() => setShowBulkEditModal(true)}
+            selectedProducts={selectedItems}
+            onBulkEdit={() => {}}
             onExportSelected={() => setShowExportModal(true)}
-            onBulkDelete={() => setShowBulkDeleteModal(true)}
-            currentItems={filteredData}
+            onBulkDelete={() => {}}
+            currentProducts={filteredData}
             onSelectAll={handleSelectAll}
             activeColumnFilter={activeColumnFilter}
             columnFilters={localColumnFilters}
-            onFilterClick={onFilterClickHeader}
+            onFilterClick={(c) => onFilterClickHeader(c || '')}
             onColumnFilterChange={onColumnFilterChangeHeader}
             getUniqueValues={getUniqueValues}
             viewMode={viewMode}
@@ -700,8 +1103,100 @@ export default function PageTemplate<T extends BaseEntity>({
             onToggleFullScreen={() => setIsFullScreen(!isFullScreen)}
             isAlgoliaSearching={false}
             useAlgoliaSearch={false}
+            showHeaderDropdown={showHeaderDropdown}
+            setShowHeaderDropdown={setShowHeaderDropdown}
+            showCustomFilterDropdown={showCustomFilterDropdown}
+            setShowCustomFilterDropdown={setShowCustomFilterDropdown}
+            onExport={() => setShowExportModal(true)}
+            onImport={() => setShowImportModal(true)}
+            onPrint={() => setShowPrintModal(true)}
+            onSettings={() => setShowSettingsModal(true)}
+            onSaveToSearchViews={savedViews.handleSaveView}
+            savedSearches={savedViews.savedViews.map(view => ({
+              id: view.id,
+              viewName: view.viewName,
+              searchQuery: view.searchState.searchQuery || '',
+              searchConditions: view.searchState.searchConditions || [],
+              columnFilters: view.searchState.columnFilters || {},
+              customFilters: view.searchState.customFilters || [],
+              sortColumn: view.searchState.sortColumn || '',
+              sortDirection: view.searchState.sortDirection || 'desc',
+              viewMode: view.searchState.viewMode || 'table',
+              itemsPerPage: view.searchState.itemsPerPage || 25,
+              updatedAt: view.updatedAt ? new Date(view.updatedAt).toISOString() : undefined
+            }))}
+            onApplySavedSearch={savedViews.handleApplyView}
+            onDeleteSavedSearch={savedViews.handleDeleteView}
           />
         </div>
+
+        {/* Advanced Filters Panel - Generic for all pages */}
+        <AdvancedFiltersPanel
+          isOpen={showAdvancedFilter}
+          onClose={() => setShowAdvancedFilter(false)}
+          filters={{
+            status: (advancedFilters as any)?.status || (advancedFilters as any)?.productStatus || (advancedFilters as any)?.orderStatus || [],
+            priceRange: (advancedFilters as any)?.priceRange || { min: '', max: '' },
+            dateRange: (advancedFilters as any)?.dateRange || { min: '', max: '' },
+            tags: (advancedFilters as any)?.tags || [],
+            vendors: (advancedFilters as any)?.vendors || (advancedFilters as any)?.channels || []
+          }}
+          onFiltersChange={(newFilters) => {
+            if (setAdvancedFilters) {
+              // Map back to the format expected by the page
+              const title = String(config.title || '').toLowerCase()
+              if (title.includes('product')) {
+                setAdvancedFilters({
+                  productStatus: newFilters.status || [],
+                  priceRange: newFilters.priceRange || { min: '', max: '' },
+                  dateRange: newFilters.dateRange || { start: '', end: '' },
+                  tags: newFilters.tags || [],
+                  vendors: newFilters.vendors || []
+                })
+              } else if (title.includes('order')) {
+                setAdvancedFilters({
+                  orderStatus: newFilters.status || [],
+                  priceRange: newFilters.priceRange || { min: '', max: '' },
+                  dateRange: newFilters.dateRange || { start: '', end: '' },
+                  tags: newFilters.tags || [],
+                  channels: newFilters.vendors || []
+                })
+              } else {
+                // Generic format for other pages
+                setAdvancedFilters({
+                  status: newFilters.status || [],
+                  priceRange: newFilters.priceRange || { min: '', max: '' },
+                  dateRange: newFilters.dateRange || { start: '', end: '' },
+                  tags: newFilters.tags || [],
+                  vendors: newFilters.vendors || []
+                })
+              }
+            }
+          }}
+          onClearAll={() => {
+            if (clearAdvancedFilters) clearAdvancedFilters()
+          }}
+          availableTags={getAvailableTags()}
+          availableVendors={getAvailableVendors()}
+          availableStatuses={getAvailableStatuses()}
+          availableTypes={getAvailableTypes()}
+          availablePrivacy={getAvailablePrivacy()}
+          availableCategories={getAvailableCategories()}
+          statusLabel={config.title?.toLowerCase().includes('product') ? 'Product Status' : 
+                      config.title?.toLowerCase().includes('order') ? 'Order Status' :
+                      config.title?.toLowerCase().includes('pin') ? 'Pin Status' :
+                      config.title?.toLowerCase().includes('board') ? 'Board Status' :
+                      'Status'}
+          vendorsLabel={
+            config.title?.toLowerCase().includes('order') ? 'Channels' : 
+            config.title?.toLowerCase().includes('pin') ? 'Boards & Owners' :
+            config.title?.toLowerCase().includes('board') ? 'Owners' :
+            config.title?.toLowerCase().includes('design') ? 'Creators' :
+            config.title?.toLowerCase().includes('content') ? 'Sources' :
+            'Vendors'
+          }
+          isFiltering={false}
+        />
 
         {/* Persistent Actions Row */}
         <div className="px-4 py-1 border-b border-gray-200">
@@ -739,7 +1234,7 @@ export default function PageTemplate<T extends BaseEntity>({
               </span>
             </button>
             <button
-              onClick={() => setShowBulkEditModal(true)}
+              onClick={() => {}}
               className={cn(
                 "px-3 py-1 text-xs sm:text-sm rounded-md bg-white transition-all duration-200 shadow-sm hover:shadow-md",
                 "text-blue-700 border border-blue-500"
@@ -765,7 +1260,7 @@ export default function PageTemplate<T extends BaseEntity>({
               </span>
             </button>
             <button
-              onClick={() => setShowBulkDeleteModal(true)}
+              onClick={() => {}}
               className={cn(
                 "px-3 py-1 text-xs sm:text-sm rounded-md bg-white transition-all duration-200 shadow-sm hover:shadow-md",
                 "text-red-700 border border-red-500"
@@ -781,6 +1276,19 @@ export default function PageTemplate<T extends BaseEntity>({
 
           {/* Right side controls */}
           <div className="flex items-center gap-2">
+            {/* Cards-per-row control near Settings (grid/card views) */}
+            {(viewMode === 'grid' || viewMode === 'card') && (
+              <CardsPerRowDropdown 
+                value={viewMode === 'grid' ? effectiveGridCardsPerRow : effectiveCardCardsPerRow}
+                onChange={(n) => {
+                  if (viewMode === 'grid') {
+                    if (onCardsPerRowChange) onCardsPerRowChange(n); else setGridCardsPerRow(n)
+                  } else {
+                    if (onCardsPerRowChange) onCardsPerRowChange(n); else setCardCardsPerRow(n)
+                  }
+                }}
+              />
+            )}
             <button
               onClick={() => setShowSettingsModal(true)}
               className="px-3 py-1 text-xs sm:text-sm text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 bg-white shadow-sm hover:shadow-md"
@@ -796,58 +1304,52 @@ export default function PageTemplate<T extends BaseEntity>({
       </div>
       </div>
 
-      {/* Bulk Actions Bar - Fixed below search controls */}
-      {selectedItems.length > 0 && (
-        <div className={cn(
-          isFullScreen ? "sticky top-0 z-15 bg-white border-b border-gray-200 flex-shrink-0" : ""
-        )}>
-          <BulkActionsBar
-            selectedItems={selectedItems}
-            totalItems={data.length}
-            onBulkEdit={() => setShowBulkEditModal(true)}
-            onExportSelected={() => setShowExportModal(true)}
-            onBulkDelete={() => setShowBulkDeleteModal(true)}
-            onClearSelection={() => setSelectedItems([])}
-          />
-        </div>
-      )}
+      {/* BulkActionsBar removed - duplicate of main action buttons */}
 
-      {/* Main Content Area - Scrollable */}
-      <div className={cn(
-        isFullScreen ? "flex-1 overflow-auto flex flex-col" : "pb-4"
-      )}>
+      {/* Main Content Area - Takes remaining space */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="h-full flex flex-col bg-white">
         {viewMode === 'table' && (
           <>
             {/* Table Header - Fixed */}
-            <div className={cn(
-              isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200 flex-shrink-0" : ""
-            )}>
-              <DataTable
-                data={filteredData}
-                columns={visibleColumns}
-                selectedItems={selectedItems}
-                onSelectItem={(id: string) => handleSelectItem(id, !selectedItems.includes(id))}
-                onRowClick={(item: any) => handleItemClick(item as T)}
-                onSelectAll={handleSelectAll}
-                searchQuery={searchQuery}
-                columnFilters={localColumnFilters}
-                activeColumnFilter={activeColumnFilter}
-                onFilterClick={onFilterClickHeader}
-                onColumnFilterChange={onColumnFilterChangeHeader}
-                isFullScreen={isFullScreen}
-              />
+            <div className="flex-shrink-0 bg-white">
+              {autoGeneratedColumnHeaders.length > 0 && (
+                <GridColumnHeader
+                  columns={autoGeneratedColumnHeaders}
+                  activeColumnFilter={activeColumnFilter}
+                  columnFilters={localColumnFilters}
+                  onFilterClick={(c) => onFilterClickHeader(c as any)}
+                  onColumnFilterChange={onColumnFilterChangeHeader}
+                  getUniqueValues={getUniqueValues}
+                  sortColumn={sortColumn || undefined}
+                  sortDirection={sortDirection}
+                  onSortClick={handleSort}
+                  allSelected={selectedItems.length === sortedFilteredData.length && sortedFilteredData.length > 0}
+                  onSelectAll={handleSelectAll}
+                />
+              )}
             </div>
             {/* Table Body - Scrollable */}
-            <div className={cn(
-              isFullScreen ? "flex-1 overflow-auto min-h-0" : ""
-            )}>
-              {/* Table content will be rendered here by DataTable component */}
+            <div className="flex-1 min-h-0 overflow-y-auto" style={thinScrollbarStyles}>
+              <DataTable
+                data={sortedFilteredData as any}
+                selectedItems={selectedItems}
+                onSelectItem={(id: string) => handleSelectItem(id, !selectedItems.includes(id))}
+                onSelectAll={handleSelectAll}
+                onRowClick={(item: any) => handleItemClick(item as T)}
+                columns={visibleColumns as any[]}
+                searchQuery={searchQuery}
+                isFullScreen={isFullScreen}
+                activeColumnFilter={activeColumnFilter}
+                columnFilters={localColumnFilters}
+                onFilterClick={(c: string) => onFilterClickHeader(c as any)}
+                onColumnFilterChange={onColumnFilterChangeHeader}
+                getUniqueValues={getUniqueValues}
+                hideHeader={true}
+              />
             </div>
-            {/* Pagination - Fixed at bottom */}
-            <div className={cn(
-              "border-t border-gray-200", 
-              isFullScreen ? "sticky bottom-0 bg-white z-10 flex-shrink-0" : ""
-            )}>
+            {/* Pagination - Sticky at bottom */}
+            <div className="flex-shrink-0">
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
@@ -862,36 +1364,52 @@ export default function PageTemplate<T extends BaseEntity>({
         )}
 
         {viewMode === 'grid' && (
-          <>
-            {/* Grid Header - Fixed */}
-            {(() => {
-              const HeaderComp = GridHeaderComponent
-              if (!HeaderComp) return null
-              return (
-                <div className={cn(
-                  isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200 flex-shrink-0" : ""
-                )}>
-                  <HeaderComp
+            <>
+              {/* Grid Header - Fixed */}
+              <div className="flex-shrink-0 bg-white">
+                {GridHeaderComponent ? (
+                  <GridHeaderComponent
                     selectedProducts={selectedItems}
-                    currentProducts={filteredData}
+                    currentProducts={sortedFilteredData}
                     onSelectAll={handleSelectAll}
                     activeColumnFilter={activeColumnFilter}
                     columnFilters={localColumnFilters}
-                    onFilterClick={onFilterClickHeader}
+                    onFilterClick={(c) => onFilterClickHeader(c as any)}
                     onColumnFilterChange={onColumnFilterChangeHeader}
                     getUniqueValues={getUniqueValues}
                     cardsPerRow={effectiveGridCardsPerRow}
                     onCardsPerRowChange={onCardsPerRowChange ?? ((v: number) => setGridCardsPerRow(v))}
                   />
-                </div>
-              )
-            })()}
+                ) : (
+                  <>
+                    {/* Auto-generated Column Headers Only */}
+                    {autoGeneratedColumnHeaders.length > 0 && (
+                      <GridColumnHeader
+                        columns={autoGeneratedColumnHeaders}
+                        activeColumnFilter={activeColumnFilter}
+                        columnFilters={localColumnFilters}
+                        onFilterClick={(c) => onFilterClickHeader(c as any)}
+                        onColumnFilterChange={onColumnFilterChangeHeader}
+                        getUniqueValues={getUniqueValues}
+                        sortColumn={sortColumn || undefined}
+                        sortDirection={sortDirection}
+                        onSortClick={handleSort}
+                        allSelected={selectedItems.length === sortedFilteredData.length && sortedFilteredData.length > 0}
+                        onSelectAll={handleSelectAll}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
             {/* Grid Content - Scrollable */}
             <div className={cn(
               getGridClasses(effectiveGridCardsPerRow).className, 
-              isFullScreen ? "flex-1 overflow-auto px-4 min-h-0" : ""
-            )} style={getGridClasses(effectiveGridCardsPerRow).style}>
-              {filteredData.map((item: T) => (
+              "flex-1 min-h-0 overflow-y-auto px-4"
+            )} style={{
+              ...getGridClasses(effectiveGridCardsPerRow).style,
+              ...thinScrollbarStyles
+            }}>
+              {sortedFilteredData.map((item: T) => (
                 <div
                   key={item.id}
                   className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
@@ -947,11 +1465,8 @@ export default function PageTemplate<T extends BaseEntity>({
                 </div>
               ))}
             </div>
-            {/* Pagination - Fixed at bottom */}
-            <div className={cn(
-              "border-t border-gray-200", 
-              isFullScreen ? "sticky bottom-0 bg-white z-10 flex-shrink-0" : ""
-            )}>
+            {/* Pagination - Sticky at bottom */}
+            <div className="flex-shrink-0">
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
@@ -966,36 +1481,58 @@ export default function PageTemplate<T extends BaseEntity>({
         )}
 
         {viewMode === 'card' && (
-          <>
-            {/* Card Header - Fixed */}
-            {(() => {
-              const HeaderComp = CardHeaderComponent || GridHeaderComponent
-              if (!HeaderComp) return null
-              return (
-                <div className={cn(
-                  isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200 flex-shrink-0" : ""
-                )}>
-                  <HeaderComp
-                    selectedProducts={selectedItems}
-                    currentProducts={filteredData}
-                    onSelectAll={handleSelectAll}
-                    activeColumnFilter={activeColumnFilter}
-                    columnFilters={localColumnFilters}
-                    onFilterClick={onFilterClickHeader}
-                    onColumnFilterChange={onColumnFilterChangeHeader}
-                    getUniqueValues={getUniqueValues}
-                    cardsPerRow={effectiveCardCardsPerRow}
-                    onCardsPerRowChange={onCardsPerRowChange ?? ((v: number) => setCardCardsPerRow(v))}
-                  />
-                </div>
-              )
-            })()}
+            <>
+              {/* Card Header - Fixed */}
+              <div className="flex-shrink-0 bg-white">
+                {(CardHeaderComponent || GridHeaderComponent) ? (
+                  (() => {
+                    const HeaderComp = CardHeaderComponent || GridHeaderComponent
+                    if (!HeaderComp) return null
+                    return (
+                      <HeaderComp
+                        selectedProducts={selectedItems}
+                        currentProducts={sortedFilteredData}
+                        onSelectAll={handleSelectAll}
+                        activeColumnFilter={activeColumnFilter}
+                        columnFilters={localColumnFilters}
+                        onFilterClick={(c: string) => onFilterClickHeader(c as any)}
+                        onColumnFilterChange={onColumnFilterChangeHeader}
+                        getUniqueValues={getUniqueValues}
+                        cardsPerRow={effectiveCardCardsPerRow}
+                        onCardsPerRowChange={onCardsPerRowChange ?? ((v: number) => setCardCardsPerRow(v))}
+                      />
+                    )
+                  })()
+                ) : (
+                  <>
+                    {/* Auto-generated Column Headers Only */}
+                    {autoGeneratedColumnHeaders.length > 0 && (
+                      <GridColumnHeader
+                        columns={autoGeneratedColumnHeaders}
+                        activeColumnFilter={activeColumnFilter}
+                        columnFilters={localColumnFilters}
+                        onFilterClick={(c) => onFilterClickHeader(c as any)}
+                        onColumnFilterChange={onColumnFilterChangeHeader}
+                        getUniqueValues={getUniqueValues}
+                        sortColumn={sortColumn || undefined}
+                        sortDirection={sortDirection}
+                        onSortClick={handleSort}
+                        allSelected={selectedItems.length === sortedFilteredData.length && sortedFilteredData.length > 0}
+                        onSelectAll={handleSelectAll}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
             {/* Card Content - Scrollable */}
             <div className={cn(
               getGridClasses(effectiveCardCardsPerRow).className, 
-              isFullScreen ? "flex-1 overflow-auto px-4 min-h-0" : ""
-            )} style={getGridClasses(effectiveCardCardsPerRow).style}>
-              {filteredData.map((item: T) => {
+              "flex-1 min-h-0 overflow-y-auto px-4"
+            )} style={{
+              ...getGridClasses(effectiveCardCardsPerRow).style,
+              ...thinScrollbarStyles
+            }}>
+              {sortedFilteredData.map((item: T) => {
                 const anyItem: any = item as any
                 const title = anyItem.title || anyItem.name || 'Untitled'
                 const subtitle = anyItem.vendor || anyItem.board || anyItem.owner || anyItem.client || anyItem.designer || ''
@@ -1085,11 +1622,8 @@ export default function PageTemplate<T extends BaseEntity>({
                 )
               })}
             </div>
-            {/* Pagination - Fixed at bottom */}
-            <div className={cn(
-              "border-t border-gray-200", 
-              isFullScreen ? "sticky bottom-0 bg-white z-10 flex-shrink-0" : ""
-            )}>
+            {/* Pagination - Sticky at bottom */}
+            <div className="flex-shrink-0">
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
@@ -1102,6 +1636,7 @@ export default function PageTemplate<T extends BaseEntity>({
             </div>
           </>
         )}
+        </div>
       </div>
 
       {/* Modals */}
@@ -1173,19 +1708,10 @@ export default function PageTemplate<T extends BaseEntity>({
         />
       )}
 
-      {showImportModal && (
-        <ImportModal
-          isOpen={showImportModal}
-          onClose={() => setShowImportModal(false)}
-          onImport={(file: File) => {
-            console.log('Import file:', file)
-            setShowImportModal(false)
-          }}
-        />
-      )}
+      {/* Import modal can be integrated here if available */}
 
       {showPrintModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-xl mx-4">
             <div className="flex items-start justify-between p-4 border-b border-gray-200">
               <div>
@@ -1275,7 +1801,7 @@ export default function PageTemplate<T extends BaseEntity>({
             handleItemsPerPageChange(settingsDraft.pageSize)
             try {
               if (typeof window !== 'undefined') {
-                localStorage.setItem(storageKey, JSON.stringify({ columnVisibility: settingsDraft.columnVisibility, pageSize: settingsDraft.pageSize }))
+                localStorage.setItem(tableStorageKey, JSON.stringify({ columnVisibility: settingsDraft.columnVisibility, pageSize: settingsDraft.pageSize }))
               }
             } catch {}
             setShowSettingsModal(false)
@@ -1283,29 +1809,23 @@ export default function PageTemplate<T extends BaseEntity>({
         />
       )}
 
-      {showBulkEditModal && (
-        <BulkEditModal
-          isOpen={showBulkEditModal}
-          onClose={() => setShowBulkEditModal(false)}
-          selectedItems={selectedItems}
-          onBulkEdit={(updates: Record<string, any>) => {
-            console.log('Bulk edit updates:', updates)
-            setShowBulkEditModal(false)
-          }}
-        />
-      )}
+      {/* Bulk edit modal placeholder */}
 
-      {showBulkDeleteModal && (
-        <BulkDeleteModal
-          isOpen={showBulkDeleteModal}
-          onClose={() => setShowBulkDeleteModal(false)}
-          selectedItems={selectedItems}
-          onBulkDelete={() => {
-            console.log('Bulk delete confirmed')
-            setShowBulkDeleteModal(false)
-          }}
-        />
-      )}
+      {/* Bulk delete modal placeholder */}
+
+      {/* Save View Modal */}
+      <SaveViewModal
+        isOpen={savedViews.showSaveModal}
+        onClose={() => savedViews.setShowSaveModal(false)}
+        viewName={savedViews.viewName}
+        setViewName={savedViews.setViewName}
+        onSave={savedViews.handleConfirmSave}
+        currentState={{
+          searchQuery,
+          columnFiltersCount: Object.keys(localColumnFilters).filter(k => localColumnFilters[k]).length,
+          viewMode
+        }}
+      />
     </div>
   )
 }

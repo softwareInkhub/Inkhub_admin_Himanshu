@@ -1,13 +1,13 @@
 'use client'
 
 import React from 'react'
-import { CustomFilter } from './types'
+import { CustomFilter } from './types/unified-table'
 
 interface FilterPanelProps {
   activeFilter: string
   setActiveFilter: (filter: string) => void
   customFilters: CustomFilter[]
-  onAddCustomFilter: (filter: CustomFilter) => void
+  onAddCustomFilter: (filter: { name: string; field: string; operator: string; value: string }) => void
   onRemoveCustomFilter: (id: string) => void
   hiddenDefaultFilters: Set<string>
   onShowAllFilters: () => void

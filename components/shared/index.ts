@@ -1,59 +1,47 @@
-// Shared Components Library
-// This library contains all reusable components that can be used across different pages
-
-// Core Data Components
-export { default as DataTable } from './DataTable'
-export { default as DataGrid } from './DataGrid'
-export { default as DataCard } from './DataCard'
-
-// Analytics Components
-export { default as KPIGrid } from './KPIGrid'
-export { default as KPICard } from './KPICard'
-export { default as AnalyticsCard } from './AnalyticsCard'
-
-// Search and Filter Components
+// Shared UI components barrel exports
 export { default as SearchControls } from './SearchControls'
-export { default as GoogleStyleSearch } from './GoogleStyleSearch'
-export { default as AdvancedSearchBuilder } from './AdvancedSearchBuilder'
-export { default as FilterPanel } from './FilterPanel'
-export { default as ColumnFilter } from './ColumnFilter'
-export { default as SavedSearchesDropdown } from './SavedSearchesDropdown'
-
-// Action Components
+export { default as KPICard } from './KPICard'
+export { default as KPIGrid } from './KPIGrid'
+export { default as ColumnHeader } from './ColumnHeader'
+export { default as ColumnManager } from './ColumnManager'
 export { default as BulkActionsBar } from './BulkActionsBar'
-export { default as ActionButtons } from './ActionButtons'
+export { default as GoogleStyleSearch } from './GoogleStyleSearch'
+export { default as HighlightedText } from './HighlightedText'
 export { default as ExportModal } from './ExportModal'
-export { default as ImportModal } from './ImportModal'
-export { default as BulkEditModal } from './BulkEditModal'
-export { default as BulkDeleteModal } from './BulkDeleteModal'
+export { default as JsonViewerModal } from './JsonViewerModal'
+export { default as SortIndicator } from './SortIndicator'
+export { default as GridCardFilterHeader } from './GridCardFilterHeader'
+export { default as GridColumnHeader } from './GridColumnHeader'
+export { default as Pagination } from './Pagination'
 export { default as EnhancedDetailModal } from './EnhancedDetailModal'
-
-// Enhanced Analytics Components (from Products page)
+export { default as ImageDisplay } from './ImageDisplay'
+export type { GridFilterColumn } from './GridCardFilterHeader'
 export { default as CustomCardModal } from './CustomCardModal'
 export { default as CardManagerModal } from './CardManagerModal'
-export { default as CalculatorInterface } from './CalculatorInterface'
-
-// Display Components
-export { default as StatusBadge } from './StatusBadge'
-export { default as ImageDisplay } from './ImageDisplay'
-export { default as HighlightedText } from './HighlightedText'
-export { default as Pagination } from './Pagination'
-
-// Layout Components
-export { default as PageHeader } from './PageHeader'
-export { default as ViewToggle } from './ViewToggle'
-export { default as CardsPerRowDropdown } from './CardsPerRowDropdown'
-export { default as GridCardFilterHeader, type GridFilterColumn } from './GridCardFilterHeader'
-export { default as TablePreferencesModal } from './TablePreferencesModal'
-
-// Page Template
+export { default as ActionButtons } from './ActionButtons'
+export { default as AdvancedSearchBuilder } from './AdvancedSearchBuilder'
+export { default as AdvancedFiltersPanel } from './AdvancedFiltersPanel'
+export { default as AnalyticsCard } from './AnalyticsCard'
 export { default as PageTemplate } from './PageTemplate'
-
-// Hooks
+export { default as SaveViewModal } from './SaveViewModal'
 export { useDataTable } from './hooks/useDataTable'
+export { useSavedViews } from './hooks/useSavedViews'
 
-// Utils
-export * from './utils'
+// Orders components
+export { default as OrderHeader } from './OrderHeader'
+export { default as OrderTable } from './OrderTable'
+export { default as OrdersGrid } from './OrdersGrid'
+export { default as OrdersList } from './OrdersList'
+export { default as OrderCardView } from './OrderCardView'
+export { default as OrderViewHeader } from './OrderViewHeader'
+export { default as OrderSearchControls } from './OrderSearchControls'
+export { default as OrderKPIGrid } from './OrderKPIGrid'
+export { default as OrderFilterDropdown } from './OrderFilterDropdown'
+export { default as ColumnsQuickToggle } from './ColumnsQuickToggle'
 
-// Types
-export * from './types'
+// Products components
+export { default as ProductHeader } from './ProductHeader'
+export { default as ProductTable } from './ProductTable'
+export { default as ProductCardView } from './ProductCardView'
+export { default as ProductViewHeader } from './ProductViewHeader'
+export { default as ProductImage } from './ProductImage'

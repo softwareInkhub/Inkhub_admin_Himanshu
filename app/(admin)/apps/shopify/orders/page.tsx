@@ -7,28 +7,34 @@ import { useOrdersPageStore } from '@/lib/stores/orders-page-store'
 import { UrlStateProvider } from '@/components/UrlStateProvider'
 import { cn } from '@/lib/utils'
 import { X, Columns } from 'lucide-react'
+import { thinScrollbarStyles } from '@/components/shared/styles/scrollbarStyles'
 import { debounce } from '../products/utils/advancedSearch'
 import { debouncedAlgoliaSearch, searchOrdersWithAdvancedFilters } from './utils/algoliaSearch'
 import { parseAdvancedSearchQuery, applyAdvancedSearch } from './utils/advancedSearch'
 import { SearchHistory, saveSearchToHistory, SearchSuggestion, getSearchSuggestions } from './utils/searchSuggestions'
 
-import OrderKPIGrid from './components/OrderKPIGrid'
-import OrderTable from './components/OrderTable'
-import OrderCardView from './components/OrderCardView'
-import OrdersGrid from './components/OrdersGrid'
-import SearchControls from './components/SearchControls'
+import OrderKPIGrid from '@/components/shared/OrderKPIGrid'
+import OrderTable from '@/components/shared/OrderTable'
+import OrderCardView from '@/components/shared/OrderCardView'
+import OrdersGrid from '@/components/shared/OrdersGrid'
+import SearchControls from '@/components/shared/SearchControls'
 // Using enhanced shared components for better consistency across all pages
 import { 
   GridCardFilterHeader, 
   Pagination, 
-  BulkActionsBar, 
   ExportModal,
   EnhancedDetailModal,
   KPIGrid,
   HighlightedText,
   ImageDisplay,
+  SaveViewModal,
+  useSavedViews,
   type GridFilterColumn 
 } from '@/components/shared'
+import GridColumnHeader from '@/components/shared/GridColumnHeader'
+import KPIHeaderActions from '@/components/shared/KPIHeaderActions'
+import CardsPerRowDropdown from '@/components/shared/CardsPerRowDropdown'
+import { generateOrderColumnHeaders } from '@/components/shared/utils/columnHeaderUtils'
 import { Order, SearchCondition, CustomFilter } from './types'
 import { 
   generateOrders as generateOrdersData,
@@ -39,8 +45,8 @@ import { getOrdersForPage, getTotalChunks } from './services/orderService'
 
 // JSON Column Customization
 import { useJsonColumns } from './hooks/useJsonColumns'
-import ColumnManager from './components/ColumnManager'
-import ColumnsQuickToggle from './components/ColumnsQuickToggle'
+import ColumnManager from '@/components/shared/ColumnManager'
+import ColumnsQuickToggle from '@/components/shared/ColumnsQuickToggle'
 import { generateEnhancedCellRenderer } from './utils/columnGenerator'
 
 interface OrdersClientProps {
@@ -329,12 +335,17 @@ function OrdersClientContent({
     channels: [] as string[]
   })
   
-  // Trigger Algolia search when Advanced Filters change
+  // Trigger Algolia search when Advanced Filters change (debounced for better performance)
   useEffect(() => {
-    if (showAdvancedFilter) {
+    if (!showAdvancedFilter) return
+    
+    // Debounce the search to avoid triggering on every keystroke
+    const debounceTimer = setTimeout(() => {
       handleAdvancedFiltersAlgoliaSearch(advancedFilters)
-    }
-  }, [advancedFilters, showAdvancedFilter, handleAdvancedFiltersAlgoliaSearch])
+    }, 500) // 500ms delay
+    
+    return () => clearTimeout(debounceTimer)
+  }, [advancedFilters, showAdvancedFilter])
 
   // Map ALL table column filters to Algolia search (supports all 81+ columns)
   useEffect(() => {
@@ -462,6 +473,10 @@ function OrdersClientContent({
   const setViewMode = (mode: 'table' | 'grid' | 'card') => setStoredViewMode(mode)
   const [showAdditionalControls, setShowAdditionalControls] = useState(false)
   
+  // Pagination states - MOVED BEFORE useSavedViews to fix initialization order
+  const [currentPage, setCurrentPage] = useState(pageIndex + 1) // Convert 0-based to 1-based
+  const [itemsPerPage, setItemsPerPage] = useState(pageSize)
+  
   // Header dropdown states
   const [showHeaderDropdown, setShowHeaderDropdown] = useState(false)
   const headerAreaRef = useRef<HTMLDivElement>(null)
@@ -505,44 +520,33 @@ function OrdersClientContent({
   const fullScreenScrollRef = useRef<HTMLDivElement>(null)
   const tableScrollRef = useRef<HTMLDivElement>(null)
   
-  // Saved searches state
-  const [savedSearches, setSavedSearches] = useState<any[]>([])
-  const [showSaveModal, setShowSaveModal] = useState(false)
-  const [viewName, setViewName] = useState('')
-  
-  // Load saved searches on component mount (persist across refresh/navigation)
-  useEffect(() => {
-    const STORAGE_KEY = 'orders-saved-views:shopify-inkhub-get-orders'
-    const loadSavedSearches = async () => {
-      try {
-        // Hydrate instantly from localStorage if present
-        if (typeof window !== 'undefined') {
-          const cached = localStorage.getItem(STORAGE_KEY)
-          if (cached) {
-            try {
-              const parsed = JSON.parse(cached)
-              if (Array.isArray(parsed)) setSavedSearches(parsed)
-            } catch {}
-          }
-        }
-
-        // CRUD API removed - only localStorage operations
-      } catch (error) {
-        console.error('Failed to load saved searches:', error)
+  // Saved Views - Using generic hook
+  const savedViews = useSavedViews({
+    storageKey: 'orders-saved-views',
+    currentState: {
+      searchQuery,
+      searchConditions,
+      columnFilters: {},
+      customFilters,
+      advancedFilters,
+      sortColumn: sorting[0]?.id || '',
+      sortDirection: sorting[0]?.desc ? 'desc' : 'asc',
+      viewMode,
+      itemsPerPage
+    },
+    onApply: (state) => {
+      // Apply saved view state
+      if (state.searchQuery !== undefined) setSearchQuery(state.searchQuery)
+      if (state.searchConditions !== undefined) setSearchConditions(state.searchConditions)
+      if (state.customFilters !== undefined) setCustomFilters(state.customFilters)
+      if (state.advancedFilters !== undefined) setAdvancedFilters(state.advancedFilters)
+      if (state.sortColumn !== undefined && state.sortDirection !== undefined) {
+        setSorting([{ id: state.sortColumn, desc: state.sortDirection === 'desc' }])
       }
+      if (state.viewMode !== undefined) setViewMode(state.viewMode as any)
+      if (state.itemsPerPage !== undefined) setItemsPerPage(state.itemsPerPage)
     }
-    loadSavedSearches()
-  }, [])
-  
-  // Callback to trigger save modal
-  const handleSaveToSearchViews = useCallback(() => {
-    console.log('💾 Orders page: Opening save modal');
-    setShowSaveModal(true)
-    // Auto-fill the view name with the current search query
-    if (searchQuery && searchQuery.trim()) {
-      setViewName(searchQuery.trim())
-    }
-  }, [searchQuery]);
+  });
   
   
   // Table row density toggle
@@ -689,14 +693,17 @@ function OrdersClientContent({
     setVisibleFields(tempVisibleFields)
   }
   
-  // Pagination states - using Zustand store
-  const [currentPage, setCurrentPage] = useState(pageIndex + 1) // Convert 0-based to 1-based
-  const [itemsPerPage, setItemsPerPage] = useState(pageSize)
+  // Pagination states already declared above before useSavedViews (lines 471-472)
+  // const [currentPage, setCurrentPage] = useState(pageIndex + 1)
+  // const [itemsPerPage, setItemsPerPage] = useState(pageSize)
   
-  // Handle applying a saved search
+  // handleApplySavedSearch removed - now using savedViews.handleApplyView from generic hook
+  // Note: Algolia search trigger will be handled by the savedViews.onApply callback
+  
+  // Legacy function kept for reference - logic moved to savedViews.onApply
+  /*
   const handleApplySavedSearch = useCallback((savedSearch: any) => {
     console.log('💾 Applying saved search:', savedSearch.viewName);
-    // 1) Apply locally for instant UI
     const safeSearchQuery = savedSearch.searchQuery || savedSearch.searchState?.searchQuery || '';
     setSearchQuery(safeSearchQuery);
     setSearchConditions(savedSearch.searchConditions || savedSearch.searchState?.searchConditions || []);
@@ -728,8 +735,10 @@ function OrdersClientContent({
       setAlgoliaSearchResults([])
     }
   }, [setSearchQuery, setSearchConditions, setColumnFilters, setCustomFilters, setSorting, setViewMode, setItemsPerPage, orderData]);
+  */
   
-  // Handle deleting a saved search
+  // handleDeleteSavedSearch removed - now using savedViews.handleDeleteView from generic hook
+  /*
   const handleDeleteSavedSearch = useCallback(async (id: string) => {
     console.log('🗑️ Attempting to delete saved search with ID:', id)
     
@@ -763,6 +772,7 @@ function OrdersClientContent({
       // Even if API fails, UI is already updated for better UX
     }
   }, [savedSearches]);
+  */
   
   // Cache state and StrictMode guard (logic-only, no UI changes)
   const [cacheKey, setCacheKey] = useState<string>('')
@@ -1171,33 +1181,6 @@ function OrdersClientContent({
   const [isCalculatingKPIs, setIsCalculatingKPIs] = useState(false)
   const [kpisCachedAge, setKpisCachedAge] = useState<number | null>(null)
 
-  // Calculate total pages and items based on current data source
-  // Use Algolia filter results if active, otherwise use comprehensive KPIs or total orders
-  const totalItemsForPagination = useAlgoliaFilters && algoliaFilterResults.length > 0 
-    ? algoliaFilterResults.length 
-    : (comprehensiveKPIs?.totalOrders || totalOrders || 69911)
-  
-  // When Algolia filters are active, show all results on one page for better UX
-  // Otherwise use normal pagination
-  const effectiveItemsPerPage = useAlgoliaFilters && algoliaFilterResults.length > 0 
-    ? algoliaFilterResults.length 
-    : itemsPerPage
-  
-  const totalPages = Math.ceil(totalItemsForPagination / effectiveItemsPerPage) // Each page has effectiveItemsPerPage orders
-  
-  // Debug logging for pagination when Algolia filters are active (reduced frequency)
-  if (useAlgoliaFilters && algoliaFilterResults.length > 0 && process.env.NODE_ENV === 'development' && Math.random() < 0.05) {
-    console.log('🔍 Algolia Filter Pagination Debug:', {
-      algoliaResultsLength: algoliaFilterResults.length,
-      effectiveItemsPerPage,
-      totalItemsForPagination,
-      totalPages,
-      currentPage,
-      itemsPerPage,
-      useAlgoliaFilters
-    })
-  }
-  
   // Keep local currentPage in sync with Zustand store
   useEffect(() => {
     const storePage = pageIndex + 1 // Convert 0-based to 1-based
@@ -1267,69 +1250,18 @@ function OrdersClientContent({
   // All searches and filters are case-insensitive and handled server-side
   // ============================================================
   const filteredData = useMemo(() => {
-    // TEMPORARILY ENABLE FULL LOGGING TO DEBUG FILTERING ISSUE
-    const shouldLog = process.env.NODE_ENV === 'development' && 
-      ((debouncedSearchQuery && debouncedSearchQuery.trim()) || useAlgoliaFilters)
-    // Math.random() < 0.1 // Only log 10% of the time to reduce noise - DISABLED FOR DEBUGGING
-    
-    if (shouldLog) {
-      console.log('🔍 Filtering data with:', {
-        orderDataLength: orderData.length,
-        useAlgoliaSearch,
-        algoliaSearchResultsLength: algoliaSearchResults.length,
-        useAlgoliaFilters,
-        algoliaFilterResultsLength: algoliaFilterResults.length,
-        activeFilter,
-        debouncedSearchQuery,
-        columnFilters,
-        advancedFilters
-      })
-      
-      // Debug: Log the actual search results (reduced frequency)
-      if (useAlgoliaSearch && algoliaSearchResults.length > 0) {
-        console.log('🔍 Search results in useMemo:', {
-          length: algoliaSearchResults.length,
-          sampleResults: algoliaSearchResults.slice(0, 3).map(o => ({ 
-            id: o.id, 
-            orderNumber: o.orderNumber, 
-            customerName: o.customerName 
-          }))
-        })
-      }
-      
-      // Debug: Log the Advanced Filters results (reduced frequency)
-      if (useAlgoliaFilters && algoliaFilterResults.length > 0) {
-        console.log('🔍 Advanced Filters results in useMemo:', {
-          length: algoliaFilterResults.length,
-          sampleResults: algoliaFilterResults.slice(0, 3).map(o => ({ 
-            id: o.id, 
-            orderNumber: o.orderNumber, 
-            customerName: o.customerName 
-          }))
-        })
-      }
-    }
+    // Reduced logging for better performance
+    const shouldLog = process.env.NODE_ENV === 'development' && Math.random() < 0.05 // Only 5% of the time
     
     // Start with deduplicated order data
     let filtered = deduplicatedOrderData
     
     // Priority 1: Use Algolia filter results if Advanced Filters are active
     if (useAlgoliaFilters && algoliaFilterResults.length > 0) {
+      if (shouldLog) {
       console.log('🔍 Using Algolia Advanced Filters results:', algoliaFilterResults.length, 'orders')
-      console.log('🔍 Sample Algolia filter results:', algoliaFilterResults.slice(0, 3).map(o => ({
-        orderNumber: o.orderNumber,
-        fulfillmentStatus: o.fulfillmentStatus,
-        customerName: o.customerName
-      })))
+      }
       filtered = algoliaFilterResults
-    } else if (useAlgoliaFilters) {
-      console.log('🔍 Algolia filters active but no results:', {
-        useAlgoliaFilters,
-        algoliaFilterResultsLength: algoliaFilterResults.length,
-        activeFilter,
-        columnFilters,
-        advancedFilters
-      })
     }
     
     // Priority 2: Use Algolia search results if search query is active
@@ -1365,28 +1297,7 @@ function OrdersClientContent({
     
     // Priority 3: Show all local data when no filters/search active
     else if (!debouncedSearchQuery || !debouncedSearchQuery.trim()) {
-      // Show all local data
-      if (shouldLog) {
-        console.log('🔍 No search/filters active - showing local data:', filtered.length, 'orders')
-      }
-    }
-    
-    // Final debug: Log the complete filtered data state (reduced frequency)
-    if (shouldLog) {
-      console.log('🔍 Final filtered data state:', {
-        totalLength: filtered.length,
-        dataSource: useAlgoliaFilters ? 'Algolia Advanced Filters' : (useAlgoliaSearch ? 'Algolia Search' : 'Local Data'),
-        useAlgoliaSearch,
-        useAlgoliaFilters,
-        algoliaResultsLength: algoliaSearchResults.length,
-        algoliaFilterResultsLength: algoliaFilterResults.length,
-        debouncedSearchQuery,
-        sampleData: filtered.slice(0, 3).map(o => ({ 
-          id: o.id, 
-          orderNumber: o.orderNumber, 
-          customerName: o.customerName 
-        }))
-      })
+      // Show all local data - no logging needed for performance
     }
 
     // NO LOCAL FILTERING - All filters are handled by Algolia
@@ -1395,10 +1306,45 @@ function OrdersClientContent({
     return filtered
   }, [deduplicatedOrderData, useAlgoliaSearch, algoliaSearchResults, useAlgoliaFilters, algoliaFilterResults, debouncedSearchQuery, columnFilters, advancedFilters])
 
-  // Pagination - using chunk-based system
-  const startIndex = 0 // Since we're loading the entire chunk, start from 0
-  const endIndex = orderData.length // Use all orders from the current chunk
-  const currentData = filteredData // Use filtered orders for display
+  // Pagination - Orders uses chunk-based system where each page loads a new chunk
+  // Each chunk is fetched based on currentPage via getOrdersForPage()
+  // The itemsPerPage controls how we slice the current chunk's data for display
+  const startIndex = 0
+  const endIndex = Math.min(itemsPerPage, filteredData.length)
+  const currentData = useMemo(() => {
+    // When Algolia filters are active, show all results without slicing
+    if (useAlgoliaFilters && algoliaFilterResults.length > 0) {
+      return filteredData
+    }
+    // For chunk-based system: slice the current chunk data based on itemsPerPage
+    // This allows user to see 10, 25, 50, 100, 200, or 500 items from the current chunk
+    return filteredData.slice(0, itemsPerPage)
+  }, [filteredData, itemsPerPage, useAlgoliaFilters, algoliaFilterResults])
+
+  // Calculate total pages and items based on current data source (AFTER filteredData is defined)
+  // Use Algolia filter results if active, otherwise use comprehensive KPIs for total count
+  const totalItemsForPagination = useAlgoliaFilters && algoliaFilterResults.length > 0 
+    ? algoliaFilterResults.length 
+    : (comprehensiveKPIs?.totalOrders || totalOrders || 69811)
+  
+  // Total pages calculation:
+  // For chunk-based system, we have 140 chunks total, each with ~500 orders
+  // Total pages = 140 (one page per chunk, regardless of itemsPerPage setting)
+  const totalPages = useAlgoliaFilters && algoliaFilterResults.length > 0
+    ? Math.ceil(algoliaFilterResults.length / itemsPerPage)
+    : 140 // Fixed 140 pages (140 chunks)
+  
+  // Debug logging for pagination when Algolia filters are active (reduced frequency)
+  if (useAlgoliaFilters && algoliaFilterResults.length > 0 && process.env.NODE_ENV === 'development' && Math.random() < 0.05) {
+    console.log('🔍 Algolia Filter Pagination Debug:', {
+      algoliaResultsLength: algoliaFilterResults.length,
+      totalItemsForPagination,
+      totalPages,
+      currentPage,
+      itemsPerPage,
+      useAlgoliaFilters
+    })
+  }
   
   // Debug logging for currentData when Algolia filters are active (reduced frequency)
   if (useAlgoliaFilters && algoliaFilterResults.length > 0 && process.env.NODE_ENV === 'development' && Math.random() < 0.02) {
@@ -1834,6 +1780,9 @@ function OrdersClientContent({
     setPageSize(newItemsPerPage)
     setCurrentPage(1) // Reset to first page when changing items per page
     setPageIndex(0) // Reset to first page (0-based)
+    
+    // Also update settings to keep both in sync
+    setSettings(prev => ({ ...prev, itemsPerPage: newItemsPerPage }))
   }
 
   // Ultra-fast search handlers
@@ -2227,7 +2176,7 @@ function OrdersClientContent({
 
   return (
     <div className={cn(
-      "h-screen bg-white flex flex-col overflow-hidden",
+      "h-full bg-white flex flex-col overflow-hidden",
       isFullScreen ? "fixed inset-0 z-50 bg-white" : ""
     )}>
       {/* KPI Metrics - Full width, no extra spacing */}
@@ -2264,17 +2213,18 @@ function OrdersClientContent({
           onShowAllFilters={() => setHiddenDefaultFilters(new Set())}
           onClearSearch={clearSearch}
           onClearSearchConditions={() => setSearchConditions([])}
-         selectedOrders={selectedRowIds}
+         selectedProducts={selectedRowIds}
           onBulkEdit={() => setShowBulkEditModal(true)}
           onExportSelected={() => setShowExportModal(true)}
           onBulkDelete={() => setShowBulkDeleteModal(true)}
-          currentOrders={currentData}
+         currentProducts={currentData}
          onSelectAll={handleSelectAll}
          activeColumnFilter={activeColumnFilter}
          columnFilters={columnFilters}
           onFilterClick={setActiveColumnFilter}
          onColumnFilterChange={handleColumnFilter}
           getUniqueValues={getUniqueValues}
+         onExport={() => setShowExportModal(true)}
           onImport={() => setShowImportModal(true)}
           onPrint={() => setShowPrintModal(true)}
           onSettings={() => setShowSettingsModal(true)}
@@ -2288,10 +2238,24 @@ function OrdersClientContent({
           onToggleFullScreen={() => setIsFullScreen(!isFullScreen)}
           isAlgoliaSearching={isAlgoliaSearching}
           useAlgoliaSearch={useAlgoliaSearch}
-          onSaveToSearchViews={handleSaveToSearchViews}
-          savedSearches={savedSearches}
-          onApplySavedSearch={handleApplySavedSearch}
-          onDeleteSavedSearch={handleDeleteSavedSearch}
+         isAlgoliaFiltering={isAlgoliaFiltering}
+         useAlgoliaFilters={useAlgoliaFilters}
+          onSaveToSearchViews={savedViews.handleSaveView}
+          savedSearches={savedViews.savedViews.map(view => ({
+            id: view.id,
+            viewName: view.viewName,
+            searchQuery: view.searchState.searchQuery || '',
+            searchConditions: view.searchState.searchConditions || [],
+            columnFilters: view.searchState.columnFilters || {},
+            customFilters: view.searchState.customFilters || [],
+            sortColumn: view.searchState.sortColumn || '',
+            sortDirection: view.searchState.sortDirection || 'desc',
+            viewMode: view.searchState.viewMode || 'table',
+            itemsPerPage: view.searchState.itemsPerPage || 25,
+            updatedAt: view.updatedAt ? new Date(view.updatedAt).toISOString() : undefined
+          }))}
+          onApplySavedSearch={savedViews.handleApplyView}
+          onDeleteSavedSearch={savedViews.handleDeleteView}
        />
        </div>
 
@@ -2391,6 +2355,10 @@ onClick={() => setShowExportModal(true)}
 
           {/* Right side controls */}
           <div className="flex items-center gap-2">
+            {/* Cards per row near Settings (grid/card modes) */}
+            {(viewMode === 'grid' || viewMode === 'card') && (
+              <CardsPerRowDropdown value={cardsPerRow} onChange={setCardsPerRow} />
+            )}
             {/* NEW: Quick Column Toggle */}
             <ColumnsQuickToggle
               selectedFields={selectedFields}
@@ -2866,11 +2834,11 @@ onClick={() => setShowExportModal(true)}
 
 
 
-      {/* Main Content - Takes remaining space */}
-      <div className="flex-1 min-h-0">
+      {/* Main Content - Takes remaining space, no overflow */}
+      <div className="flex-1 min-h-0 overflow-hidden">
           {/* Data Source Indicator */}
           {error && (
-            <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg mx-4">
+            <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
               <div className="flex items-center">
                 <div className="text-yellow-800 text-sm">
                   <strong>Note:</strong> {error} Using fallback data for demonstration.
@@ -2880,80 +2848,84 @@ onClick={() => setShowExportModal(true)}
       )}
 
           {viewMode === 'table' ? (
-            <div className="h-full flex flex-col bg-white border border-gray-200 rounded-lg overflow-hidden mx-4">
-              {/* Table content - scrollable */}
+            <div className="h-full flex flex-col bg-white">
+              {/* Table content - horizontally scrollable with visible scrollbar */}
               <div 
-                ref={tableScrollRef}
-                className="flex-1 overflow-auto" 
-                style={{ position: 'relative' }}
-                data-scroll-group="orders-table"
+                className="flex-1 min-h-0 overflow-x-auto overflow-y-auto"
+                style={thinScrollbarStyles}
               >
-                <OrderTable
-                  currentOrders={currentData}
-                  selectedItems={selectedRowIds}
-                  onSelectItem={handleSelectItem}
-                  onSelectAll={handleSelectAll}
-                  onRowClick={(order: Order, e: React.MouseEvent) => {
-                    if ((e.target as HTMLElement).closest('input,button')) return
-                    setPreviewOrder(order)
-                    setShowPreviewModal(true)
-                  }}
-                  columns={(function(){
-                    // Reorder columns to match the requested sequence
-                    const priority: Record<string, number> = {
-                      // 1. S.NO is added separately as serialNumberColumn
-                      name: 1, // 2. order (order name)
-                      'customer.firstName': 2, // 3. customer first name
-                      fulfillmentStatus: 3, // 4. fulfillment status
-                      currentTotalPrice: 4, // 5. current total price
-                      createdAt: 5, // 6. created date
-                      updatedAt: 6, // 7. updated date
-                      deliveryStatus: 7, // 8. delivery status
-                      tags: 8, // 9. tags
-                      sourceName: 9, // 10. channels
-                      financialStatus: 10, // 11. payment status
-                      email: 11 // 12. email
-                    }
+                <div 
+                  ref={tableScrollRef}
+                  className="min-w-max"
+                  data-scroll-group="orders-table"
+                >
+                  <OrderTable
+                    currentOrders={currentData}
+                    selectedItems={selectedRowIds}
+                    onSelectItem={handleSelectItem}
+                    onSelectAll={handleSelectAll}
+                    onRowClick={(order: Order, e: React.MouseEvent) => {
+                      if ((e.target as HTMLElement).closest('input,button')) return
+                      setPreviewOrder(order)
+                      setShowPreviewModal(true)
+                    }}
+                    columns={(function(){
+                      // Reorder columns to match the requested sequence
+                      const priority: Record<string, number> = {
+                        // 1. S.NO is added separately as serialNumberColumn
+                        name: 1, // 2. order (order name)
+                        'customer.firstName': 2, // 3. customer first name
+                        fulfillmentStatus: 3, // 4. fulfillment status
+                        currentTotalPrice: 4, // 5. current total price
+                        createdAt: 5, // 6. created date
+                        updatedAt: 6, // 7. updated date
+                        deliveryStatus: 7, // 8. delivery status
+                        tags: 8, // 9. tags
+                        sourceName: 9, // 10. channels
+                        financialStatus: 10, // 11. payment status
+                        email: 11 // 12. email
+                      }
 
-                    const orderedJson = [...jsonColumns].sort((a, b) => {
-                      const pa = priority[a.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
-                      const pb = priority[b.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
-                      if (pa === pb) return 0
-                      return pa - pb
-                    })
+                      const orderedJson = [...jsonColumns].sort((a, b) => {
+                        const pa = priority[a.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
+                        const pb = priority[b.key as keyof typeof priority] ?? Number.MAX_SAFE_INTEGER
+                        if (pa === pb) return 0
+                        return pa - pb
+                      })
 
-                    const allOrderColumns = [serialNumberColumn, ...orderedJson]
-                    return allOrderColumns
-                  })()}
-                  loading={loading}
-                  error={error}
-                  searchQuery={searchQuery}
-                  isFullScreen={isFullScreen}
-                  activeColumnFilter={activeColumnFilter}
-                  columnFilters={columnFilters}
-                  onFilterClick={setActiveColumnFilter}
-                  onColumnFilterChange={handleColumnFilter}
-                  getUniqueValues={getUniqueValues}
-                  showImages={false}
-                  onClearSearch={clearSearch}
-                  isSearching={isAlgoliaSearching}
-                  sortState={sortState}
-                  onRequestSort={handleRequestSort}
-                  compact={rowDensity === 'compact'}
-                  showActions={false}
-                  columnWidths={{ serialNumber: 88 }}
-                  renderHeader
-                  scrollGroupId="orders-table"
-                  tableScrollRef={tableScrollRef}
-                />
+                      const allOrderColumns = [serialNumberColumn, ...orderedJson]
+                      return allOrderColumns
+                    })()}
+                    loading={loading}
+                    error={error}
+                    searchQuery={searchQuery}
+                    isFullScreen={isFullScreen}
+                    activeColumnFilter={activeColumnFilter}
+                    columnFilters={columnFilters}
+                    onFilterClick={setActiveColumnFilter}
+                    onColumnFilterChange={handleColumnFilter}
+                    getUniqueValues={getUniqueValues}
+                    showImages={false}
+                    onClearSearch={clearSearch}
+                    isSearching={isAlgoliaSearching}
+                    sortState={sortState}
+                    onRequestSort={handleRequestSort}
+                    compact={rowDensity === 'compact'}
+                    showActions={false}
+                    columnWidths={{ serialNumber: 88 }}
+                    renderHeader
+                    scrollGroupId="orders-table"
+                    tableScrollRef={tableScrollRef}
+                  />
+                </div>
               </div>
               
               {/* Pagination - Sticky at bottom of container, always visible */}
-              <div className="flex-shrink-0 border-t border-gray-200 shadow-lg bg-white">
+              <div className="flex-shrink-0">
                 <Pagination
                   currentPage={currentPage}
                   totalPages={totalPages}
-                  itemsPerPage={effectiveItemsPerPage}
+                  itemsPerPage={itemsPerPage}
                   totalItems={totalItemsForPagination}
                   onPageChange={handlePageChange}
                   onItemsPerPageChange={handleItemsPerPageChange}
@@ -2965,23 +2937,31 @@ onClick={() => setShowExportModal(true)}
               </div>
             </div>
           ) : viewMode === 'grid' ? (
-            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-              {/* Grid Header */}
-              <GridCardFilterHeader
-                selectedItems={selectedRowIds}
-                currentItems={currentData}
-                onSelectAll={handleSelectAll}
-                activeColumnFilter={activeColumnFilter}
-                columnFilters={columnFilters}
-                onFilterClick={setActiveColumnFilter}
-                onColumnFilterChange={handleColumnFilter}
-                getUniqueValues={getUniqueValues}
-                cardsPerRow={cardsPerRow}
-                onCardsPerRowChange={setCardsPerRow}
-                columns={gridFilterColumns}
-                itemType="orders"
-              />
-              <div className="p-4">
+            <div className="h-full flex flex-col bg-white">
+              {/* Data Table Column Headers - Auto-generated */}
+              <div className="flex-shrink-0">
+                <GridColumnHeader
+                  columns={generateOrderColumnHeaders()}
+                  activeColumnFilter={activeColumnFilter}
+                  columnFilters={columnFilters}
+                  onFilterClick={setActiveColumnFilter}
+                  onColumnFilterChange={handleColumnFilter}
+                  getUniqueValues={getUniqueValues}
+                  sortColumn={sorting[0]?.id}
+                  sortDirection={sorting[0]?.desc ? 'desc' : 'asc'}
+                  onSortClick={(column) => {
+                    const isDesc = sorting[0]?.id === column && !sorting[0]?.desc
+                    setSorting([{ id: column, desc: isDesc }])
+                  }}
+                  allSelected={selectedRowIds.length === currentData.length && currentData.length > 0}
+                  onSelectAll={handleSelectAll}
+                />
+              </div>
+              {/* Scrollable grid content */}
+              <div 
+                className="flex-1 min-h-0 overflow-y-auto p-4"
+                style={thinScrollbarStyles}
+              >
               <OrdersGrid
                   orders={currentData}
             cardsPerRow={cardsPerRow}
@@ -3024,23 +3004,46 @@ onClick={() => setShowExportModal(true)}
                   getUniqueTags={() => getUniqueTagsFromOrders(orderData)}
                 />
               </div>
+              
+              {/* Pagination - Sticky at bottom of container, always visible */}
+              <div className="flex-shrink-0">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  itemsPerPage={itemsPerPage}
+                  totalItems={totalItemsForPagination}
+                  onPageChange={handlePageChange}
+                  onItemsPerPageChange={handleItemsPerPageChange}
+                  itemType="orders"
+                />
+              </div>
             </div>
         ) : (
-          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            {/* Card/List Header (no per row control) */}
-            <GridCardFilterHeader
-              selectedItems={selectedRowIds}
-              currentItems={currentData}
-              onSelectAll={handleSelectAll}
-              activeColumnFilter={activeColumnFilter}
-              columnFilters={columnFilters}
-              onFilterClick={setActiveColumnFilter}
-              onColumnFilterChange={handleColumnFilter}
-              getUniqueValues={getUniqueValues}
-              columns={gridFilterColumns}
-              itemType="orders"
-            />
-            <div className="p-4">
+          <div className="h-full flex flex-col bg-white">
+            {/* Data Table Column Headers - Auto-generated */}
+            <div className="flex-shrink-0">
+              <GridColumnHeader
+                columns={generateOrderColumnHeaders()}
+                activeColumnFilter={activeColumnFilter}
+                columnFilters={columnFilters}
+                onFilterClick={setActiveColumnFilter}
+                onColumnFilterChange={handleColumnFilter}
+                getUniqueValues={getUniqueValues}
+                sortColumn={sorting[0]?.id}
+                sortDirection={sorting[0]?.desc ? 'desc' : 'asc'}
+                onSortClick={(column) => {
+                  const isDesc = sorting[0]?.id === column && !sorting[0]?.desc
+                  setSorting([{ id: column, desc: isDesc }])
+                }}
+                allSelected={selectedRowIds.length === currentData.length && currentData.length > 0}
+                onSelectAll={handleSelectAll}
+              />
+            </div>
+            {/* Scrollable card content */}
+            <div 
+              className="flex-1 min-h-0 overflow-y-auto p-4"
+              style={thinScrollbarStyles}
+            >
           <OrderCardView
                 data={currentData}
                 columns={orderColumns}
@@ -3069,6 +3072,19 @@ onClick={() => setShowExportModal(true)}
                   delivery: visibleFields.has('deliveryStatus')
                 }}
           />
+            </div>
+            
+            {/* Pagination - Sticky at bottom of container, always visible */}
+            <div className="flex-shrink-0">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                itemsPerPage={itemsPerPage}
+                totalItems={totalItemsForPagination}
+                onPageChange={handlePageChange}
+                onItemsPerPageChange={handleItemsPerPageChange}
+                itemType="orders"
+              />
             </div>
           </div>
         )}
@@ -3131,8 +3147,8 @@ onClick={() => setShowExportModal(true)}
         <ExportModal
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
-          products={filteredData as any}
-          selectedProducts={selectedRowIds}
+          orders={filteredData as any}
+          selectedOrders={selectedRowIds}
           onExport={handleExportAction}
         />
       )}
@@ -3300,8 +3316,20 @@ onClick={() => setShowExportModal(true)}
                     </div>
                     <div>
                       <label className="block text-xs text-gray-600 mb-1">Items per page</label>
-                      <select value={settings.itemsPerPage} onChange={(e) => setSettings(prev => ({ ...prev, itemsPerPage: Number(e.target.value) }))} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm">
-                        {[10, 25, 50, 100, 200, 300, 400, 500].map(n => <option key={n} value={n}>{n}</option>)}
+                      <select 
+                        value={settings.itemsPerPage} 
+                        onChange={(e) => {
+                          const newValue = Number(e.target.value)
+                          setSettings(prev => ({ ...prev, itemsPerPage: newValue }))
+                          // Immediately update pagination state to sync both controls
+                          setItemsPerPage(newValue)
+                          setPageSize(newValue)
+                          setCurrentPage(1)
+                          setPageIndex(0)
+                        }} 
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        {[10, 25, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n}</option>)}
                       </select>
                     </div>
                   </div>
@@ -3533,94 +3561,19 @@ onClick={() => setShowExportModal(true)}
       )}
 
 
-      {/* Save Search Modal */}
-      {showSaveModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Save Search View</h3>
-              <button
-                onClick={() => setShowSaveModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  View Name
-                </label>
-                <input
-                  type="text"
-                  value={viewName}
-                  onChange={(e) => setViewName(e.target.value)}
-                  placeholder="Enter a name for this search view"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              
-              <div className="text-sm text-gray-600">
-                <p><strong>Search Query:</strong> {(searchQuery && searchQuery.trim()) ? searchQuery : 'None'}</p>
-                <p><strong>Filters:</strong> {Object.keys(columnFilters || {}).length} active</p>
-                <p><strong>View Mode:</strong> {viewMode}</p>
-              </div>
-            </div>
-            
-            <div className="flex justify-end space-x-3 mt-6">
-              <button
-                onClick={() => setShowSaveModal(false)}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  if (!viewName.trim()) return
-                  
-                  try {
-                    // Save to localStorage only - CRUD API removed
-                    const nowTs = Date.now()
-                    const newView = {
-                      id: `view-${nowTs}`,
-                      viewName: viewName.trim(),
-                      createdAt: nowTs,
-                      updatedAt: nowTs,
-                      userId: useAppStore.getState().currentUser?.id || 'anonymous',
-                      searchState: {
-                        searchQuery: searchQuery || '',
-                        searchConditions,
-                        columnFilters,
-                        customFilters,
-                        advancedFilters: {},
-                        sortColumn: sortState.key || '',
-                        sortDirection: sortState.dir || 'asc',
-                        viewMode,
-                        itemsPerPage
-                      }
-                    }
-                    setSavedSearches(prev => {
-                      const next = [...prev, newView]
-                      try { if (typeof window !== 'undefined') localStorage.setItem('orders-saved-views:shopify-inkhub-get-orders', JSON.stringify(next)) } catch {}
-                      return next
-                    })
-                    setShowSaveModal(false)
-                    setViewName('')
-                    console.log('💾 Saved search view to localStorage:', viewName.trim())
-                  } catch (error) {
-                    console.error('Failed to save search view:', error)
-                  }
-                }}
-                disabled={!viewName.trim()}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Save Search Modal - Using Generic Component */}
+      <SaveViewModal
+        isOpen={savedViews.showSaveModal}
+        onClose={() => savedViews.setShowSaveModal(false)}
+        viewName={savedViews.viewName}
+        setViewName={savedViews.setViewName}
+        onSave={savedViews.handleConfirmSave}
+        currentState={{
+          searchQuery,
+          columnFiltersCount: Object.keys(columnFilters || {}).length,
+          viewMode
+        }}
+      />
 
       {/* Column Manager Modal */}
       <ColumnManager
@@ -3637,9 +3590,5 @@ onClick={() => setShowExportModal(true)}
 }
 
 export default function ShopifyOrdersPage() {
-  return (
-    <div className="h-full">
-      <OrdersClient initialData={{ items: [], lastEvaluatedKey: null, total: 0 }} />
-    </div>
-  )
+  return <OrdersClient initialData={{ items: [], lastEvaluatedKey: null, total: 0 }} />
 } 

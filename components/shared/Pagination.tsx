@@ -1,285 +1,190 @@
 'use client'
 
-import React, { useRef, useEffect, useState } from 'react'
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  ChevronsLeft, 
-  ChevronsRight 
-} from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { PaginationConfig } from './types'
+import React from 'react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 
-interface PaginationProps extends PaginationConfig {
-  className?: string
-  itemType?: string  // Generic item type name (e.g., 'products', 'orders', 'items')
-  scrollGroupId?: string  // For horizontal scroll synchronization
-  tableScrollRef?: React.RefObject<HTMLDivElement>  // Reference to table for scroll sync
-  showScrollbar?: boolean  // Whether to show the horizontal scrollbar
+interface PaginationProps {
+  currentPage: number
+  totalPages: number
+  itemsPerPage: number
+  totalItems?: number
+  onPageChange: (page: number) => void
+  onItemsPerPageChange?: (n: number) => void
+  itemType?: string
+  scrollGroupId?: string
+  tableScrollRef?: React.RefObject<HTMLElement>
+  showScrollbar?: boolean
 }
 
 export default function Pagination({
   currentPage,
   totalPages,
-  itemsPerPage,
-  totalItems,
   onPageChange,
+  itemsPerPage,
   onItemsPerPageChange,
-  className,
-  itemType = 'results',
-  scrollGroupId,
-  tableScrollRef,
-  showScrollbar = false
+  totalItems,
+  itemType,
 }: PaginationProps) {
-  const paginationScrollRef = useRef<HTMLDivElement>(null)
-  const [scrollbarWidth, setScrollbarWidth] = useState('300%')
-
-  // Update scrollbar width when table is loaded (for horizontal scroll sync)
-  useEffect(() => {
-    if (!showScrollbar || !tableScrollRef) return
-
-    const updateScrollbarWidth = () => {
-      const tableElement = tableScrollRef?.current
-      
-      if (tableElement) {
-        const scrollWidth = tableElement.scrollWidth
-        const clientWidth = tableElement.clientWidth
-        
-        if (scrollWidth > 0 && clientWidth > 0) {
-          setScrollbarWidth(`${scrollWidth}px`)
-        } else {
-          setScrollbarWidth('300%')
-        }
-      } else {
-        setScrollbarWidth('300%')
-      }
-    }
-
-    // Initial update with multiple attempts to ensure table is loaded
-    updateScrollbarWidth()
-    const timeoutId1 = setTimeout(updateScrollbarWidth, 100)
-    const timeoutId2 = setTimeout(updateScrollbarWidth, 500)
-    const timeoutId3 = setTimeout(updateScrollbarWidth, 1000)
-    const timeoutId4 = setTimeout(updateScrollbarWidth, 2000)
-
-    // Update on resize
-    const resizeObserver = new ResizeObserver(updateScrollbarWidth)
-    const tableElement = tableScrollRef?.current
-    if (tableElement) {
-      resizeObserver.observe(tableElement)
-    }
-
-    return () => {
-      clearTimeout(timeoutId1)
-      clearTimeout(timeoutId2)
-      clearTimeout(timeoutId3)
-      clearTimeout(timeoutId4)
-      resizeObserver.disconnect()
-    }
-  }, [showScrollbar, tableScrollRef])
-
-  // Synchronize horizontal scroll between table and pagination
-  useEffect(() => {
-    if (!showScrollbar || !tableScrollRef) return
-
-    const paginationElement = paginationScrollRef.current
-    const tableElement = tableScrollRef?.current
-    
-    if (!paginationElement || !tableElement) return
-
-    let isTableScrolling = false
-    let isPaginationScrolling = false
-
-    const handleTableScroll = () => {
-      if (isPaginationScrolling) return
-      isTableScrolling = true
-      paginationElement.scrollLeft = tableElement.scrollLeft
-      setTimeout(() => { isTableScrolling = false }, 10)
-    }
-
-    const handlePaginationScroll = () => {
-      if (isTableScrolling) return
-      isPaginationScrolling = true
-      tableElement.scrollLeft = paginationElement.scrollLeft
-      setTimeout(() => { isPaginationScrolling = false }, 10)
-    }
-
-    tableElement.addEventListener('scroll', handleTableScroll, { passive: true })
-    paginationElement.addEventListener('scroll', handlePaginationScroll, { passive: true })
-
-    return () => {
-      tableElement.removeEventListener('scroll', handleTableScroll)
-      paginationElement.removeEventListener('scroll', handlePaginationScroll)
-    }
-  }, [showScrollbar, tableScrollRef])
+  const maxPages = Math.max(totalPages, 1)
+  const startItem = totalItems ? (currentPage - 1) * itemsPerPage + 1 : 0
+  const endItem = totalItems ? Math.min(currentPage * itemsPerPage, totalItems) : 0
+  
+  // Generate page numbers to display
   const getPageNumbers = () => {
-    const pages = []
-    const maxVisiblePages = 5
+    const pages: (number | string)[] = []
+    const showEllipsis = totalPages > 7
     
-    if (totalPages <= maxVisiblePages) {
+    if (!showEllipsis) {
+      // Show all pages if total pages <= 7
       for (let i = 1; i <= totalPages; i++) {
         pages.push(i)
       }
     } else {
-      if (currentPage <= 3) {
-        for (let i = 1; i <= 4; i++) {
+      // Always show first page
+      pages.push(1)
+      
+      if (currentPage > 3) {
+        pages.push('...')
+      }
+      
+      // Show pages around current page
+      const startPage = Math.max(2, currentPage - 1)
+      const endPage = Math.min(totalPages - 1, currentPage + 1)
+      
+      for (let i = startPage; i <= endPage; i++) {
+        if (i !== 1 && i !== totalPages) {
           pages.push(i)
         }
+      }
+      
+      if (currentPage < totalPages - 2) {
         pages.push('...')
-        pages.push(totalPages)
-      } else if (currentPage >= totalPages - 2) {
-        pages.push(1)
-        pages.push('...')
-        for (let i = totalPages - 3; i <= totalPages; i++) {
-          pages.push(i)
-        }
-      } else {
-        pages.push(1)
-        pages.push('...')
-        for (let i = currentPage - 1; i <= currentPage + 1; i++) {
-          pages.push(i)
-        }
-        pages.push('...')
+      }
+      
+      // Always show last page
+      if (totalPages > 1) {
         pages.push(totalPages)
       }
     }
     
     return pages
   }
-
-  const startItem = (currentPage - 1) * itemsPerPage + 1
-  const endItem = Math.min(currentPage * itemsPerPage, totalItems)
-
+  
+  const pageNumbers = getPageNumbers()
+  
   return (
-    <div className={cn("flex-shrink-0 bg-white", !showScrollbar && "border-t border-gray-200", className)}>
-      {/* Horizontal Scrollbar - synchronized with table (optional) */}
-      {showScrollbar && (
-        <div 
-          ref={paginationScrollRef}
-          className="pagination-scrollbar overflow-x-auto border-b border-gray-200 bg-gray-50"
-          style={{ 
-            height: '17px',
-            minHeight: '17px'
-          }}
-        >
-          <div 
-            className="h-full bg-gray-200 flex items-center justify-center text-xs text-gray-500" 
-            style={{ 
-              width: scrollbarWidth,
-              minWidth: '100%'
-            }}
-          >
-            <span>← Scroll horizontally to navigate table columns →</span>
+    <div className="flex items-center justify-between px-6 py-3 bg-white border-t border-gray-200">
+      {/* Left Section - Summary and Items Per Page */}
+      <div className="flex items-center gap-4">
+        {typeof totalItems === 'number' && totalItems > 0 && (
+          <span className="text-sm text-gray-700">
+            Showing <span className="font-semibold">{startItem}</span> to <span className="font-semibold">{endItem}</span> of{' '}
+            <span className="font-semibold">{totalItems}</span> {itemType || 'items'}
+          </span>
+        )}
+        
+        {onItemsPerPageChange && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Show:</span>
+            <select
+              className="border border-gray-300 rounded px-2 py-1 text-sm bg-white text-gray-700 hover:border-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors cursor-pointer"
+              value={itemsPerPage}
+              onChange={(e) => onItemsPerPageChange(parseInt(e.target.value))}
+              aria-label="Items per page"
+            >
+              {[10, 25, 50, 100, 200, 500].map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+            <span className="text-sm text-gray-600">per page</span>
           </div>
-        </div>
-      )}
+        )}
+      </div>
       
-      {/* Pagination Controls */}
-      <div className="px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="text-sm text-gray-700">
-              Showing {startItem} to {endItem} of {totalItems} {itemType}
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-700">Show:</span>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => onItemsPerPageChange(Number(e.target.value))}
-                className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-                <option value={200}>200</option>
-                <option value={250}>250</option>
-                <option value={300}>300</option>
-                <option value={500}>500</option>
-              </select>
-              <span className="text-sm text-gray-700">per page</span>
-            </div>
-          </div>
-      
-      <div className="flex items-center space-x-1">
-        {/* First Page */}
+      {/* Right Section - Page Navigation */}
+      <div className="flex items-center gap-1">
+        {/* First Page Button */}
         <button
           onClick={() => onPageChange(1)}
-          disabled={currentPage === 1}
-          className={cn(
-            "p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors",
-            currentPage === 1 && "opacity-50 cursor-not-allowed"
-          )}
+          disabled={currentPage <= 1}
+          className="p-1.5 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+          aria-label="First page"
           title="First page"
         >
           <ChevronsLeft className="h-4 w-4" />
         </button>
         
-        {/* Previous Page */}
+        {/* Previous Page Button */}
         <button
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-          className={cn(
-            "p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors",
-            currentPage === 1 && "opacity-50 cursor-not-allowed"
-          )}
+          onClick={() => currentPage > 1 && onPageChange(currentPage - 1)}
+          disabled={currentPage <= 1}
+          className="p-1.5 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+          aria-label="Previous page"
           title="Previous page"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
         
         {/* Page Numbers */}
-        <div className="flex items-center space-x-1">
-          {getPageNumbers().map((page, index) => (
-            <React.Fragment key={index}>
-              {page === '...' ? (
-                <span className="px-3 py-2 text-gray-500">...</span>
-              ) : (
-                <button
-                  onClick={() => onPageChange(page as number)}
-                  className={cn(
-                    "px-3 py-2 text-sm font-medium rounded transition-colors",
-                    currentPage === page
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-700 hover:bg-gray-100"
-                  )}
-                >
-                  {page}
-                </button>
-              )}
-            </React.Fragment>
-          ))}
+        <div className="flex items-center gap-1 mx-2">
+          {pageNumbers.map((page, index) => {
+            if (page === '...') {
+              return (
+                <span key={`ellipsis-${index}`} className="px-2 text-gray-500">
+                  ...
+                </span>
+              )
+            }
+            
+            const pageNum = page as number
+            const isActive = pageNum === currentPage
+            
+            return (
+              <button
+                key={pageNum}
+                onClick={() => onPageChange(pageNum)}
+                className={`min-w-[32px] h-8 px-2 text-sm font-medium rounded transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+                aria-label={`Page ${pageNum}`}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                {pageNum}
+              </button>
+            )
+          })}
         </div>
         
-        {/* Next Page */}
+        {/* Next Page Button */}
         <button
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-          className={cn(
-            "p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors",
-            currentPage === totalPages && "opacity-50 cursor-not-allowed"
-          )}
+          onClick={() => currentPage < totalPages && onPageChange(currentPage + 1)}
+          disabled={currentPage >= totalPages}
+          className="p-1.5 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+          aria-label="Next page"
           title="Next page"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
         
-          {/* Last Page */}
-          <button
-            onClick={() => onPageChange(totalPages)}
-            disabled={currentPage === totalPages}
-            className={cn(
-              "p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors",
-              currentPage === totalPages && "opacity-50 cursor-not-allowed"
-            )}
-            title="Last page"
-          >
-            <ChevronsRight className="h-4 w-4" />
-          </button>
-        </div>
+        {/* Last Page Button */}
+        <button
+          onClick={() => onPageChange(totalPages)}
+          disabled={currentPage >= totalPages}
+          className="p-1.5 text-gray-600 hover:bg-gray-100 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+          aria-label="Last page"
+          title="Last page"
+        >
+          <ChevronsRight className="h-4 w-4" />
+        </button>
       </div>
-    </div>
     </div>
   )
 }
+
+
+
+
+
+

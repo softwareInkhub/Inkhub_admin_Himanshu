@@ -6,31 +6,39 @@ import { useProductsPageStore } from '@/lib/stores/products-page-store'
 import { UrlStateProvider } from '@/components/UrlStateProvider'
 import { cn } from '@/lib/utils'
 import { X } from 'lucide-react'
+import { thinScrollbarStyles } from '@/components/shared/styles/scrollbarStyles'
 import { debounce } from './utils/advancedSearch'
 import { debouncedAlgoliaSearch, searchProductsWithAdvancedFilters } from './utils/algoliaSearch'
 import { SearchHistory, saveSearchToHistory } from './utils/searchSuggestions'
 
 // Using enhanced shared components for better consistency across all pages
 import { 
-  GridCardFilterHeader, 
-  Pagination, 
-  BulkActionsBar, 
-  ExportModal, 
-  CardsPerRowDropdown,
-  EnhancedDetailModal,
+  // Shared barrel imports
+  ExportModal,
   KPIGrid,
-  CustomCardModal,
-  CardManagerModal,
-  CalculatorInterface,
+    CustomCardModal,
+    CardManagerModal,
   HighlightedText,
+  ProductTable,
+  ProductCardView,
+  SearchControls,
+  GridCardFilterHeader,
+  Pagination,
+  EnhancedDetailModal,
   ImageDisplay,
-  type GridFilterColumn 
-} from '@/components/shared'
-import ProductTable from './components/ProductTable'
-import ProductCardView from './components/ProductCardView'
-import SearchControls from './components/SearchControls'
+  SaveViewModal,
+  useSavedViews,
+  type GridFilterColumn
+} from '@/components/shared/index'
+import CardsPerRowDropdown from '@/components/shared/CardsPerRowDropdown'
+import GridColumnHeader from '@/components/shared/GridColumnHeader'
+import { generateProductColumnHeaders } from '@/components/shared/utils/columnHeaderUtils'
+// Switch to explicit index path to satisfy TS resolution
+// eslint-disable-next-line import/no-duplicates
+import type * as _sharedTypes from '@/components/shared/index'
+import { exportProducts, type ExportFormat } from './utils/exportUtils'
+// Using shared barrel imports above
 import { Product, SearchCondition, CustomFilter } from './types'
-import { KPIMetrics } from '@/components/shared/types'
 import { 
   calculateKPIMetrics, 
   getUniqueValues, 
@@ -203,47 +211,7 @@ function ProductsClientContent({
   // Search history state
   const [searchHistory, setSearchHistory] = useState<SearchHistory[]>([])
 
-  // Saved Views (Products) – mirrors Orders implementation
-  const [savedSearches, setSavedSearches] = useState<any[]>([])
-  const [showSaveModal, setShowSaveModal] = useState(false)
-  const [viewName, setViewName] = useState('')
-
-  // Load saved searches on mount (localStorage only - CRUD API removed)
-  useEffect(() => {
-    const STORAGE_KEY = 'products-saved-views:shopify-inkhub-get-products'
-    const loadSaved = async () => {
-      try {
-        if (typeof window !== 'undefined') {
-          const cached = localStorage.getItem(STORAGE_KEY)
-          if (cached) {
-            try { const parsed = JSON.parse(cached); if (Array.isArray(parsed)) setSavedSearches(parsed) } catch {}
-          }
-        }
-      } catch {}
-    }
-    loadSaved()
-  }, [])
-
-  const handleSaveToSearchViews = useCallback(() => {
-    setShowSaveModal(true)
-    if (searchQuery && searchQuery.trim()) setViewName(searchQuery.trim())
-  }, [searchQuery])
-
-  // handler moved below pagination state to avoid linter hoisting issues
-
-  const handleDeleteSavedSearch = useCallback(async (id: string) => {
-    const STORAGE_KEY = 'products-saved-views:shopify-inkhub-get-products'
-    const saved = savedSearches.find(s => s.id === id)
-    if (!saved) return
-    setSavedSearches(prev => {
-      const next = prev.filter(s => s.id !== id)
-      try { if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch {}
-      return next
-    })
-    // CRUD API removed - only localStorage operations
-  }, [savedSearches])
-
-  // Advanced Filter states
+  // Advanced Filter states - MOVED BEFORE useSavedViews to fix initialization order
   const [showAdvancedFilter, setShowAdvancedFilter] = useState(false)
   const [advancedFilters, setAdvancedFilters] = useState({
     productStatus: [] as string[],
@@ -251,6 +219,44 @@ function ProductsClientContent({
     dateRange: { start: '', end: '' },
     tags: [] as string[],
     vendors: [] as string[]
+  })
+
+  // Custom Filter states - MOVED BEFORE useSavedViews
+  const [customFilters, setCustomFilters] = useState<CustomFilter[]>([])
+  
+  // View mode - MOVED BEFORE useSavedViews
+  const [viewMode, setViewMode] = useState<'table' | 'grid' | 'card'>('table')
+
+  // Pagination states - MOVED BEFORE useSavedViews to fix initialization order
+  const [currentPage, setCurrentPage] = useState(pageIndex + 1) // Convert 0-based to 1-based
+  const [itemsPerPage, setItemsPerPage] = useState(pageSize)
+
+  // Saved Views - Using generic hook (now after all dependencies are declared)
+  const savedViews = useSavedViews({
+    storageKey: 'products-saved-views',
+    currentState: {
+      searchQuery,
+      searchConditions,
+      columnFilters: {},
+      customFilters,
+      advancedFilters,
+      sortColumn: sorting[0]?.id || '',
+      sortDirection: sorting[0]?.desc ? 'desc' : 'asc',
+      viewMode,
+      itemsPerPage
+    },
+    onApply: (state) => {
+      // Apply saved view state
+      if (state.searchQuery !== undefined) setSearchQuery(state.searchQuery)
+      if (state.searchConditions !== undefined) setSearchConditions(state.searchConditions)
+      if (state.customFilters !== undefined) setCustomFilters(state.customFilters)
+      if (state.advancedFilters !== undefined) setAdvancedFilters(state.advancedFilters)
+      if (state.sortColumn !== undefined && state.sortDirection !== undefined) {
+        setSorting([{ id: state.sortColumn, desc: state.sortDirection === 'desc' }])
+      }
+      if (state.viewMode !== undefined) setViewMode(state.viewMode as any)
+      if (state.itemsPerPage !== undefined) setItemsPerPage(state.itemsPerPage)
+    }
   })
 
   // Keep local searchQuery and persisted store globalFilter in sync (both directions)
@@ -467,13 +473,13 @@ function ProductsClientContent({
 
   // Custom Filter states
   const [showCustomFilterDropdown, setShowCustomFilterDropdown] = useState(false)
-  const [customFilters, setCustomFilters] = useState<CustomFilter[]>([])
+  // customFilters already declared above before useSavedViews (line 224)
   
   // Default filter states
   const [hiddenDefaultFilters, setHiddenDefaultFilters] = useState<Set<string>>(new Set())
   
   // View and control states
-  const [viewMode, setViewMode] = useState<'table' | 'grid' | 'card'>('table')
+  // viewMode already declared above before useSavedViews (line 227)
   const [showAdditionalControls, setShowAdditionalControls] = useState(false)
   
   // Header dropdown states
@@ -496,30 +502,50 @@ function ProductsClientContent({
   })
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
-  
-  // Pagination states - using Zustand store
-  const [currentPage, setCurrentPage] = useState(pageIndex + 1) // Convert 0-based to 1-based
-  const [itemsPerPage, setItemsPerPage] = useState(pageSize)
+    // Generic KPI Card manager state (shared UI like Orders)
+  const [showCardManagerModal, setShowCardManagerModal] = useState(false)
+  const [showCustomCardModal, setShowCustomCardModal] = useState(false)
+  const [customCards, setCustomCards] = useState<any[]>([])
+  const [defaultCardVisibility, setDefaultCardVisibility] = useState<Record<string, boolean>>({})
 
-  // Apply a saved view (now that pagination state exists)
-  const handleApplySavedSearch = useCallback((saved: any) => {
-    console.log('💾 Products: Applying saved search:', saved.viewName);
-    // Support both old format and new format with searchState
-    const safeSearchQuery = saved.searchQuery || saved.searchState?.searchQuery || '';
-    setSearchQuery(safeSearchQuery);
-    setSearchConditions(saved.searchConditions || saved.searchState?.searchConditions || []);
-    setColumnFilters(saved.columnFilters || saved.searchState?.columnFilters || {});
-    setCustomFilters(saved.customFilters || saved.searchState?.customFilters || []);
-    setSorting((saved.sortColumn || saved.searchState?.sortColumn) ? [{ id: saved.sortColumn || saved.searchState?.sortColumn, desc: (saved.sortDirection || saved.searchState?.sortDirection) === 'desc' }] : []);
-    setViewMode((saved.viewMode || saved.searchState?.viewMode || 'table') as any);
-    setItemsPerPage(saved.itemsPerPage || saved.searchState?.itemsPerPage || itemsPerPage);
-    
-    // Trigger search if there's a query
-    if (safeSearchQuery && safeSearchQuery.trim()) {
-      console.log('🔍 Products: Triggering search with query:', safeSearchQuery);
-      // The search will be handled by the existing search effects
-    }
-  }, [itemsPerPage, setSorting]);
+  // Load/save KPI manager state (shared keys)
+  useEffect(() => {
+    try {
+      const cc = localStorage.getItem('shared-custom-cards')
+      if (cc) setCustomCards(JSON.parse(cc))
+    } catch {}
+    try {
+      const vis = localStorage.getItem('shared-default-card-visibility')
+      if (vis) setDefaultCardVisibility(JSON.parse(vis))
+    } catch {}
+  }, [])
+  useEffect(() => { try { localStorage.setItem('shared-custom-cards', JSON.stringify(customCards)) } catch {} }, [customCards])
+  useEffect(() => { try { localStorage.setItem('shared-default-card-visibility', JSON.stringify(defaultCardVisibility)) } catch {} }, [defaultCardVisibility])
+
+  // Visibility patch moved below after kpiMetrics is defined
+
+  const handleSaveCustomCardGeneric = (card: any) => {
+    setCustomCards(prev => {
+      const exists = prev.find((c: any) => c.id === card.id)
+      if (exists) return prev.map((c: any) => (c.id === card.id ? card : c))
+      return [...prev, card]
+    })
+    setShowCustomCardModal(false)
+    setShowCardManagerModal(true)
+  }
+  const handleUpdateDefaultCardVisibility = (cardKey: string, isVisible: boolean) => {
+    setDefaultCardVisibility(prev => ({ ...prev, [cardKey]: isVisible }))
+  }
+  const handleUpdateCustomCard = (cardId: string, updates: Partial<any>) => {
+    setCustomCards(prev => prev.map((c: any) => (c.id === cardId ? { ...c, ...updates } : c)))
+  }
+  const handleDeleteCustomCard = (cardId: string) => setCustomCards(prev => prev.filter((c: any) => c.id !== cardId))
+  
+  // Pagination states already declared above before useSavedViews (lines 230-231)
+  // const [currentPage, setCurrentPage] = useState(pageIndex + 1)
+  // const [itemsPerPage, setItemsPerPage] = useState(pageSize)
+
+  // handleApplySavedSearch removed - now using savedViews.handleApplyView from generic hook
   
   // Keep local currentPage in sync with Zustand store
   useEffect(() => {
@@ -554,7 +580,7 @@ function ProductsClientContent({
       const savedSettings = localStorage.getItem('products-settings')
       return savedSettings ? JSON.parse(savedSettings) : {
         defaultViewMode: 'table',
-        itemsPerPage: 500,
+        itemsPerPage: 25,
         showAdvancedFilters: false,
         autoSaveFilters: false,
         defaultExportFormat: 'csv',
@@ -564,7 +590,7 @@ function ProductsClientContent({
     }
     return {
       defaultViewMode: 'table',
-      itemsPerPage: 500,
+      itemsPerPage: 25,
       showAdvancedFilters: false,
       autoSaveFilters: false,
       defaultExportFormat: 'csv',
@@ -1095,24 +1121,59 @@ function ProductsClientContent({
     }
   }, [productData.length])
 
-  // Calculate KPI metrics - reflect filtered data when Algolia filters are active
-  const kpiMetrics = useMemo(() => {
-    const dataToUse = useAlgoliaFilters && algoliaFilterResults.length > 0 
-      ? algoliaFilterResults 
-      : (useAlgoliaSearch && algoliaSearchResults.length > 0 
-        ? algoliaSearchResults 
-        : productData)
-    
-    return calculateKPIMetrics(dataToUse)
-  }, [productData, useAlgoliaFilters, algoliaFilterResults, useAlgoliaSearch, algoliaSearchResults])
-
-    // Get all products for filtering (combine all chunks) - optimized with stable dependencies
+  // Get all products for filtering (combine all chunks) - MOVED BEFORE kpiMetrics
   const allProducts = useMemo(() => {
     if (chunkKeys.length > 0 && Object.keys(chunkData).length > 0) {
       return Object.values(chunkData).flat()
     }
     return productData
-  }, [chunkKeys.length, Object.keys(chunkData).length, productData]) // Stable dependencies
+  }, [chunkKeys, chunkData, productData]) // Use actual values for proper reactivity
+
+  // Calculate KPI metrics - use allProducts for accurate counts
+  const kpiMetrics = useMemo(() => {
+    // Use allProducts which combines all chunks for accurate KPI calculation
+    const dataToUse = useAlgoliaFilters && algoliaFilterResults.length > 0 
+      ? algoliaFilterResults 
+      : (useAlgoliaSearch && algoliaSearchResults.length > 0 
+        ? algoliaSearchResults 
+        : allProducts)
+    
+    console.log('🔢 KPI Calculation:', {
+      allProductsCount: allProducts.length,
+      dataToUseCount: dataToUse.length,
+      useAlgoliaFilters,
+      useAlgoliaSearch
+    })
+    
+    const rawMetrics = calculateKPIMetrics(dataToUse)
+    console.log('📊 Calculated Raw KPI Metrics:', rawMetrics)
+    
+    // Transform to KPIGrid expected format: { metric, label, icon, ... }
+    const transformedMetrics: Record<string, any> = {}
+    Object.entries(rawMetrics).forEach(([key, value]) => {
+      transformedMetrics[key] = {
+        metric: {
+          value: value.value,
+          change: value.change,
+          trend: value.trend
+        },
+        label: value.label,
+        icon: value.icon,
+        isCurrency: key === 'totalValue' || key === 'averagePrice'
+      }
+    })
+    
+    console.log('✅ Transformed KPI Metrics for KPIGrid:', transformedMetrics)
+    return transformedMetrics
+  }, [allProducts, useAlgoliaFilters, algoliaFilterResults, useAlgoliaSearch, algoliaSearchResults])
+
+  // Ensure visibility has entries for current KPI keys (now that kpiMetrics exists)
+  useEffect(() => {
+    const keys = Object.keys(kpiMetrics || {})
+    const patch: Record<string, boolean> = {}
+    keys.forEach(k => { if (defaultCardVisibility[k] === undefined) patch[k] = true })
+    if (Object.keys(patch).length) setDefaultCardVisibility(prev => ({ ...prev, ...patch }))
+  }, [kpiMetrics])
 
     // Fast lookup to enrich lightweight search results (e.g., missing images) with full data
     const normalizeTitle = (t: string) => (t || '').toLowerCase().replace(/\s+/g,' ').trim()
@@ -1344,6 +1405,9 @@ function ProductsClientContent({
       setPageSize(items)
       setCurrentPage(1)
       setPageIndex(0) // Reset to first page (0-based)
+      
+      // Also update settings to keep both in sync
+      setSettings(prev => ({ ...prev, itemsPerPage: items }))
     }
 
     // Handle column filtering
@@ -1460,10 +1524,30 @@ function ProductsClientContent({
       setShowAdditionalControls(false)
     }
 
-    const handleExportAction = (config: { format: string; columns: string[]; selectedOnly: boolean; includeImages: boolean }) => {
-      console.log('Export action triggered:', config)
-      // Export logic handled by the modal itself
-      setShowExportModal(false)
+    const handleExportAction = async (config: { format: string; columns: string[]; selectedOnly: boolean; includeImages: boolean }) => {
+      try {
+        // Determine base dataset (respect Algolia search/filter precedence like the modal props)
+        const baseData = (useAlgoliaFilters && algoliaFilterResults.length > 0)
+          ? algoliaFilterResults
+          : ((useAlgoliaSearch && algoliaSearchResults.length > 0)
+            ? algoliaSearchResults
+            : filteredProducts)
+
+        // Apply selection if requested
+        const selectedSet = new Set<string>(Array.isArray(selectedRowIds) ? selectedRowIds : Array.from(selectedRowIds as any as Set<string>))
+        const dataToExport = config.selectedOnly
+          ? baseData.filter(p => selectedSet.has(p.id))
+          : baseData
+
+        // Respect includeImages toggle by removing images field when false
+        const fields = config.includeImages ? config.columns : config.columns.filter(c => c !== 'images')
+
+        await exportProducts(dataToExport, config.format as ExportFormat, fields)
+      } catch (e) {
+        console.error('Export failed:', e)
+      } finally {
+        setShowExportModal(false)
+      }
     }
 
     const handleBulkDelete = () => {
@@ -1624,6 +1708,14 @@ function ProductsClientContent({
     const handleSettingsUpdate = (newSettings: Partial<ProductSettings>) => {
       setSettings(prev => ({ ...prev, ...newSettings }))
       
+      // If itemsPerPage is being changed, update the pagination state immediately
+      if (newSettings.itemsPerPage !== undefined) {
+        setItemsPerPage(newSettings.itemsPerPage)
+        setPageSize(newSettings.itemsPerPage)
+        setCurrentPage(1)
+        setPageIndex(0)
+      }
+      
       // If auto-save filters is being disabled, clear saved filters
       if (newSettings.autoSaveFilters === false) {
         localStorage.removeItem('products-saved-filters')
@@ -1730,11 +1822,11 @@ function ProductsClientContent({
 
     return (
       <div className={cn(
-        "min-h-screen bg-gray-50",
-        isFullScreen ? "fixed inset-0 z-50 bg-white flex flex-col" : ""
+        "h-full bg-white flex flex-col overflow-hidden",
+        isFullScreen ? "fixed inset-0 z-50 bg-white" : ""
       )}>
         {isFullScreen && (
-          <div className="sticky top-0 z-20 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+          <div className="flex-shrink-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
             <h2 className="text-lg font-semibold text-gray-900">Products - Full Screen View</h2>
             <button
               onClick={handleToggleFullScreen}
@@ -1746,29 +1838,25 @@ function ProductsClientContent({
           </div>
         )}
 
-        {/* KPI Metrics */}
+        {/* Unified Header (KPIs + Search + Actions) */}
+        <div className="flex-shrink-0">
+          <div className="bg-white border border-gray-200 rounded-md overflow-visible">
+            <div className="px-3 pt-3">
         <KPIGrid 
           kpiMetrics={kpiMetrics} 
-          data={useAlgoliaFilters && algoliaFilterResults.length > 0 
-            ? algoliaFilterResults 
-            : (useAlgoliaSearch && algoliaSearchResults.length > 0 
-              ? algoliaSearchResults 
-              : allProducts)}
-          onRefresh={(kpiKey) => {
+                items={allProducts}
+                loading={loading} 
+          onRefresh={(kpiKey: string) => {
             console.log(`Refreshing ${kpiKey} KPI...`)
-            // Here you can implement actual refresh logic
-            // For now, we'll just log the action
           }}
-          onConfigure={(kpiKey, config) => {
+          onConfigure={(kpiKey: string, config: any) => {
             console.log(`Configuring ${kpiKey} KPI:`, config)
-            // Here you can implement configuration saving logic
-            // For now, we'll just log the configuration
           }}
         />
+            </div>
 
-        {/* Search and Filter Controls - Sticky in Full Screen */}
         <div className={cn(
-          isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : ""
+              isFullScreen ? "sticky top-0 z-[60] bg-white" : ""
         )}>
         <SearchControls
           searchQuery={searchQuery}
@@ -1808,11 +1896,23 @@ function ProductsClientContent({
           onSettings={handleSettings}
           showHeaderDropdown={showHeaderDropdown}
           setShowHeaderDropdown={setShowHeaderDropdown}
-          // Saved Views UX (Products)
-          onSaveToSearchViews={handleSaveToSearchViews}
-          savedSearches={savedSearches}
-          onApplySavedSearch={handleApplySavedSearch}
-          onDeleteSavedSearch={handleDeleteSavedSearch}
+          // Saved Views UX (Products) - Using generic hook
+          onSaveToSearchViews={savedViews.handleSaveView}
+          savedSearches={savedViews.savedViews.map(view => ({
+            id: view.id,
+            viewName: view.viewName,
+            searchQuery: view.searchState.searchQuery || '',
+            searchConditions: view.searchState.searchConditions || [],
+            columnFilters: view.searchState.columnFilters || {},
+            customFilters: view.searchState.customFilters || [],
+            sortColumn: view.searchState.sortColumn || '',
+            sortDirection: view.searchState.sortDirection || 'desc',
+            viewMode: view.searchState.viewMode || 'table',
+            itemsPerPage: view.searchState.itemsPerPage || 25,
+            updatedAt: view.updatedAt ? new Date(view.updatedAt).toISOString() : undefined
+          }))}
+          onApplySavedSearch={savedViews.handleApplyView}
+          onDeleteSavedSearch={savedViews.handleDeleteView}
           // View and control props
           viewMode={viewMode}
           setViewMode={setViewMode}
@@ -1829,8 +1929,7 @@ function ProductsClientContent({
         />
         </div>
 
-        {/* Persistent Actions Row - same as Orders page */}
-        <div className="flex-shrink-0 px-4 py-1 bg-white border-b border-gray-200">
+            <div className="px-4 py-1 bg-white">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             {/* Left action group */}
             <div className="flex items-center justify-start gap-2 flex-wrap">
@@ -1907,6 +2006,9 @@ function ProductsClientContent({
 
             {/* Right side controls */}
             <div className="flex items-center gap-2">
+              {(viewMode === 'grid' || viewMode === 'card') && (
+                <CardsPerRowDropdown value={cardsPerRow} onChange={setCardsPerRow} />
+              )}
               <button
                 onClick={handleSettings}
                 className="px-3 py-1 text-xs sm:text-sm text-gray-700 hover:text-purple-700 border border-gray-300 rounded-md hover:bg-gradient-to-r hover:from-purple-50 hover:to-purple-100 transition-all duration-200 bg-white shadow-sm hover:shadow-md"
@@ -1917,6 +2019,8 @@ function ProductsClientContent({
                   <span>Settings</span>
                 </span>
               </button>
+            </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2434,32 +2538,13 @@ function ProductsClientContent({
         )}
 
         {/* Main Content Area */}
-        <div className={cn(
-          "transition-all duration-300",
-          isFullScreen 
-            ? "flex-1 overflow-hidden flex flex-col" 
-            : "px-3 py-0.5"
-        )}>
+        <div className="flex-1 min-h-0 overflow-hidden">
           {/* All View Containers - Standardized Layout */}
-          <div className={cn(
-            "bg-white rounded-md border border-gray-200 overflow-hidden",
-            isFullScreen ? "flex-1 flex flex-col" : ""
-          )}>
-            {/* Bulk Actions Bar - Common for all views */}
-            <BulkActionsBar
-              selectedItems={Array.from(selectedRowIds as any as Set<string>)}
-              totalItems={totalItemsForPagination}
-              onBulkEdit={handleBulkEdit}
-              onExportSelected={handleExportSelected}
-              onBulkDelete={handleBulkDelete}
-            />
-
+          <div className="h-full flex flex-col bg-white">
           {viewMode === 'table' && (
             <>
                 {/* Products Table - Scrollable Content */}
-                <div className={cn(
-                  isFullScreen ? "flex-1 overflow-auto" : ""
-                )}>
+                <div className="flex-1 min-h-0 overflow-y-auto" style={thinScrollbarStyles}>
               <ProductTable
                 currentProducts={paginatedData}
                 selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
@@ -2479,10 +2564,7 @@ function ProductsClientContent({
                 </div>
                 
                 {/* Pagination for Table View - Sticky Bottom */}
-                <div className={cn(
-                  "border-t border-gray-200",
-                  isFullScreen ? "sticky bottom-0 bg-white z-10" : ""
-                )}>
+                <div className="flex-shrink-0">
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
@@ -2498,23 +2580,24 @@ function ProductsClientContent({
 
           {viewMode === 'grid' && (
               <>
-                {/* Grid Filter Header - Sticky in Full Screen */}
-                <div className={cn(
-                  isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : ""
-                )}>
-                  <GridCardFilterHeader
-                    selectedItems={Array.from(selectedRowIds as any as Set<string>)}
-                    currentItems={paginatedData}
-                    onSelectAll={handleSelectAll}
+                {/* Grid Header - Fixed */}
+                <div className="flex-shrink-0">
+                  {/* Data Table Column Headers - Auto-generated */}
+                  <GridColumnHeader
+                    columns={generateProductColumnHeaders()}
                     activeColumnFilter={activeColumnFilter}
                     columnFilters={columnFilters}
                     onFilterClick={toggleColumnFilter}
                     onColumnFilterChange={handleColumnFilterChange}
                     getUniqueValues={getUniqueValuesForField}
-                    cardsPerRow={cardsPerRow}
-                    onCardsPerRowChange={setCardsPerRow}
-                    columns={gridFilterColumns}
-                    itemType="products"
+                    sortColumn={sorting[0]?.id}
+                    sortDirection={sorting[0]?.desc ? 'desc' : 'asc'}
+                    onSortClick={(column) => {
+                      const isDesc = sorting[0]?.id === column && !sorting[0]?.desc
+                      setSorting([{ id: column, desc: isDesc }])
+                    }}
+                    allSelected={selectedRowIds.size === paginatedData.length && paginatedData.length > 0}
+                    onSelectAll={handleSelectAll}
                   />
                 </div>
                 
@@ -2522,9 +2605,12 @@ function ProductsClientContent({
                 <div 
                   className={cn(
                     getGridClasses(cardsPerRow).className,
-                    isFullScreen ? "flex-1 overflow-auto" : ""
+                    "flex-1 min-h-0 overflow-y-auto p-4"
                   )}
-                  style={getGridClasses(cardsPerRow).style}
+                  style={{
+                    ...getGridClasses(cardsPerRow).style,
+                    ...thinScrollbarStyles
+                  }}
                 >
                 {paginatedData.map((product) => (
                   <div
@@ -2556,7 +2642,7 @@ function ProductsClientContent({
                       {debouncedSearchQuery && product._highlightResult?.title?.value ? (
                         <HighlightedText 
                           text={product._highlightResult.title.value}
-                          searchQuery={debouncedSearchQuery}
+                          highlight={debouncedSearchQuery}
                           className="text-gray-900"
                         />
                       ) : (
@@ -2580,10 +2666,7 @@ function ProductsClientContent({
               </div>
                 
                 {/* Pagination for Grid View - Sticky Bottom */}
-                <div className={cn(
-                  "border-t border-gray-200",
-                  isFullScreen ? "sticky bottom-0 bg-white z-10" : ""
-                )}>
+                <div className="flex-shrink-0">
                 <Pagination
                   currentPage={currentPage}
                   totalPages={totalPages}
@@ -2599,30 +2682,29 @@ function ProductsClientContent({
 
           {viewMode === 'card' && (
             <>
-                {/* Card Filter Header - Sticky in Full Screen */}
-                <div className={cn(
-                  isFullScreen ? "sticky top-0 z-10 bg-white border-b border-gray-200" : ""
-                )}>
-                  <GridCardFilterHeader
-                    selectedItems={Array.from(selectedRowIds as any as Set<string>)}
-                    currentItems={paginatedData}
-                    onSelectAll={handleSelectAll}
+                {/* Card Header - Fixed */}
+                <div className="flex-shrink-0">
+                  {/* Data Table Column Headers - Auto-generated */}
+                  <GridColumnHeader
+                    columns={generateProductColumnHeaders()}
                     activeColumnFilter={activeColumnFilter}
                     columnFilters={columnFilters}
                     onFilterClick={toggleColumnFilter}
                     onColumnFilterChange={handleColumnFilterChange}
                     getUniqueValues={getUniqueValuesForField}
-                    cardsPerRow={cardsPerRow}
-                    onCardsPerRowChange={setCardsPerRow}
-                    columns={gridFilterColumns}
-                    itemType="products"
+                    sortColumn={sorting[0]?.id}
+                    sortDirection={sorting[0]?.desc ? 'desc' : 'asc'}
+                    onSortClick={(column) => {
+                      const isDesc = sorting[0]?.id === column && !sorting[0]?.desc
+                      setSorting([{ id: column, desc: isDesc }])
+                    }}
+                    allSelected={selectedRowIds.size === paginatedData.length && paginatedData.length > 0}
+                    onSelectAll={handleSelectAll}
                   />
                 </div>
                 
                 {/* Card Content - Scrollable */}
-                <div className={cn(
-                  isFullScreen ? "flex-1 overflow-auto" : ""
-                )}>
+                <div className="flex-1 min-h-0 overflow-y-auto" style={thinScrollbarStyles}>
                 <ProductCardView
                   currentProducts={paginatedData}
                   selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
@@ -2636,10 +2718,7 @@ function ProductsClientContent({
               </div>
               
                 {/* Pagination for Card View - Sticky Bottom */}
-                <div className={cn(
-                  "border-t border-gray-200",
-                  isFullScreen ? "sticky bottom-0 bg-white z-10" : ""
-                )}>
+                <div className="flex-shrink-0">
                 <Pagination
                   currentPage={currentPage}
                   totalPages={totalPages}
@@ -2712,85 +2791,29 @@ function ProductsClientContent({
         <ExportModal
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
-          products={useAlgoliaFilters && algoliaFilterResults.length > 0 
+          orders={useAlgoliaFilters && algoliaFilterResults.length > 0 
             ? algoliaFilterResults 
             : (useAlgoliaSearch && algoliaSearchResults.length > 0 
               ? algoliaSearchResults 
               : filteredProducts)}
-          selectedProducts={Array.from(selectedRowIds as any as Set<string>)}
-          onExport={handleExportAction}
+          selectedOrders={Array.from(selectedRowIds as any as Set<string>)}
         />
 
-        {/* Save Search View Modal (same UX as Orders) */}
-        {showSaveModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Save Search View</h3>
-                <button onClick={() => setShowSaveModal(false)} className="text-gray-400 hover:text-gray-600">×</button>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">View Name</label>
-                  <input
-                    type="text"
-                    value={viewName}
-                    onChange={(e) => setViewName(e.target.value)}
-                    placeholder="Enter a name for this search view"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="text-sm text-gray-600">
-                  <p><strong>Search Query:</strong> {searchQuery || 'None'}</p>
-                  <p><strong>Filters:</strong> {Object.keys(columnFilters || {}).length} active</p>
-                  <p><strong>View Mode:</strong> {viewMode}</p>
-                </div>
-              </div>
-              <div className="flex justify-end space-x-3 mt-6">
-                <button onClick={() => setShowSaveModal(false)} className="px-4 py-2 text-gray-600 border border-gray-300 rounded hover:bg-gray-50">Cancel</button>
-                <button
-                  onClick={async () => {
-                    if (!viewName.trim()) return
-                    try {
-                      // Save to localStorage only - CRUD API removed
-                      const nowTs = Date.now()
-                      const newView = {
-                        id: `view-${nowTs}`,
-                        viewName: viewName.trim(),
-                        created_at: nowTs,
-                        createdAt: nowTs,
-                        updatedAt: nowTs,
-                        userId: useAppStore.getState().currentUser?.id || 'anonymous',
-                        searchState: {
+        {/* KPI Card Manager handled by KPIHeaderActions */}
+
+        {/* Save Search View Modal - Using Generic Component */}
+        <SaveViewModal
+          isOpen={savedViews.showSaveModal}
+          onClose={() => savedViews.setShowSaveModal(false)}
+          viewName={savedViews.viewName}
+          setViewName={savedViews.setViewName}
+          onSave={savedViews.handleConfirmSave}
+          currentState={{
                           searchQuery,
-                          searchConditions,
-                          columnFilters,
-                          customFilters,
-                          advancedFilters,
-                          sortColumn: (sorting[0]?.id || ''),
-                          sortDirection: (sorting[0]?.desc ? 'desc' : 'asc'),
-                          viewMode,
-                          itemsPerPage
-                        }
-                      }
-                      setSavedSearches(prev => {
-                        const next = [...prev, newView]
-                        try { if (typeof window !== 'undefined') localStorage.setItem('products-saved-views:shopify-inkhub-get-products', JSON.stringify(next)) } catch {}
-                        return next
-                      })
-                      setShowSaveModal(false)
-                      setViewName('')
-                    } catch {}
-                  }}
-                  disabled={!viewName.trim()}
-                  className="px-4 py-2 text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+            columnFiltersCount: Object.keys(columnFilters || {}).length,
+            viewMode
+          }}
+        />
 
 
 
@@ -3435,10 +3458,11 @@ function ProductsClientContent({
                         onChange={(e) => handleSettingsUpdate({ itemsPerPage: parseInt(e.target.value) })}
                         className="border border-gray-300 rounded-md px-3 py-1 text-sm"
                       >
+                        <option value={10}>10</option>
                         <option value={25}>25</option>
                         <option value={50}>50</option>
                         <option value={100}>100</option>
-                        <option value={250}>250</option>
+                        <option value={200}>200</option>
                         <option value={500}>500</option>
                       </select>
                     </div>

@@ -311,36 +311,130 @@ export const searchOrdersWithAdvancedFilters = async (
   totalChunks: number = 140
 ): Promise<Order[]> => {
   
-  // TEMPORARY FIX: Use local filtering if Algolia fails
-  console.log('🔧 TEMPORARY: Using local filtering instead of Algolia for debugging')
-  console.log('🔧 Filters applied:', filters)
-  console.log('🔧 Current chunk orders:', currentChunkOrders.length)
+  // Performance optimization: Reduced logging
+  const shouldLog = process.env.NODE_ENV === 'development' && Math.random() < 0.1 // 10% of the time
   
+  if (shouldLog) {
+    console.log('🔍 Advanced Filters - applying local filtering')
+    console.log('🔍 Filters:', filters)
+    console.log('🔍 Current chunk orders:', currentChunkOrders.length)
+  }
+  
+  let filtered = [...currentChunkOrders]
+  
+  // Filter by Order Status (checks status, fulfillmentStatus, and financialStatus)
   if (filters.orderStatus && filters.orderStatus.length > 0) {
-    const filtered = currentChunkOrders.filter(order => {
+    filtered = filtered.filter(order => {
+      const orderStatus = (order.status || '').toLowerCase()
       const orderFulfillmentStatus = (order.fulfillmentStatus || '').toLowerCase()
-      const matchesStatus = filters.orderStatus!.some(status => 
-        status.toLowerCase() === orderFulfillmentStatus
-      )
-      return matchesStatus
+      const orderFinancialStatus = (order.financialStatus || '').toLowerCase()
+      
+      return filters.orderStatus!.some(status => {
+        const statusLower = status.toLowerCase()
+        // Check against all status fields to catch 'paid', 'pending', 'shipped', etc.
+        return statusLower === orderStatus || 
+               statusLower === orderFulfillmentStatus || 
+               statusLower === orderFinancialStatus
+      })
     })
+    if (shouldLog) {
+      console.log(`🔍 After order status filter (${filters.orderStatus.join(', ')}): ${filtered.length} orders`)
+    }
+  }
+  
+  // Filter by Financial Status
+  if (filters.financialStatus && filters.financialStatus.length > 0) {
+    filtered = filtered.filter(order => {
+      const orderFinancialStatus = (order.financialStatus || '').toLowerCase()
+      return filters.financialStatus!.some(status => 
+        status.toLowerCase() === orderFinancialStatus
+      )
+    })
+    if (shouldLog) {
+      console.log(`🔍 After financial status filter: ${filtered.length} orders`)
+    }
+  }
+  
+  // Filter by Price Range
+  if (filters.priceRange) {
+    const minPrice = filters.priceRange.min ? parseFloat(filters.priceRange.min) : null
+    const maxPrice = filters.priceRange.max ? parseFloat(filters.priceRange.max) : null
     
-    console.log('🔧 Local filter results:', {
+    if (minPrice !== null || maxPrice !== null) {
+      filtered = filtered.filter(order => {
+        const orderTotal = order.total || 0
+        if (minPrice !== null && orderTotal < minPrice) return false
+        if (maxPrice !== null && orderTotal > maxPrice) return false
+        return true
+      })
+      if (shouldLog) {
+        console.log(`🔍 After price range filter (${minPrice}-${maxPrice}): ${filtered.length} orders`)
+      }
+    }
+  }
+  
+  // Filter by Date Range
+  if (filters.dateRange) {
+    const startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : null
+    const endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : null
+    
+    if (startDate !== null || endDate !== null) {
+      filtered = filtered.filter(order => {
+        const orderDate = new Date(order.createdAt)
+        if (startDate !== null && orderDate < startDate) return false
+        if (endDate !== null && orderDate > endDate) return false
+        return true
+      })
+      if (shouldLog) {
+        console.log(`🔍 After date range filter: ${filtered.length} orders`)
+      }
+    }
+  }
+  
+  // Filter by Tags
+  if (filters.tags && filters.tags.length > 0) {
+    filtered = filtered.filter(order => {
+      if (!order.tags || order.tags.length === 0) return false
+      return filters.tags!.some(tag => 
+        order.tags!.some(orderTag => 
+          orderTag.toLowerCase().includes(tag.toLowerCase())
+        )
+      )
+    })
+    if (shouldLog) {
+      console.log(`🔍 After tags filter: ${filtered.length} orders`)
+    }
+  }
+  
+  // Filter by Channels
+  if (filters.channels && filters.channels.length > 0) {
+    filtered = filtered.filter(order => {
+      const orderChannel = (order.channel || '').toLowerCase()
+      return filters.channels!.some(channel => 
+        channel.toLowerCase() === orderChannel ||
+        orderChannel.includes(channel.toLowerCase())
+      )
+    })
+    if (shouldLog) {
+      console.log(`🔍 After channels filter: ${filtered.length} orders`)
+    }
+  }
+  
+  if (shouldLog) {
+    console.log('🔍 Final filtered results:', {
       totalOrders: currentChunkOrders.length,
       filteredOrders: filtered.length,
-      filterCriteria: filters.orderStatus,
-      sampleResults: filtered.slice(0, 5).map(o => ({
+      sampleResults: filtered.slice(0, 3).map(o => ({
         orderNumber: o.orderNumber,
         fulfillmentStatus: o.fulfillmentStatus,
+        financialStatus: o.financialStatus,
+        total: o.total,
         customerName: o.customerName
       }))
     })
-    
-    return filtered
   }
   
-  console.log('🔧 No orderStatus filter, returning all orders')
-  return currentChunkOrders
+  return filtered
 }
 
 function debounce<T extends (...args: any[]) => any>(

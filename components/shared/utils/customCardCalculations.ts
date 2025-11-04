@@ -1,61 +1,78 @@
-export const calculateCustomValue = (
-  card: {
-    field: string
-    operation: 'sum' | 'avg' | 'count' | 'min' | 'max'
-    selectedProducts?: string[]
-  },
-  data: any[]
-): number => {
-  // Filter data based on selected products if specified
-  const filteredData = card.selectedProducts && card.selectedProducts.length > 0
-    ? data.filter(item => card.selectedProducts!.includes(item.id))
-    : data
+export function calculateCustomValue(
+  values: number[],
+  operation: string,
+  customFormula?: string,
+  totalItemsCount?: number
+): number {
+  const nums = values.filter(v => typeof v === 'number' && !isNaN(v))
+  const sum = nums.reduce((a, b) => a + b, 0)
+  const count = nums.length
+  const min = count > 0 ? Math.min(...nums) : 0
+  const max = count > 0 ? Math.max(...nums) : 0
+  const avg = count > 0 ? sum / count : 0
 
-  // Extract values for the specified field
-  const values = filteredData
-    .map(item => {
-      const value = item[card.field]
-      return typeof value === 'number' ? value : 0
-    })
-    .filter(value => !isNaN(value))
-
-  const sum = values.reduce((acc, val) => acc + val, 0)
-  const count = values.length
-  const min = values.length > 0 ? Math.min(...values) : 0
-  const max = values.length > 0 ? Math.max(...values) : 0
-  const average = count > 0 ? sum / count : 0
-
-  switch (card.operation) {
+  const op = String(operation || '').toLowerCase()
+  switch (op) {
     case 'sum':
       return sum
     case 'avg':
-      return average
-    case 'count':
-      return count
+    case 'average':
+    case 'mean':
+      return avg
     case 'min':
       return min
     case 'max':
       return max
+    case 'count':
+      return count
+    case 'percentage':
+      return totalItemsCount && totalItemsCount > 0 ? (count / totalItemsCount) * 100 : 0
+    case 'difference':
+      return max - min
+    case 'custom': {
+      if (!customFormula) return 0
+      try {
+        const safe = customFormula
+          .replace(/sum/g, String(sum))
+          .replace(/count/g, String(count))
+          .replace(/min/g, String(min))
+          .replace(/max/g, String(max))
+          .replace(/average|avg|mean/g, String(avg))
+        const sanitized = safe.replace(/[^0-9+\-*/().\s]/g, '')
+        // eslint-disable-next-line no-eval
+        return eval(sanitized) || 0
+      } catch {
+        return 0
+      }
+    }
     default:
       return 0
   }
 }
 
-export const formatCardValue = (value: number, operation: string, field?: string): string => {
-  const isCurrency = field && (field.includes('price') || field.includes('cost') || field.includes('value') || field.includes('total'))
-  
+export function formatCardValue(value: number, field: string): string {
+  const f = String(field || '').toLowerCase()
+  const isCurrency = (
+    f.includes('total') ||
+    f.includes('price') ||
+    f.includes('value') ||
+    f.includes('amount') ||
+    f.includes('cost')
+  )
+
+  const rounded = Math.round((value + Number.EPSILON) * 100) / 100
+
   if (isCurrency) {
-    return `$${value.toFixed(2)}`
+    if (rounded >= 1_000_000) return `₹${(rounded / 1_000_000).toFixed(1)}M`
+    if (rounded >= 1_000) return `₹${(rounded / 1_000).toFixed(1)}K`
+    return `₹${Math.round(rounded).toLocaleString()}`
   }
-  
-  if (operation === 'count') {
-    return value.toLocaleString()
-  }
-  
-  // For other operations, format with appropriate decimal places
-  if (value % 1 === 0) {
-    return value.toLocaleString()
-  } else {
-    return value.toFixed(2)
-  }
+
+  if (rounded >= 1_000_000) return `${(rounded / 1_000_000).toFixed(1)}M`
+  if (rounded >= 1_000) return `${(rounded / 1_000).toFixed(1)}K`
+  return String(Math.round(rounded))
 }
+
+
+
+

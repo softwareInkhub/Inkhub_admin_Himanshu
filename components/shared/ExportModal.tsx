@@ -1,180 +1,239 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { X, Download, FileText, FileJson, FileType } from 'lucide-react'
+import { X, Download, FileText, FileSpreadsheet, FileJson } from 'lucide-react'
+import { useState } from 'react'
 
-type ExportFormat = 'csv' | 'json' | 'pdf'
+type GenericItem = { id: string; [key: string]: any }
 
-// Accept both shared props (data/selectedItems) and products props (products/selectedProducts)
 interface ExportModalProps {
   isOpen: boolean
   onClose: () => void
-  data?: any[]
+  // Generic usage
+  data?: GenericItem[]
   selectedItems?: string[]
-  products?: any[]
-  selectedProducts?: string[]
-  onExport: (config: { format: ExportFormat; columns: string[]; selectedOnly: boolean; includeImages: boolean }) => void
   title?: string
+  // Orders-specific legacy usage
+  orders?: GenericItem[]
+  selectedOrders?: string[]
+  onExport?: (config: { format: 'csv' | 'json' | 'pdf'; columns: string[]; selectedOnly: boolean; includeImages: boolean }) => void
 }
 
-export default function ExportModal({ isOpen, onClose, data, selectedItems, products, selectedProducts, onExport, title = 'Export Data' }: ExportModalProps) {
-  const items = products ?? data ?? []
-  const selected = selectedProducts ?? selectedItems ?? []
-
-  const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
-  const [selectedFields, setSelectedFields] = useState<string[]>([])
-  const [includeImages, setIncludeImages] = useState<boolean>(false)
+export default function ExportModal({ isOpen, onClose, data, selectedItems, title = 'Export', orders, selectedOrders, onExport }: ExportModalProps) {
+  const [exportFormat, setExportFormat] = useState<'csv' | 'json' | 'pdf'>('csv')
+  const [selectedFields, setSelectedFields] = useState<string[]>([
+    'orderNumber', 'customerName', 'total', 'status', 'fulfillmentStatus', 'createdAt'
+  ])
   const [isExporting, setIsExporting] = useState(false)
 
-  const inferredFields = useMemo(() => {
-    const keys = new Set<string>()
-    ;(items || []).slice(0, 100).forEach((row: any) => {
-      Object.keys(row || {}).forEach(k => keys.add(k))
-    })
-    return Array.from(keys)
-  }, [items])
-
-  useEffect(() => {
-    if (isOpen) {
-      const defaultSelection = inferredFields.length > 0 ? inferredFields.slice(0, 20) : []
-      setSelectedFields(defaultSelection)
-      const hasImage = inferredFields.includes('images') || inferredFields.includes('image') || inferredFields.includes('thumbnail')
-      setIncludeImages(hasImage)
-    }
-  }, [isOpen, inferredFields])
-
-  if (!isOpen) return null
+  const exportFields = [
+    { key: 'orderNumber', label: 'Order Number', type: 'string' },
+    { key: 'customerName', label: 'Customer Name', type: 'string' },
+    { key: 'customerEmail', label: 'Customer Email', type: 'string' },
+    { key: 'phone', label: 'Phone', type: 'string' },
+    { key: 'total', label: 'Total', type: 'number' },
+    { key: 'status', label: 'Status', type: 'string' },
+    { key: 'fulfillmentStatus', label: 'Fulfillment Status', type: 'string' },
+    { key: 'financialStatus', label: 'Financial Status', type: 'string' },
+    { key: 'channel', label: 'Channel', type: 'string' },
+    { key: 'deliveryMethod', label: 'Delivery Method', type: 'string' },
+    { key: 'deliveryStatus', label: 'Delivery Status', type: 'string' },
+    { key: 'tags', label: 'Tags', type: 'array' },
+    { key: 'createdAt', label: 'Created Date', type: 'date' },
+    { key: 'updatedAt', label: 'Updated Date', type: 'date' }
+  ]
 
   const handleFieldToggle = (fieldKey: string) => {
-    setSelectedFields(prev => prev.includes(fieldKey) ? prev.filter(f => f !== fieldKey) : [...prev, fieldKey])
+    setSelectedFields(prev => 
+      prev.includes(fieldKey) 
+        ? prev.filter(f => f !== fieldKey)
+        : [...prev, fieldKey]
+    )
   }
-  const handleSelectAllFields = () => setSelectedFields(inferredFields)
-  const handleDeselectAllFields = () => setSelectedFields([])
 
-  const itemsToExportCount = selected.length > 0 ? selected.length : items.length
+  const baseItems: GenericItem[] = (orders || data || []) as GenericItem[]
+  const baseSelected: string[] = (selectedOrders || selectedItems || []) as string[]
 
   const handleExport = async () => {
-    if (selectedFields.length === 0) {
-      alert('Please select at least one field to export.')
-      return
-    }
     setIsExporting(true)
+    
     try {
-      onExport({ format: exportFormat, columns: selectedFields, selectedOnly: selected.length > 0, includeImages })
+      const dataToExport = baseSelected.length > 0 
+        ? baseItems.filter(item => baseSelected.includes(String(item.id)))
+        : baseItems
+
+      if (onExport) {
+        onExport({ format: exportFormat, columns: selectedFields, selectedOnly: baseSelected.length > 0, includeImages: false })
+        onClose()
+        return
+      }
+
+      switch (exportFormat) {
+        case 'csv':
+          exportToCSV(dataToExport, selectedFields)
+          break
+        case 'json':
+          exportToJSON(dataToExport, selectedFields)
+          break
+        case 'pdf':
+          await exportToPDF(dataToExport, selectedFields)
+          break
+      }
+      
       onClose()
+    } catch (error) {
+      console.error('Export failed:', error)
     } finally {
       setIsExporting(false)
     }
   }
 
-  const formatOptions = [
-    { value: 'csv' as ExportFormat, label: 'CSV', icon: FileText, description: 'Comma-separated values file' },
-    { value: 'json' as ExportFormat, label: 'JSON', icon: FileJson, description: 'JavaScript Object Notation' },
-    { value: 'pdf' as ExportFormat, label: 'PDF', icon: FileType, description: 'Portable Document Format with images & layout' }
-  ]
+  const exportToCSV = (orders: GenericItem[], fields: string[]) => {
+    const fieldConfigs = exportFields.filter(f => fields.includes(f.key))
+    const headers = fieldConfigs.map(f => f.label)
+    const csvHeader = headers.join(',')
+    
+    const csvRows = orders.map(order => {
+      const row = fieldConfigs.map(field => {
+        const value = order[field.key]
+        const formattedValue = formatValue(value, field.type)
+        return `"${formattedValue.replace(/"/g, '""')}"`
+      })
+      return row.join(',')
+    })
+    
+    const csvContent = [csvHeader, ...csvRows].join('\n')
+    downloadFile(csvContent, 'orders_export.csv', 'text/csv')
+  }
+
+  const exportToJSON = (orders: GenericItem[], fields: string[]) => {
+    const fieldConfigs = exportFields.filter(f => fields.includes(f.key))
+    const jsonData = orders.map(order => {
+      const exportOrder: any = {}
+      fieldConfigs.forEach(field => {
+        exportOrder[field.label] = order[field.key]
+      })
+      return exportOrder
+    })
+    
+    const jsonContent = JSON.stringify(jsonData, null, 2)
+    downloadFile(jsonContent, `${String(title).toLowerCase().replace(/\s+/g,'-')}_export.json`, 'application/json')
+  }
+
+  const exportToPDF = async (_orders: GenericItem[], _fields: string[]) => {
+    // PDF export implementation would go here
+    // For now, just show a message
+    alert('PDF export functionality will be implemented soon!')
+  }
+
+  const formatValue = (value: any, type: string): string => {
+    if (value === null || value === undefined) return ''
+    
+    switch (type) {
+      case 'date':
+        return value ? new Date(value).toLocaleDateString() : ''
+      case 'array':
+        return Array.isArray(value) ? value.join(', ') : String(value)
+      case 'number':
+        return typeof value === 'number' ? value.toString() : String(value)
+      default:
+        return String(value)
+    }
+  }
+
+  const downloadFile = (content: string, filename: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Download className="h-5 w-5 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-              <p className="text-sm text-gray-500">Export {itemsToExportCount} item{itemsToExportCount !== 1 ? 's' : ''}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-            <X className="h-5 w-5" />
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+        <div className="flex items-center justify-between p-6 border-b">
+          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <X className="h-6 w-6" />
           </button>
         </div>
-
+        
         <div className="p-6 space-y-6">
-          {/* Format Selection */}
+          {/* Export Format */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">Export Format</label>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {formatOptions.map((option) => {
-                const Icon = option.icon
-                return (
-                  <button
-                    key={option.value}
-                    onClick={() => setExportFormat(option.value)}
-                    className={`p-4 border rounded-lg text-left transition-all duration-200 ${exportFormat === option.value ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
-                  >
-                    <div className="flex items-center space-x-3">
-                      {Icon && <Icon className="h-5 w-5" />}
-                      <div>
-                        <div className="font-medium">{option.label}</div>
-                        <div className="text-xs text-gray-500">{option.description}</div>
-                      </div>
-                    </div>
-                  </button>
-                )
-              })}
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Export Format</h3>
+            <div className="space-y-2">
+              {[
+                { value: 'csv', label: 'CSV', icon: FileSpreadsheet },
+                { value: 'json', label: 'JSON', icon: FileJson },
+                { value: 'pdf', label: 'PDF', icon: FileText }
+              ].map(({ value, label, icon: Icon }) => (
+                <label key={value} className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="radio"
+                    value={value}
+                    checked={exportFormat === value}
+                    onChange={(e) => setExportFormat(e.target.value as 'csv' | 'json' | 'pdf')}
+                    className="text-blue-600 focus:ring-blue-500"
+                  />
+                  <Icon className="h-5 w-5 text-gray-400" />
+                  <span className="text-sm text-gray-700">{label}</span>
+                </label>
+              ))}
             </div>
           </div>
 
-          {/* Field Selection */}
+          {/* Fields Selection */}
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <label className="block text-sm font-medium text-gray-700">Data Fields ({selectedFields.length}/{inferredFields.length} selected)</label>
-              <div className="flex space-x-2">
-                <button onClick={handleSelectAllFields} className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">Select All</button>
-                <button onClick={handleDeselectAllFields} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">Deselect All</button>
-              </div>
-            </div>
-            <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-3">
-                {inferredFields.map((field) => (
-                  <label key={field} className="flex items-center space-x-2 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                    <input type="checkbox" checked={selectedFields.includes(field)} onChange={() => handleFieldToggle(field)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900 truncate">{field}</div>
-                      <div className="text-xs text-gray-500">field</div>
-                    </div>
-                  </label>
-                ))}
-              </div>
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Fields to Export</h3>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {exportFields.map(field => (
+                <label key={field.key} className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedFields.includes(field.key)}
+                    onChange={() => handleFieldToggle(field.key)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">{field.label}</span>
+                </label>
+              ))}
             </div>
           </div>
 
-          {/* Export Summary */}
+          {/* Export Info */}
           <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-900 mb-2">Export Summary</h3>
-            <div className="space-y-1 text-sm text-gray-600">
-              <div>• Items to export: {itemsToExportCount}</div>
-              <div>• Format: {formatOptions.find(f => f.value === exportFormat)?.label}</div>
-              <div>• Fields: {selectedFields.length} selected</div>
+            <div className="text-sm text-gray-600">
+              <p>Exporting {baseSelected.length > 0 ? baseSelected.length : baseItems.length} items</p>
+              <p>Format: {exportFormat.toUpperCase()}</p>
+              <p>Fields: {selectedFields.length} selected</p>
             </div>
-            {exportFormat === 'pdf' && (
-              <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">
-                {includeImages ? '📸 Images will be included in PDF' : 'Toggle Include Images below to add images to PDF (if available).'}
-              </div>
-            )}
-          </div>
-
-          {/* Additional Options */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">Additional Options</label>
-            <label className="flex items-center space-x-3">
-              <input type="checkbox" checked={includeImages} onChange={(e) => setIncludeImages(e.target.checked)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-              <div>
-                <div className="text-sm font-medium text-gray-900">Include Images</div>
-                <div className="text-xs text-gray-500">Include first image/thumbnail when available</div>
-              </div>
-            </label>
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
-          <button onClick={onClose} className="px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors">Cancel</button>
-          <button onClick={handleExport} disabled={isExporting || selectedFields.length === 0} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2">
-            {isExporting ? (<><div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div><span>Exporting...</span></>) : (<><Download className="h-4 w-4" /><span>Export</span></>)}
+        
+        <div className="flex items-center justify-end space-x-3 p-6 border-t">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={isExporting || selectedFields.length === 0}
+            className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            {isExporting ? 'Exporting...' : 'Export'}
           </button>
         </div>
       </div>

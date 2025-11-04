@@ -3,7 +3,7 @@
 import React from 'react'
 import { Grid, List, Layout } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { ViewMode } from './types'
+import { ViewMode } from './types/unified-table'
 
 interface ViewToggleProps {
   viewMode: ViewMode

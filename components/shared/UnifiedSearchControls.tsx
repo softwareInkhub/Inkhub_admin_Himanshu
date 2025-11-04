@@ -27,7 +27,15 @@ import { SearchCondition, CustomFilter, ViewMode, TableItem } from './types/unif
 import AdvancedSearchBuilder from './AdvancedSearchBuilder'
 import FilterPanel from './FilterPanel'
 import ColumnFilter from './ColumnFilter'
-import GoogleStyleSearch, { SharedSearchSuggestion } from './GoogleStyleSearch'
+import GoogleStyleSearch from './GoogleStyleSearch'
+
+// Define search suggestion type locally (matches SearchSuggestion from utils/searchSuggestions)
+interface SharedSearchSuggestion {
+  id: string
+  text: string
+  type: 'history' | 'product' | 'vendor' | 'category' | 'tag'
+  count?: number
+}
 
 interface UnifiedSearchControlsProps<T extends TableItem> {
   // Search
@@ -51,7 +59,7 @@ interface UnifiedSearchControlsProps<T extends TableItem> {
   activeFilter: string
   setActiveFilter: (filter: string) => void
   customFilters: CustomFilter[]
-  onAddCustomFilter: (filter: Omit<CustomFilter, 'id'>) => void
+  onAddCustomFilter: (filter: { name: string; field: string; operator: string; value: string }) => void
   onRemoveCustomFilter: (filterId: string) => void
   hiddenDefaultFilters: Set<string>
   onShowAllFilters: () => void
@@ -240,7 +248,7 @@ export default function UnifiedSearchControls<T extends TableItem>({
       .filter(t => t && (!query || t.toLowerCase().includes(query)))
 
     const next: SharedSearchSuggestion[] = [
-      ...make(nameLike, 'item'),
+      ...make(nameLike, 'product'),
       ...make(vendorLike, 'vendor'),
       ...make(categoryLike, 'category'),
       ...make(tagsLike, 'tag')
@@ -288,7 +296,6 @@ export default function UnifiedSearchControls<T extends TableItem>({
       <div className="flex items-center space-x-3 mb-3">
         <div className="flex-1 relative">
           <GoogleStyleSearch
-            ref={searchInputRef}
             value={searchQuery}
             onChange={setSearchQuery}
             onSearch={handleSearchSubmit}
