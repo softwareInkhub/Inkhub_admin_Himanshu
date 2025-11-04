@@ -2177,7 +2177,7 @@ function OrdersClientContent({
   return (
     <div className={cn(
       "h-full bg-white flex flex-col overflow-hidden",
-      isFullScreen ? "fixed inset-0 z-50 bg-white" : ""
+      isFullScreen ? "fixed inset-0 z-[200] bg-white" : ""
     )}>
       {/* KPI Metrics - Full width, no extra spacing */}
       <div className="flex-shrink-0 w-full">
@@ -3098,6 +3098,7 @@ onClick={() => setShowExportModal(true)}
           onClose={() => setShowPreviewModal(false)}
           item={previewOrder}
           itemType="order"
+          size="2xl"
           onEdit={async (id: string, data: any) => {
             console.log('Edit order:', id, data)
             try {
@@ -3155,7 +3156,7 @@ onClick={() => setShowExportModal(true)}
 
         {/* Import Orders Modal */}
         {showImportModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
             <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center space-x-3">
@@ -3190,7 +3191,7 @@ onClick={() => setShowExportModal(true)}
 
         {/* Print Orders Modal */}
         {showPrintModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
             <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
               {/* Header */}
               <div className="flex items-center justify-between mb-6">
@@ -3284,7 +3285,7 @@ onClick={() => setShowExportModal(true)}
 
         {/* Order Settings Modal */}
         {showSettingsModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
             <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center space-x-3">
@@ -3447,7 +3448,7 @@ onClick={() => setShowExportModal(true)}
         )}
 
         {showBulkEditModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
             <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
               {/* Header */}
               <div className="flex items-center justify-between p-6 border-b border-gray-200">
@@ -3535,7 +3536,7 @@ onClick={() => setShowExportModal(true)}
       )}
 
       {showBulkDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">Delete Orders</h3>
             <p className="text-gray-600 mb-4">Are you sure you want to delete {selectedRowIds.length} orders? This action cannot be undone.</p>

@@ -653,6 +653,7 @@ function BoardsClient() {
       clearAdvancedFilters={clearAdvancedFilters}
       cardsPerRow={cardsPerRow}
       onCardsPerRowChange={setCardsPerRow}
+      modalSize="2xl"
     />
   )
 }

@@ -91,6 +91,8 @@ interface PageTemplateProps<T extends BaseEntity> {
   onCardsPerRowChange?: (value: number) => void
   // Optional actions to render inside the KPI container (top-right)
   KPIHeaderRight?: React.ReactNode
+  // Modal configuration
+  modalSize?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | 'full' // NEW: Control detail modal size
 }
 
 // Icon mapping function
@@ -219,8 +221,9 @@ export default function PageTemplate<T extends BaseEntity>({
   clearCustomFilters = () => {},
   clearAdvancedFilters = () => {},
   cardsPerRow,
-  onCardsPerRowChange
-  ,KPIHeaderRight
+  onCardsPerRowChange,
+  KPIHeaderRight,
+  modalSize = '4xl' // Default to large for backwards compatibility
 }: PageTemplateProps<T>) {
   // Modal states
   const [showExportModal, setShowExportModal] = useState(false)
@@ -1017,7 +1020,7 @@ export default function PageTemplate<T extends BaseEntity>({
   return (
     <div className={cn(
       "h-full bg-white flex flex-col overflow-hidden",
-      isFullScreen ? "fixed inset-0 z-50" : ""
+      isFullScreen ? "fixed inset-0 z-[200]" : ""
     )}>
       {/* Full Screen Header - Fixed at top */}
       {isFullScreen && (
@@ -1646,6 +1649,7 @@ export default function PageTemplate<T extends BaseEntity>({
           onClose={() => setShowPreviewModal(false)}
           item={previewItem}
           itemType={getItemTypeFromConfig(config)}
+          size={modalSize}
           onEdit={async (id: string, data: any) => {
             // Implement edit logic - PATCH/PUT request
             console.log('Edit item:', id, data)

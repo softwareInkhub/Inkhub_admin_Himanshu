@@ -71,6 +71,9 @@ interface UnifiedTableProps<T extends TableItem> {
   showHeader?: boolean
   showFooter?: boolean
   compact?: boolean
+  
+  // Modal configuration
+  modalSize?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | 'full' // NEW: Control detail modal size
 }
 
 export default function UnifiedTable<T extends TableItem>({
@@ -119,7 +122,8 @@ export default function UnifiedTable<T extends TableItem>({
   className,
   showHeader = true,
   showFooter = true,
-  compact = true
+  compact = true,
+  modalSize = '4xl' // Default to large for backwards compatibility
 }: UnifiedTableProps<T>) {
   
   // Modal states
@@ -264,7 +268,7 @@ export default function UnifiedTable<T extends TableItem>({
       )}
       
       {/* Main Table Container */}
-      <div className={`flex-1 flex flex-col ${isFullScreen ? 'fixed inset-0 z-50 bg-white' : ''}`}>
+      <div className={`flex-1 flex flex-col ${isFullScreen ? 'fixed inset-0 z-[200] bg-white' : ''}`}>
         {/* Search Controls */}
         {enableSearch && (
           <UnifiedSearchControls
@@ -430,7 +434,8 @@ export default function UnifiedTable<T extends TableItem>({
             setSelectedItem(null)
           }}
           item={selectedItem}
-          itemType={itemTypeName === 'Design' ? 'design' : itemTypeName === 'Product' ? 'product' : itemTypeName === 'Order' ? 'order' : itemTypeName === 'Pin' ? 'pin' : itemTypeName === 'Board' ? 'board' : 'design'}
+          itemType={itemTypeName === 'Design' ? 'design' : itemTypeName === 'Product' ? 'product' : itemTypeName === 'Order' ? 'order' : itemTypeName === 'Pin' ? 'pin' : itemTypeName === 'Board' ? 'board' : itemTypeName === 'Content' ? 'content' : 'design'}
+          size={modalSize}
           onEdit={async (id: string, data: any) => {
             console.log('Edit item:', id, data)
             // Implement edit logic

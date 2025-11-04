@@ -704,7 +704,7 @@ export default function AccessControlPage() {
 
       {/* Create Role Modal */}
       {showCreateRole && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] animate-fade-in">
           <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 shadow-lg animate-slide-up">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold gradient-text">Create New Role</h3>

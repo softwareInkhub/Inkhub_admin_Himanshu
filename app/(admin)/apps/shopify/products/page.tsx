@@ -1823,7 +1823,7 @@ function ProductsClientContent({
     return (
       <div className={cn(
         "h-full bg-white flex flex-col overflow-hidden",
-        isFullScreen ? "fixed inset-0 z-50 bg-white" : ""
+        isFullScreen ? "fixed inset-0 z-[200] bg-white" : ""
       )}>
         {isFullScreen && (
           <div className="flex-shrink-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
@@ -2741,6 +2741,7 @@ function ProductsClientContent({
             onClose={() => setShowPreviewModal(false)}
             item={previewProduct}
             itemType="product"
+            size="2xl"
             onEdit={async (id: string, data: any) => {
               console.log('Edit product:', id, data)
               try {
@@ -2821,7 +2822,7 @@ function ProductsClientContent({
 
         {/* Bulk Edit Modal */}
         {showBulkEditModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
             <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
               {/* Header */}
               <div className="flex items-center justify-between p-6 border-b border-gray-200">
@@ -3136,7 +3137,7 @@ function ProductsClientContent({
 
         {/* Bulk Delete Modal */}
         {showBulkDeleteModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Delete Products</h3>
                <p className="text-sm text-gray-600 mb-4">
@@ -3171,7 +3172,7 @@ function ProductsClientContent({
 
         {/* Import Modal */}
         {showImportModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
             <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Import Products</h3>
@@ -3221,7 +3222,7 @@ function ProductsClientContent({
 
         {/* Enhanced Print Modal */}
         {showPrintModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
             <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
               {/* Header */}
               <div className="flex items-center justify-between mb-6">
@@ -3417,7 +3418,7 @@ function ProductsClientContent({
 
         {/* Settings Modal */}
         {showSettingsModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]">
             <div className="bg-white rounded-lg p-6 max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Product Settings</h3>

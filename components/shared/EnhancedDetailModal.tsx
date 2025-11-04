@@ -5,14 +5,46 @@ import { X, Edit, Trash, Save, Upload, Eye, Image as ImageIcon, Braces, Clipboar
 import JsonViewer from '@/components/shared/JsonViewer'
 import { cn } from '@/lib/utils'
 
+/**
+ * EnhancedDetailModal - A universal, reusable modal component for displaying item details
+ * 
+ * Features:
+ * - Generic & reusable across all pages (Products, Orders, Designs, Pins, Boards, Content Library)
+ * - Configurable size with 7 preset options
+ * - Auto-configuration based on itemType
+ * - Support for edit, delete, and save operations
+ * - JSON viewer with copy functionality
+ * - Keyboard shortcuts (Esc, J, C)
+ * - Image optimization for S3 URLs
+ * 
+ * Size Options:
+ * - 'sm': max-w-sm (384px) - Small modals
+ * - 'md': max-w-md (448px) - Medium modals  
+ * - 'lg': max-w-lg (512px) - Large modals
+ * - 'xl': max-w-xl (576px) - Extra large
+ * - '2xl': max-w-2xl (672px) - 2X large (good for Pins, Boards, Designs, Content)
+ * - '4xl': max-w-4xl (896px) - 4X large (default, good for Products, Orders)
+ * - 'full': max-w-[95vw] - Full width
+ * 
+ * Usage:
+ * ```tsx
+ * // Products & Orders (large modal)
+ * <EnhancedDetailModal item={product} itemType="product" size="4xl" />
+ * 
+ * // Pins, Boards, Designs (medium modal)
+ * <EnhancedDetailModal item={pin} itemType="pin" size="2xl" />
+ * ```
+ */
 interface EnhancedDetailModalProps {
   isOpen: boolean
   onClose: () => void
   item: any
-  itemType: 'pin' | 'board' | 'design' | 'product' | 'order'
+  itemType: 'pin' | 'board' | 'design' | 'product' | 'order' | 'content'
   onEdit?: (id: string, data: any) => Promise<void>
   onDelete?: (id: string) => Promise<void>
   onSave?: (id: string, data: any) => Promise<void>
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | 'full' // NEW: Configurable size
+  customTitle?: string // NEW: Override default title
 }
 
 export default function EnhancedDetailModal({
@@ -22,7 +54,9 @@ export default function EnhancedDetailModal({
   itemType,
   onEdit,
   onDelete,
-  onSave
+  onSave,
+  size = '4xl', // Default to large size for Products/Orders compatibility
+  customTitle
 }: EnhancedDetailModalProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -313,8 +347,42 @@ export default function EnhancedDetailModal({
             { key: 'tags', label: 'Tags', type: 'tags' }
           ]
         }
+      case 'content':
+        return {
+          title: 'Content Details',
+          imageField: 'image',
+          fields: [
+            { key: 'title', label: 'Title', type: 'text' },
+            { key: 'description', label: 'Description', type: 'textarea' },
+            { key: 'type', label: 'Type', type: 'select', options: ['image', 'video', 'document', 'audio'] },
+            { key: 'status', label: 'Status', type: 'select', options: ['published', 'draft', 'archived'] },
+            { key: 'category', label: 'Category', type: 'text' },
+            { key: 'author', label: 'Author', type: 'text' },
+            { key: 'size', label: 'Size', type: 'text' },
+            { key: 'format', label: 'Format', type: 'text' },
+            { key: 'views', label: 'Views', type: 'number' },
+            { key: 'downloads', label: 'Downloads', type: 'number' },
+            { key: 'createdAt', label: 'Created At', type: 'date' },
+            { key: 'updatedAt', label: 'Updated At', type: 'date' },
+            { key: 'tags', label: 'Tags', type: 'tags' }
+          ]
+        }
       default:
         return { title: 'Item Details', imageField: 'image', fields: [] }
+    }
+  }
+
+  // Get responsive modal size class
+  const getModalSizeClass = () => {
+    switch (size) {
+      case 'sm': return 'max-w-sm'
+      case 'md': return 'max-w-md'
+      case 'lg': return 'max-w-lg'
+      case 'xl': return 'max-w-xl'
+      case '2xl': return 'max-w-2xl'
+      case '4xl': return 'max-w-4xl'
+      case 'full': return 'max-w-[95vw]'
+      default: return 'max-w-4xl'
     }
   }
 
@@ -409,12 +477,15 @@ export default function EnhancedDetailModal({
 
   return (
     <>
-      {/* Main Modal */}
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      {/* Main Modal - Now with dynamic sizing */}
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
+        <div className={cn(
+          "bg-white rounded-2xl shadow-xl w-full max-h-[75vh] overflow-hidden flex flex-col",
+          getModalSizeClass()
+        )}>
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
-            <h2 className="text-xl font-semibold text-gray-900">{config.title}</h2>
+            <h2 className="text-xl font-semibold text-gray-900">{customTitle || config.title}</h2>
             <button
               onClick={onClose}
               className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
