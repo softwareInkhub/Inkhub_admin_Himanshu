@@ -5,9 +5,9 @@ export type ExportFormat = 'csv' | 'json' | 'pdf'
 
 // Field mapping for exports
 export interface ExportField {
-  key: keyof Pin
+  key: keyof Pin | string
   label: string
-  type: 'string' | 'number' | 'date' | 'array' | 'object' | 'image'
+  type: 'string' | 'number' | 'date' | 'array' | 'object' | 'image' | 'boolean'
 }
 
 export const EXPORT_FIELDS: ExportField[] = [
@@ -16,6 +16,7 @@ export const EXPORT_FIELDS: ExportField[] = [
   { key: 'description', label: 'Description', type: 'string' },
   { key: 'image', label: 'Image URL', type: 'image' },
   { key: 'board', label: 'Board', type: 'string' },
+  { key: 'boardId', label: 'Board ID', type: 'string' },
   { key: 'owner', label: 'Owner', type: 'string' },
   { key: 'type', label: 'Type', type: 'string' },
   { key: 'status', label: 'Status', type: 'string' },
@@ -23,10 +24,11 @@ export const EXPORT_FIELDS: ExportField[] = [
   { key: 'comments', label: 'Comments', type: 'number' },
   { key: 'repins', label: 'Repins', type: 'number' },
   { key: 'saves', label: 'Saves', type: 'number' },
+  { key: 'link', label: 'Link', type: 'string' },
   { key: 'tags', label: 'Tags', type: 'array' },
   { key: 'createdAt', label: 'Created Date', type: 'date' },
   { key: 'updatedAt', label: 'Updated Date', type: 'date' },
-  { key: 'isStarred', label: 'Starred', type: 'string' }
+  { key: 'isStarred', label: 'Starred', type: 'boolean' }
 ]
 
 // Format value for export
@@ -40,6 +42,8 @@ const formatValue = (value: any, type: string): string => {
       return Array.isArray(value) ? value.join(', ') : String(value)
     case 'number':
       return typeof value === 'number' ? value.toString() : String(value)
+    case 'boolean':
+      return typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)
     case 'object':
       return typeof value === 'object' ? JSON.stringify(value) : String(value)
     case 'image':
@@ -112,7 +116,7 @@ export const exportToCSV = (pins: Pin[], selectedFields: string[]): void => {
   // Create CSV rows
   const csvRows = pins.map(pin => {
     const row = fields.map(field => {
-      const value = pin[field.key]
+      const value = (pin as any)[field.key]
       const formattedValue = formatValue(value, field.type)
       // Escape commas and quotes in CSV
       return `"${formattedValue.replace(/"/g, '""')}"`
@@ -145,7 +149,7 @@ export const exportToJSON = (pins: Pin[], selectedFields: string[]): void => {
   const jsonData = pins.map(pin => {
     const exportPin: any = {}
     fields.forEach(field => {
-      exportPin[field.label] = pin[field.key]
+      exportPin[field.label] = (pin as any)[field.key]
     })
     return exportPin
   })
@@ -172,6 +176,17 @@ export const exportToPDF = async (pins: Pin[], selectedFields: string[]): Promis
       throw new Error('PDF generation is only available in browser environment')
     }
 
+    // Validate input
+    if (!Array.isArray(pins) || pins.length === 0) {
+      alert('No data to export. Please select pins to export.')
+      return
+    }
+
+    if (!Array.isArray(selectedFields) || selectedFields.length === 0) {
+      alert('No fields selected for export. Please select at least one field.')
+      return
+    }
+
     // Dynamic import for PDF generation
     let jsPDF: any
     try {
@@ -184,6 +199,12 @@ export const exportToPDF = async (pins: Pin[], selectedFields: string[]): Promis
     
     // Filter fields based on selection
     const fields = EXPORT_FIELDS.filter(field => selectedFields.includes(field.key))
+    
+    if (fields.length === 0) {
+      alert('No valid fields found for export. Please check your field selection.')
+      return
+    }
+    
     const hasImages = fields.some(field => field.type === 'image')
     
     // Create PDF document
@@ -197,11 +218,11 @@ export const exportToPDF = async (pins: Pin[], selectedFields: string[]): Promis
     
     // Add title and header
     doc.setFontSize(18)
-    doc.setFont(undefined, 'bold')
+    doc.setFont('helvetica', 'bold')
     doc.text('Pinterest Pins Export', margin, margin + 10)
     
     doc.setFontSize(10)
-    doc.setFont(undefined, 'normal')
+    doc.setFont('helvetica', 'normal')
     doc.text(`Generated on: ${new Date().toLocaleDateString()}`, margin, margin + 20)
     doc.text(`Total Pins: ${pins.length}`, margin, margin + 25)
     
@@ -219,8 +240,9 @@ export const exportToPDF = async (pins: Pin[], selectedFields: string[]): Promis
       
       // Pin header
       doc.setFontSize(14)
-      doc.setFont(undefined, 'bold')
-      doc.text(`Pin ${i + 1}: ${pin.title || 'Untitled Pin'}`, margin, currentY)
+      doc.setFont('helvetica', 'bold')
+      const pinTitle = pin.title || 'Untitled Pin'
+      doc.text(`Pin ${i + 1}: ${pinTitle}`, margin, currentY)
       currentY += 8
       
       // Pin content container
@@ -237,39 +259,47 @@ export const exportToPDF = async (pins: Pin[], selectedFields: string[]): Promis
       
       // Process text fields
       doc.setFontSize(10)
-      doc.setFont(undefined, 'normal')
+      doc.setFont('helvetica', 'normal')
       
       let fieldY = currentY
       const lineHeight = 6
       const fieldSpacing = 2
+      let hasAnyContent = false
       
       fields.forEach(field => {
         if (field.type === 'image') return // Handle images separately
         
-        const value = pin[field.key]
+        const value = (pin as any)[field.key]
         const formattedValue = formatValue(value, field.type)
         
-        if (formattedValue) {
-          // Field label
-          doc.setFont(undefined, 'bold')
-          doc.text(`${field.label}:`, leftColumnX, fieldY)
-          
-          // Field value
-          doc.setFont(undefined, 'normal')
-          const valueX = leftColumnX + 40
-          
-          // Handle long text by wrapping
-          const maxWidth = leftColumnWidth - 45
-          const lines = doc.splitTextToSize(formattedValue, maxWidth)
-          
-          lines.forEach((line: string, lineIndex: number) => {
-            doc.text(line, valueX, fieldY + (lineIndex * lineHeight))
-          })
-          
-          fieldY += Math.max(lines.length * lineHeight, lineHeight) + fieldSpacing
-          contentMaxY = Math.max(contentMaxY, fieldY)
-        }
+        // Always show field label, even if value is empty
+        doc.setFont('helvetica', 'bold')
+        doc.text(`${field.label}:`, leftColumnX, fieldY)
+        
+        // Field value (show "N/A" if empty)
+        doc.setFont('helvetica', 'normal')
+        const valueX = leftColumnX + 40
+        const displayValue = formattedValue || 'N/A'
+        
+        // Handle long text by wrapping
+        const maxWidth = leftColumnWidth - 45
+        const lines = doc.splitTextToSize(displayValue, maxWidth)
+        
+        lines.forEach((line: string, lineIndex: number) => {
+          doc.text(line, valueX, fieldY + (lineIndex * lineHeight))
+        })
+        
+        fieldY += Math.max(lines.length * lineHeight, lineHeight) + fieldSpacing
+        contentMaxY = Math.max(contentMaxY, fieldY)
+        hasAnyContent = true
       })
+      
+      // If no text fields were rendered, add a message
+      if (!hasAnyContent) {
+        doc.setFont('helvetica', 'italic')
+        doc.text('No data available for this pin', leftColumnX, fieldY)
+        contentMaxY = fieldY + lineHeight
+      }
       
       // Handle image if present
       if (hasImages && pin.image) {
@@ -287,7 +317,7 @@ export const exportToPDF = async (pins: Pin[], selectedFields: string[]): Promis
           console.warn('Failed to load image:', imageError)
           // Add placeholder text
           doc.setFontSize(8)
-          doc.setFont(undefined, 'italic')
+          doc.setFont('helvetica', 'italic')
           doc.text('Image not available', rightColumnX, contentStartY + 30)
         }
       }
@@ -304,7 +334,7 @@ export const exportToPDF = async (pins: Pin[], selectedFields: string[]): Promis
   } catch (error) {
     console.error('Error generating PDF:', error)
     // Fallback: show error message
-    alert('PDF generation failed. Please try again or use CSV/JSON export.')
+    alert(`PDF generation failed: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or use CSV/JSON export.`)
   }
 }
 

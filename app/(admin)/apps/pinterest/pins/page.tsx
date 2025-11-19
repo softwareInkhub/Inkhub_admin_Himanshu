@@ -14,6 +14,9 @@ import {
 import CardsPerRowDropdown from '@/components/shared/CardsPerRowDropdown'
 import GridColumnHeader from '@/components/shared/GridColumnHeader'
 import { Pin } from './types'
+import { EXPORT_FIELDS } from './utils/exportUtils'
+import { exportPins } from './utils/exportUtils'
+import type { ExportFieldConfig } from '@/components/shared/ExportModal'
 // Server services are not used when loading from local JSON
 
 // Define table columns for pins
@@ -473,8 +476,13 @@ function PinsClient() {
   }
 
   // Export handlers
-  const handleExportAction = () => {
-    setShowExportModal(true)
+  const handleExportAction = (config: any) => {
+    const pinsToExport = config.selectedOnly && selectedItems.length > 0
+      ? filteredData.filter(pin => selectedItems.includes(pin.id))
+      : filteredData
+    
+    exportPins(pinsToExport, config.format, config.columns)
+    setShowExportModal(false)
   }
 
   // Load all pins once on initial load (cache-first + parallel chunks)
@@ -826,6 +834,13 @@ function PinsClient() {
         selectedItems={selectedItems}
         onExport={handleExportAction}
         title="Export Pins"
+        columnsConfig={EXPORT_FIELDS.map(field => ({
+          key: field.key,
+          label: field.label,
+          type: field.type
+        })) as ExportFieldConfig[]}
+        defaultSelectedFields={['id', 'title', 'description', 'image', 'board', 'status']}
+        includeImagesOption={true}
       />
     </>
   )

@@ -5,7 +5,7 @@ export type ExportFormat = 'csv' | 'json' | 'pdf'
 
 // Field mapping for exports
 export interface ExportField {
-  key: keyof Product
+  key: keyof Product | string
   label: string
   type: 'string' | 'number' | 'date' | 'array' | 'object' | 'image'
 }
@@ -112,7 +112,7 @@ export const exportToCSV = (products: Product[], selectedFields: string[]): void
   // Create CSV rows
   const csvRows = products.map(product => {
     const row = fields.map(field => {
-      const value = product[field.key]
+      const value = (product as any)[field.key]
       const formattedValue = formatValue(value, field.type)
       // Escape commas and quotes in CSV
       return `"${formattedValue.replace(/"/g, '""')}"`
@@ -145,7 +145,7 @@ export const exportToJSON = (products: Product[], selectedFields: string[]): voi
   const jsonData = products.map(product => {
     const exportProduct: any = {}
     fields.forEach(field => {
-      exportProduct[field.label] = product[field.key]
+      exportProduct[field.label] = (product as any)[field.key]
     })
     return exportProduct
   })
@@ -197,11 +197,11 @@ export const exportToPDF = async (products: Product[], selectedFields: string[])
     
     // Add title and header
     doc.setFontSize(18)
-    doc.setFont(undefined, 'bold')
+    doc.setFont('helvetica', 'bold')
     doc.text('Products Export', margin, margin + 10)
     
     doc.setFontSize(10)
-    doc.setFont(undefined, 'normal')
+    doc.setFont('helvetica', 'normal')
     doc.text(`Generated on: ${new Date().toLocaleDateString()}`, margin, margin + 20)
     doc.text(`Total Products: ${products.length}`, margin, margin + 25)
     
@@ -219,7 +219,7 @@ export const exportToPDF = async (products: Product[], selectedFields: string[])
       
       // Product header
       doc.setFontSize(14)
-      doc.setFont(undefined, 'bold')
+      doc.setFont('helvetica', 'bold')
       doc.text(`Product ${i + 1}: ${product.title || 'Untitled'}`, margin, currentY)
       currentY += 8
       
@@ -237,7 +237,7 @@ export const exportToPDF = async (products: Product[], selectedFields: string[])
       
       // Process text fields
       doc.setFontSize(10)
-      doc.setFont(undefined, 'normal')
+      doc.setFont('helvetica', 'normal')
       
       let fieldY = currentY
       const lineHeight = 6
@@ -246,16 +246,16 @@ export const exportToPDF = async (products: Product[], selectedFields: string[])
       fields.forEach(field => {
         if (field.type === 'image') return // Handle images separately
         
-        const value = product[field.key]
+        const value = (product as any)[field.key]
         const formattedValue = formatValue(value, field.type)
         
         if (formattedValue) {
           // Field label
-          doc.setFont(undefined, 'bold')
+          doc.setFont('helvetica', 'bold')
           doc.text(`${field.label}:`, leftColumnX, fieldY)
           
           // Field value
-          doc.setFont(undefined, 'normal')
+          doc.setFont('helvetica', 'normal')
           const valueX = leftColumnX + 40
           
           // Handle long text by wrapping
@@ -275,7 +275,7 @@ export const exportToPDF = async (products: Product[], selectedFields: string[])
       if (hasImages) {
         const imageField = fields.find(f => f.type === 'image')
         if (imageField) {
-          const images = product[imageField.key] as string[]
+          const images = (product as any)[imageField.key] as string[]
           if (images && images.length > 0) {
             try {
               const imageUrl = getOptimizedImageUrl(images[0], 150, 150)
@@ -291,7 +291,7 @@ export const exportToPDF = async (products: Product[], selectedFields: string[])
               console.warn('Failed to load image:', imageError)
               // Add placeholder text
               doc.setFontSize(8)
-              doc.setFont(undefined, 'italic')
+              doc.setFont('helvetica', 'italic')
               doc.text('Image not available', rightColumnX, contentStartY + 30)
             }
           }

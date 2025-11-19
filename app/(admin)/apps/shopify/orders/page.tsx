@@ -31,16 +31,18 @@ import {
   useSavedViews,
   type GridFilterColumn 
 } from '@/components/shared'
+import type { ExportFieldConfig } from '@/components/shared/ExportModal'
 import GridColumnHeader from '@/components/shared/GridColumnHeader'
 import KPIHeaderActions from '@/components/shared/KPIHeaderActions'
 import CardsPerRowDropdown from '@/components/shared/CardsPerRowDropdown'
 import { generateOrderColumnHeaders } from '@/components/shared/utils/columnHeaderUtils'
 import { Order, SearchCondition, CustomFilter } from './types'
-import { 
+import {
   generateOrders as generateOrdersData,
   getUniqueTagsFromOrders,
   getUniqueChannelsFromOrders
 } from './utils'
+import { exportOrders, type ExportFormat, EXPORT_FIELDS as ORDER_EXPORT_FIELDS } from './utils/exportUtils'
 import { getOrdersForPage, getTotalChunks } from './services/orderService'
 
 // JSON Column Customization
@@ -49,6 +51,9 @@ import ColumnManager from '@/components/shared/ColumnManager'
 import ColumnsQuickToggle from '@/components/shared/ColumnsQuickToggle'
 import { generateEnhancedCellRenderer } from './utils/columnGenerator'
 
+// WebSocket for real-time updates
+import { useOrdersWebSocket } from './hooks/useOrdersWebSocket'
+
 interface OrdersClientProps {
   initialData?: {
     items: any[]
@@ -56,6 +61,16 @@ interface OrdersClientProps {
     total: number
   }
 }
+
+const ORDER_EXPORT_DEFAULT_FIELDS = [
+  'orderNumber',
+  'customerName',
+  'customerEmail',
+  'total',
+  'status',
+  'fulfillmentStatus',
+  'createdAt'
+]
 
 function OrdersClient({ initialData }: OrdersClientProps) {
   return (
@@ -197,6 +212,12 @@ function OrdersClientContent({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [totalOrders, setTotalOrders] = useState(69911) // Initialize with estimated total
+  
+  // Live mode states
+  const [isLiveMode, setIsLiveMode] = useState(false)
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null)
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(30) // seconds
+  const [useWebSocket, setUseWebSocket] = useState(false) // Toggle between WebSocket and polling
   
   // Filter states - using Zustand store for persistent state
   const [activeFilter, setActiveFilter] = useState('')
@@ -512,10 +533,26 @@ function OrdersClientContent({
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
   
-  // Export handler for shared component
-  const handleExportAction = (config: { format: string; columns: string[]; selectedOnly: boolean; includeImages: boolean }) => {
-    console.log('Export action triggered:', config)
-    setShowExportModal(false)
+  const handleExportAction = async (config: { format: string; columns: string[]; selectedOnly: boolean; includeImages: boolean }) => {
+    try {
+      const dataSource = exportBaseData
+      const selections = config.selectedOnly
+        ? dataSource.filter(order => selectedIdsSet.has(String(order.id)))
+        : dataSource
+
+      if (!selections.length) {
+        alert('No orders available to export.')
+        return
+      }
+
+      const fields = config.columns.length > 0 ? config.columns : ORDER_EXPORT_DEFAULT_FIELDS
+      await exportOrders(selections as Order[], config.format as ExportFormat, fields)
+    } catch (error: any) {
+      console.error('Order export failed:', error)
+      alert(`Export failed: ${error?.message || 'Unknown error'}`)
+    } finally {
+      setShowExportModal(false)
+    }
   }
   const fullScreenScrollRef = useRef<HTMLDivElement>(null)
   const tableScrollRef = useRef<HTMLDivElement>(null)
@@ -811,6 +848,8 @@ function OrdersClientContent({
     defaultExportFormat: 'csv' | 'json' | 'pdf'
     includeImagesInExport: boolean
     showImages: boolean
+    liveRefreshInterval: number // seconds
+    preferWebSocket: boolean // prefer WebSocket over polling
   }
 
   const [settings, setSettings] = useState<OrderSettings>(() => {
@@ -823,7 +862,9 @@ function OrdersClientContent({
         autoSaveFilters: false,
         defaultExportFormat: 'csv',
         includeImagesInExport: false,
-        showImages: true
+        showImages: true,
+        liveRefreshInterval: 30,
+        preferWebSocket: true
       }
     }
     return {
@@ -833,7 +874,9 @@ function OrdersClientContent({
       autoSaveFilters: false,
       defaultExportFormat: 'csv',
       includeImagesInExport: false,
-      showImages: true
+      showImages: true,
+      liveRefreshInterval: 30,
+      preferWebSocket: true
     }
   })
 
@@ -914,6 +957,109 @@ function OrdersClientContent({
       }
     }
   }, [])
+
+  // WebSocket integration for real-time updates
+  const {
+    status: wsStatus,
+    lastMessage: wsLastMessage,
+    reconnectAttempts: wsReconnectAttempts,
+    connectionTime: wsConnectionTime,
+    sendMessage: wsSendMessage,
+    reconnect: wsReconnect,
+    isConnected: wsIsConnected,
+    isConnecting: wsIsConnecting,
+    hasError: wsHasError
+  } = useOrdersWebSocket({
+    enabled: isLiveMode && useWebSocket,
+    url: process.env.NEXT_PUBLIC_WS_URL,
+    onOrderUpdate: (updatedOrder) => {
+      console.log('📦 Order updated via WebSocket:', updatedOrder.orderNumber)
+      setOrderData(prev => {
+        const index = prev.findIndex(o => o.id === updatedOrder.id)
+        if (index !== -1) {
+          const newData = [...prev]
+          newData[index] = updatedOrder
+          return newData
+        }
+        return prev
+      })
+      setLastRefreshTime(new Date())
+    },
+    onNewOrder: (newOrder) => {
+      console.log('🆕 New order received via WebSocket:', newOrder.orderNumber)
+      setOrderData(prev => {
+        // Add to beginning of array (newest first)
+        const exists = prev.some(o => o.id === newOrder.id)
+        if (!exists) {
+          return [newOrder, ...prev]
+        }
+        return prev
+      })
+      setTotalOrders(prev => prev + 1)
+      setLastRefreshTime(new Date())
+    },
+    onOrderDelete: (orderId) => {
+      console.log('🗑️ Order deleted via WebSocket:', orderId)
+      setOrderData(prev => prev.filter(o => o.id !== orderId))
+      setTotalOrders(prev => Math.max(0, prev - 1))
+      setLastRefreshTime(new Date())
+    },
+    onOrdersUpdate: (orders) => {
+      console.log('📦 Bulk orders update via WebSocket:', orders.length, 'orders')
+      setOrderData(orders)
+      setLastRefreshTime(new Date())
+    },
+    reconnectInterval: 5000,
+    maxReconnectAttempts: 10
+  })
+
+  // Live mode auto-refresh effect (only when NOT using WebSocket)
+  useEffect(() => {
+    if (!isLiveMode || useWebSocket) return // Skip polling if using WebSocket
+
+    console.log(`🔴 Live mode active (Polling) - Auto-refreshing every ${autoRefreshInterval} seconds`)
+    
+    // Import live mode functions
+    import('./services/orderService').then(({ setLiveMode, clearAllCaches }) => {
+      setLiveMode(true)
+      clearAllCaches()
+    })
+
+    const intervalId = setInterval(async () => {
+      console.log('🔄 Auto-refresh triggered by live mode (Polling)')
+      setLoading(true)
+      
+      try {
+        const { getOrdersForPage, clearAllCaches } = await import('./services/orderService')
+        
+        // Clear cache before fetching
+        clearAllCaches()
+        
+        // Fetch fresh data
+        const result = await getOrdersForPage(currentPage, itemsPerPage)
+        
+        setOrderData(result.orders)
+        setTotalOrders(result.totalChunks * 500)
+        setLastRefreshTime(new Date())
+        
+        console.log(`✅ Auto-refresh completed - ${result.orders.length} orders loaded`)
+        
+      } catch (error) {
+        console.error('❌ Auto-refresh failed:', error)
+      } finally {
+        setLoading(false)
+      }
+    }, autoRefreshInterval * 1000)
+
+    // Cleanup on unmount or when live mode is disabled
+    return () => {
+      console.log('⚪ Stopping live mode auto-refresh')
+      clearInterval(intervalId)
+      import('./services/orderService').then(({ setLiveMode }) => {
+        setLiveMode(false)
+      })
+    }
+  }, [isLiveMode, useWebSocket, autoRefreshInterval, currentPage, itemsPerPage])
 
 
     // Load orders data for current page with INSTANT CACHING
@@ -1305,6 +1451,19 @@ function OrdersClientContent({
     
     return filtered
   }, [deduplicatedOrderData, useAlgoliaSearch, algoliaSearchResults, useAlgoliaFilters, algoliaFilterResults, debouncedSearchQuery, columnFilters, advancedFilters])
+
+  const normalizedSelectedIds = useMemo(() => {
+    if (Array.isArray(selectedRowIds)) return selectedRowIds
+    return Array.from((selectedRowIds as any as Set<string>) ?? [])
+  }, [selectedRowIds])
+
+  const selectedIdsSet = useMemo(() => new Set<string>(normalizedSelectedIds), [normalizedSelectedIds])
+
+  const exportBaseData = useMemo(() => {
+    if (useAlgoliaFilters && algoliaFilterResults.length > 0) return algoliaFilterResults
+    if (useAlgoliaSearch && algoliaSearchResults.length > 0) return algoliaSearchResults
+    return filteredData
+  }, [useAlgoliaFilters, algoliaFilterResults, useAlgoliaSearch, algoliaSearchResults, filteredData])
 
   // Pagination - Orders uses chunk-based system where each page loads a new chunk
   // Each chunk is fetched based on currentPage via getOrdersForPage()
@@ -2355,6 +2514,113 @@ onClick={() => setShowExportModal(true)}
 
           {/* Right side controls */}
           <div className="flex items-center gap-2">
+            {/* Live Mode Toggle */}
+            <div className="flex items-center gap-2 px-3 py-1 border rounded-md bg-white">
+              <button
+                onClick={() => {
+                  const newMode = !isLiveMode
+                  setIsLiveMode(newMode)
+                  if (newMode) {
+                    setLastRefreshTime(new Date())
+                  }
+                }}
+                className={cn(
+                  "flex items-center gap-2 text-xs font-medium transition-all duration-200",
+                  isLiveMode ? "text-red-600" : "text-gray-600"
+                )}
+                title={isLiveMode ? "Disable Live Mode" : "Enable Live Mode"}
+              >
+                <div className={cn(
+                  "w-2 h-2 rounded-full",
+                  isLiveMode ? "bg-red-600 animate-pulse" : "bg-gray-400"
+                )} />
+                <span>{isLiveMode ? "LIVE" : "Cached"}</span>
+              </button>
+              
+              {/* WebSocket/Polling Toggle */}
+              {isLiveMode && (
+                <button
+                  onClick={() => setUseWebSocket(!useWebSocket)}
+                  className={cn(
+                    "text-xs px-2 py-0.5 rounded transition-colors border-l pl-2",
+                    useWebSocket ? "text-green-600" : "text-blue-600"
+                  )}
+                  title={useWebSocket ? "Using WebSocket" : "Using Polling"}
+                >
+                  {useWebSocket ? (
+                    <span className="flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+                      </svg>
+                      WS
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Poll
+                    </span>
+                  )}
+                </button>
+              )}
+              
+              {/* WebSocket Status Indicator */}
+              {isLiveMode && useWebSocket && (
+                <span className={cn(
+                  "text-xs px-2 py-0.5 rounded border-l pl-2",
+                  wsIsConnected ? "text-green-600" : 
+                  wsIsConnecting ? "text-yellow-600" : 
+                  wsHasError ? "text-red-600" : "text-gray-500"
+                )}>
+                  {wsIsConnected ? "Connected" : 
+                   wsIsConnecting ? "Connecting..." : 
+                   wsHasError ? "Error" : "Disconnected"}
+                </span>
+              )}
+              
+              {isLiveMode && lastRefreshTime && (
+                <span className="text-xs text-gray-500 border-l pl-2">
+                  {Math.floor((new Date().getTime() - lastRefreshTime.getTime()) / 1000)}s ago
+                </span>
+              )}
+            </div>
+
+            {/* Manual Refresh Button */}
+            <button
+              onClick={async () => {
+                console.log('🔄 Manual refresh triggered')
+                setLoading(true)
+                try {
+                  const { getOrdersForPage, clearAllCaches } = await import('./services/orderService')
+                  clearAllCaches()
+                  const result = await getOrdersForPage(currentPage, itemsPerPage)
+                  setOrderData(result.orders)
+                  setTotalOrders(result.totalChunks * 500)
+                  setLastRefreshTime(new Date())
+                  console.log(`✅ Manual refresh completed - ${result.orders.length} orders loaded`)
+                } catch (error) {
+                  console.error('❌ Manual refresh failed:', error)
+                } finally {
+                  setLoading(false)
+                }
+              }}
+              className={cn(
+                "px-3 py-1 text-xs sm:text-sm rounded-md transition-all duration-200 bg-white shadow-sm hover:shadow-md",
+                "text-blue-700 border border-blue-400 hover:bg-gradient-to-r hover:from-blue-50 hover:to-blue-100",
+                loading && "opacity-50 cursor-not-allowed"
+              )}
+              disabled={loading}
+              title="Manually refresh orders from server"
+            >
+              <span className="inline-flex items-center gap-1">
+                <svg className={cn("h-4 w-4", loading && "animate-spin")} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+              </span>
+            </button>
+
             {/* Cards per row near Settings (grid/card modes) */}
             {(viewMode === 'grid' || viewMode === 'card') && (
               <CardsPerRowDropdown value={cardsPerRow} onChange={setCardsPerRow} />
@@ -3148,8 +3414,16 @@ onClick={() => setShowExportModal(true)}
         <ExportModal
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
-          orders={filteredData as any}
-          selectedOrders={selectedRowIds}
+          data={exportBaseData}
+          selectedItems={normalizedSelectedIds}
+          title="Export Orders"
+          columnsConfig={ORDER_EXPORT_FIELDS.map(field => ({
+            key: String(field.key),
+            label: field.label,
+            type: field.type
+          })) as ExportFieldConfig[]}
+          defaultSelectedFields={ORDER_EXPORT_DEFAULT_FIELDS}
+          includeImagesOption={false}
           onExport={handleExportAction}
         />
       )}
@@ -3347,6 +3621,50 @@ onClick={() => setShowExportModal(true)}
                     <label className="flex items-center justify-between text-sm text-gray-700">
                       <span>Auto-save Filters</span>
                       <input type="checkbox" checked={settings.autoSaveFilters} onChange={(e) => setSettings(prev => ({ ...prev, autoSaveFilters: e.target.checked }))} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Live Mode Settings */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Live Mode Settings</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Auto-refresh Interval (seconds)</label>
+                      <select 
+                        value={settings.liveRefreshInterval} 
+                        onChange={(e) => {
+                          const newInterval = Number(e.target.value)
+                          setSettings(prev => ({ ...prev, liveRefreshInterval: newInterval }))
+                          setAutoRefreshInterval(newInterval)
+                        }} 
+                        className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      >
+                        <option value={10}>10 seconds</option>
+                        <option value={30}>30 seconds</option>
+                        <option value={60}>1 minute</option>
+                        <option value={120}>2 minutes</option>
+                        <option value={300}>5 minutes</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Applies to polling mode only
+                      </p>
+                    </div>
+                    
+                    <label className="flex items-center justify-between text-sm text-gray-700">
+                      <div>
+                        <span className="font-medium">Prefer WebSocket</span>
+                        <p className="text-xs text-gray-500 mt-0.5">Use WebSocket for real-time updates instead of polling</p>
+                      </div>
+                      <input 
+                        type="checkbox" 
+                        checked={settings.preferWebSocket} 
+                        onChange={(e) => {
+                          setSettings(prev => ({ ...prev, preferWebSocket: e.target.checked }))
+                          setUseWebSocket(e.target.checked)
+                        }} 
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                      />
                     </label>
                   </div>
                 </div>

@@ -249,7 +249,7 @@ async function fetchHealth(): Promise<{ systemLoad: number; memoryUsage: number;
 export function useDashboardData() {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<DashboardData | null>(null)
-  const [lastRefresh, setLastRefresh] = useState(Date.now())
+  const [lastRefresh, setLastRefresh] = useState<number | null>(null)
   const { dataRefreshTrigger } = useAppStore()
 
   const refreshData = async () => {
@@ -476,7 +476,7 @@ export function useDashboardData() {
   useEffect(() => {
     const handleFocus = () => {
       // Only refresh if it's been more than 5 minutes since last refresh
-      if (Date.now() - lastRefresh > 5 * 60 * 1000) {
+      if (!lastRefresh || Date.now() - lastRefresh > 5 * 60 * 1000) {
         refreshData()
       }
     }

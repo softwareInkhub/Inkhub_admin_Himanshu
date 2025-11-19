@@ -6,7 +6,6 @@ import { Navbar } from '@/components/navbar'
 import { Sidebar } from '@/components/sidebar'
 import { TabBar } from '@/components/tabbar'
 import { useAppStore } from '@/lib/store'
-import RequireAuth from '@/components/auth/RequireAuth'
 
 // Create a client
 const queryClient = new QueryClient({
@@ -32,26 +31,24 @@ export default function AdminLayout({
 
   return (
     <QueryClientProvider client={queryClient}>
-      <RequireAuth>
-        <div className="flex h-screen overflow-hidden">
-          {/* Sidebar */}
-          <Sidebar />
+      <div className="flex h-screen overflow-hidden">
+        {/* Sidebar */}
+        <Sidebar />
+        
+        {/* Main Content */}
+        <div className="flex flex-1 flex-col overflow-hidden">
+          {/* Navbar */}
+          <Navbar />
           
-          {/* Main Content */}
-          <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Navbar */}
-            <Navbar />
-            
-            {/* Tab Bar */}
-            <TabBar />
-            
-            {/* Page Content */}
-            <main className="flex-1 overflow-hidden bg-secondary-50 p-0 dark:bg-secondary-900">
-              {children}
-            </main>
-          </div>
+          {/* Tab Bar */}
+          <TabBar />
+          
+          {/* Page Content */}
+          <main className="flex-1 overflow-auto bg-secondary-50 p-0 dark:bg-secondary-900">
+            {children}
+          </main>
         </div>
-      </RequireAuth>
+      </div>
     </QueryClientProvider>
   )
 } 

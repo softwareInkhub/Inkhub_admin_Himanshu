@@ -17,6 +17,10 @@ const CHUNK_CONFIG = {
 const CHUNK_TTL_MS = 5 * 60 * 1000 // 5 minutes
 const TOTAL_CHUNKS_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
+// Live mode configuration
+let isLiveMode = false
+let liveModePollInterval: NodeJS.Timeout | null = null
+
 // In-memory caches
 const chunkDataCache: Map<number, { data: Order[]; timestamp: number }> = new Map()
 const inflightChunkFetches: Map<number, Promise<Order[]>> = new Map()
@@ -152,15 +156,18 @@ export const getTotalChunks = async (): Promise<number> => {
 
 // Fetch a specific chunk by chunk number
 export const fetchChunk = async (chunkNumber: number, maxRetries: number = 3): Promise<Order[]> => {
-  // Serve fresh from in-memory cache
-  const cached = chunkDataCache.get(chunkNumber)
-  if (cached && Date.now() - cached.timestamp < CHUNK_TTL_MS) {
-    return cached.data
-  }
+  // In live mode, bypass cache completely
+  if (!isLiveMode) {
+    // Serve fresh from in-memory cache
+    const cached = chunkDataCache.get(chunkNumber)
+    if (cached && Date.now() - cached.timestamp < CHUNK_TTL_MS) {
+      return cached.data
+    }
 
-  // Deduplicate concurrent fetches for the same chunk
-  const inflightExisting = inflightChunkFetches.get(chunkNumber)
-  if (inflightExisting) return inflightExisting
+    // Deduplicate concurrent fetches for the same chunk
+    const inflightExisting = inflightChunkFetches.get(chunkNumber)
+    if (inflightExisting) return inflightExisting
+  }
 
   let retryCount = 0
 
@@ -384,4 +391,40 @@ export const getTransformedOrders = async (): Promise<Order[]> => {
     console.error('💥 Error in legacy getTransformedOrders:', error)
     throw error
   }
+}
+
+// Live mode functions
+export const setLiveMode = (enabled: boolean) => {
+  isLiveMode = enabled
+  if (enabled) {
+    console.log('🔴 Live mode ENABLED - Cache will be bypassed')
+  } else {
+    console.log('⚪ Live mode DISABLED - Cache will be used')
+  }
+}
+
+export const getLiveMode = () => isLiveMode
+
+export const clearAllCaches = () => {
+  console.log('🧹 Clearing all caches...')
+  chunkDataCache.clear()
+  inflightChunkFetches.clear()
+  cachedTotalChunks = null
+  
+  // Clear localStorage cache
+  if (typeof window !== 'undefined') {
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('orders-cache-')) {
+        localStorage.removeItem(key)
+      }
+    })
+  }
+  console.log('✅ All caches cleared')
+}
+
+export const refreshCache = async (chunkNumber: number) => {
+  console.log(`🔄 Force refreshing cache for chunk ${chunkNumber}...`)
+  chunkDataCache.delete(chunkNumber)
+  inflightChunkFetches.delete(chunkNumber)
+  return await fetchChunk(chunkNumber, CHUNK_CONFIG.maxRetries)
 }

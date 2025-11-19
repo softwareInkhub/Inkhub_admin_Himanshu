@@ -378,6 +378,11 @@ export default function PageTemplate<T extends BaseEntity>({
           ? exportConfig.columns
           : (pageKeys.length > 0 ? pageKeys : collectKeys(rows))
 
+        // Validate headers - if empty, use all available keys from data
+        if (headers.length === 0 && rows.length > 0) {
+          headers = collectKeys(rows)
+        }
+
         // Special-case: Design Library – ensure stable, meaningful columns
         if (String((config as any)?.title || '').toLowerCase() === 'design library') {
           headers = [
@@ -399,6 +404,12 @@ export default function PageTemplate<T extends BaseEntity>({
             createdAt: 'Created',
             updatedAt: 'Updated'
           }
+        }
+
+        // Ensure we have headers before proceeding
+        if (headers.length === 0) {
+          alert('No columns available for export. Please check your data.')
+          return
         }
 
         const escapeHtml = (val: any) => {
@@ -447,13 +458,13 @@ export default function PageTemplate<T extends BaseEntity>({
           const imgSrc = includeImages ? imageDataUrls[idx] : undefined
           const imgCell = includeImages ? `<td style=\"padding:8px;border:1px solid #e5e7eb;font-size:12px;\">${imgSrc ? `<img src=\"${imgSrc}\" style=\"width:64px;height:64px;object-fit:cover;border-radius:6px;\" />` : ''}</td>` : ''
           const formatValue = (key: string, value: any) => {
-            if (value == null) return ''
+            if (value == null || value === undefined) return 'N/A'
             if (key === 'price') return typeof value === 'number' ? `$${value.toFixed(2)}` : String(value)
             if (key === 'createdAt' || key === 'updatedAt') {
               const d = new Date(value)
               return isNaN(d.getTime()) ? String(value) : d.toLocaleDateString()
             }
-            if (Array.isArray(value)) return value.slice(0, 10).join(', ')
+            if (Array.isArray(value)) return value.length > 0 ? value.slice(0, 10).join(', ') : 'N/A'
             if (typeof value === 'object') return JSON.stringify(value)
             return String(value)
           }
@@ -466,6 +477,12 @@ export default function PageTemplate<T extends BaseEntity>({
           }).join('')
         }
         const tableBody = await buildBody()
+
+        // Validate table body is not empty
+        if (!tableBody || tableBody.trim().length === 0) {
+          alert('No data available to export. The selected fields may not match the data structure.')
+          return
+        }
 
         const container = document.createElement('div')
         container.style.position = 'fixed'

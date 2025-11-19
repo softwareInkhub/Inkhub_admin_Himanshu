@@ -36,7 +36,8 @@ import { generateProductColumnHeaders } from '@/components/shared/utils/columnHe
 // Switch to explicit index path to satisfy TS resolution
 // eslint-disable-next-line import/no-duplicates
 import type * as _sharedTypes from '@/components/shared/index'
-import { exportProducts, type ExportFormat } from './utils/exportUtils'
+import { exportProducts, type ExportFormat, EXPORT_FIELDS } from './utils/exportUtils'
+import type { ExportFieldConfig } from '@/components/shared/ExportModal'
 // Using shared barrel imports above
 import { Product, SearchCondition, CustomFilter } from './types'
 import { 
@@ -54,6 +55,8 @@ interface ProductsClientProps {
     total: number
   }
 }
+
+const PRODUCT_EXPORT_DEFAULT_FIELDS = ['title', 'vendor', 'price', 'inventoryQuantity', 'status', 'images']
 
 function ProductsClient({ initialData }: ProductsClientProps) {
   return (
@@ -1189,7 +1192,7 @@ function ProductsClientContent({
     }, [allProducts])
 
       // Filter products based on all criteria - optimized for performance with reduced logging
-  const filteredProducts = useMemo(() => {
+    const filteredProducts = useMemo(() => {
       
       // Start with deduplicated product data
       let filtered = allProducts
@@ -1321,6 +1324,19 @@ function ProductsClientContent({
       useAlgoliaFilters,
       algoliaFilterResults
     ])
+
+    const normalizedSelectedIds = useMemo(() => {
+      if (Array.isArray(selectedRowIds)) return selectedRowIds
+      return Array.from((selectedRowIds as any as Set<string>) ?? [])
+    }, [selectedRowIds])
+
+    const selectedIdsSet = useMemo(() => new Set<string>(normalizedSelectedIds), [normalizedSelectedIds])
+
+    const exportBaseData = useMemo(() => {
+      if (useAlgoliaFilters && algoliaFilterResults.length > 0) return algoliaFilterResults
+      if (useAlgoliaSearch && algoliaSearchResults.length > 0) return algoliaSearchResults
+      return filteredProducts
+    }, [useAlgoliaFilters, algoliaFilterResults, useAlgoliaSearch, algoliaSearchResults, filteredProducts])
 
     // Calculate total items for pagination - use Algolia filter results if active
     const totalItemsForPagination = useAlgoliaFilters && algoliaFilterResults.length > 0 
@@ -1526,15 +1542,8 @@ function ProductsClientContent({
 
     const handleExportAction = async (config: { format: string; columns: string[]; selectedOnly: boolean; includeImages: boolean }) => {
       try {
-        // Determine base dataset (respect Algolia search/filter precedence like the modal props)
-        const baseData = (useAlgoliaFilters && algoliaFilterResults.length > 0)
-          ? algoliaFilterResults
-          : ((useAlgoliaSearch && algoliaSearchResults.length > 0)
-            ? algoliaSearchResults
-            : filteredProducts)
-
-        // Apply selection if requested
-        const selectedSet = new Set<string>(Array.isArray(selectedRowIds) ? selectedRowIds : Array.from(selectedRowIds as any as Set<string>))
+        const baseData = exportBaseData
+        const selectedSet = selectedIdsSet
         const dataToExport = config.selectedOnly
           ? baseData.filter(p => selectedSet.has(p.id))
           : baseData
@@ -2792,12 +2801,17 @@ function ProductsClientContent({
         <ExportModal
           isOpen={showExportModal}
           onClose={() => setShowExportModal(false)}
-          orders={useAlgoliaFilters && algoliaFilterResults.length > 0 
-            ? algoliaFilterResults 
-            : (useAlgoliaSearch && algoliaSearchResults.length > 0 
-              ? algoliaSearchResults 
-              : filteredProducts)}
-          selectedOrders={Array.from(selectedRowIds as any as Set<string>)}
+          data={exportBaseData}
+          selectedItems={normalizedSelectedIds}
+          title="Export Products"
+          columnsConfig={EXPORT_FIELDS.map(field => ({
+            key: String(field.key),
+            label: field.label,
+            type: field.type
+          })) as ExportFieldConfig[]}
+          defaultSelectedFields={PRODUCT_EXPORT_DEFAULT_FIELDS}
+          includeImagesOption
+          onExport={handleExportAction}
         />
 
         {/* KPI Card Manager handled by KPIHeaderActions */}
